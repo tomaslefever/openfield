@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
-import { Sparkles, Settings2, X, Wand2, ChevronDown, ChevronUp, Coins, Upload, Video, Plus, Music, AlertCircle } from 'lucide-react'
+import { Sparkles, Settings2, X, Wand2, ChevronDown, ChevronUp, Coins, Upload, Video, Plus, Music, AlertCircle, ArrowLeftRight } from 'lucide-react'
 import { StreamDuration } from './StreamDuration'
 
 export interface PromptComposerHandle {
@@ -12,6 +12,7 @@ export interface PromptComposerHandle {
     imageMime?: string
     imageRefs?: { base64: string; mime: string }[]
   }): void
+  addRefs(refs: { base64: string; mime: string }[]): void
 }
 
 interface PromptComposerProps {
@@ -217,8 +218,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       e.preventDefault()
       dragCounterRef.current = 0
       setDragOver(false)
-      const file = e.dataTransfer?.files?.[0]
-      if (file) await processDropRef.current(file)
+      const files = e.dataTransfer?.files
+      if (!files || files.length === 0) return
+      for (let i = 0; i < files.length; i++) {
+        await processDropRef.current(files[i])
+      }
     }
 
     window.addEventListener('dragenter', onDragEnter)
@@ -256,6 +260,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isKling = !!(currentModel.t2vId?.startsWith('kling') || currentModel.i2vId?.startsWith('kling'))
   const isSeedance = !!(currentModel.t2vId?.startsWith('bytedance/') || currentModel.i2vId?.startsWith('bytedance/'))
   const isFFLF = (!!(currentModel.fflfId) && seedanceMode === 'fflf') || isKling
+  const isFFLFRef = useRef(isFFLF)
+  isFFLFRef.current = isFFLF
   const isRefMode = !!(currentModel.fflfId) && seedanceMode === 'ref'
   const effectiveResolution = (soundEnabled && isKling && resolution !== '4k') ? resolution + '-audio' : resolution
   const { perUnitCredits, totalCredits, perUnitDollars, totalDollars } = calcCost(currentModel, effectiveResolution, duration, batchSize)
@@ -394,6 +400,25 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       }
       if (newRefs.length > 0) setRefs(newRefs)
     },
+    addRefs(newRefs) {
+      const imageRefs = newRefs.filter(r => r.mime.startsWith('image/'))
+      const otherRefs = newRefs.filter(r => !r.mime.startsWith('image/'))
+      if (isFFLFRef.current && imageRefs.length > 0) {
+        let ffAssigned = false
+        let lfAssigned = false
+        const remaining: { base64: string; mime: string }[] = []
+        for (const ref of imageRefs) {
+          if (!ffAssigned) { setFirstFrameBase64(ref.base64); ffAssigned = true }
+          else if (!lfAssigned) { setLastFrameBase64(ref.base64); lfAssigned = true }
+          else { remaining.push(ref) }
+        }
+        if (remaining.length > 0 || otherRefs.length > 0) {
+          setRefs(prev => [...prev, ...remaining, ...otherRefs])
+        }
+      } else {
+        setRefs(prev => [...prev, ...newRefs])
+      }
+    },
   }), [mode])
 
   const handleGenerate = useCallback(() => {
@@ -451,337 +476,297 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         </div>
       )}
       <div className="sticky bottom-0 z-40 px-4 pb-4 pt-2 pointer-events-none">
-      <div className="max-w-5xl mx-auto pointer-events-auto">
-        <div
-          ref={cardRef}
-          className="relative bg-transparent border border-surface-700/60 rounded-2xl shadow-2xl shadow-black/40 transition-all duration-200"
-        >
-          {/* Image chips at top */}
-          {hasMedia && !isFFLF && (
-            <div className="flex gap-2 px-3 pt-2.5">
-              {!currentModel.fflfId && (
-                <>
-                  {refs.map((ref, i) => {
-                    const imgIdx = refs.filter((r, j) => r.mime.startsWith('image/') && j <= i).length
-                    const vidIdx = refs.filter((r, j) => r.mime.startsWith('video/') && j <= i).length
-                    const audIdx = refs.filter((r, j) => r.mime.startsWith('audio/') && j <= i).length
-                    const chipLabel = ref.mime.startsWith('image/') ? `Image ${imgIdx}` : ref.mime.startsWith('video/') ? `Video ${vidIdx}` : ref.mime.startsWith('audio/') ? `Audio ${audIdx}` : 'File'
-                    return <ChipRef key={i} mime={ref.mime} base64={ref.base64} label={chipLabel} onRemove={() => setRefs(prev => prev.filter((_, j) => j !== i))} />
-                  })}
-                  {imageBase64 && refs.length === 0 && <ChipImage src={`data:image/png;base64,${imageBase64}`} label="Image 1" onRemove={() => removeImage('main')} />}
-                </>
-              )}
-            </div>
-          )}
+        <div className="max-w-5xl mx-auto pointer-events-auto">
+          <div
+            ref={cardRef}
+            className="relative bg-transparent border border-surface-700/60 rounded-2xl shadow-2xl shadow-black/40 transition-all duration-200"
+          >
+            {/* Image chips at top */}
+            {hasMedia && !isFFLF && (
+              <div className="flex gap-2 px-3 pt-2.5">
+                {!currentModel.fflfId && (
+                  <>
+                    {refs.map((ref, i) => {
+                      const imgIdx = refs.filter((r, j) => r.mime.startsWith('image/') && j <= i).length
+                      const vidIdx = refs.filter((r, j) => r.mime.startsWith('video/') && j <= i).length
+                      const audIdx = refs.filter((r, j) => r.mime.startsWith('audio/') && j <= i).length
+                      const chipLabel = ref.mime.startsWith('image/') ? `Image ${imgIdx}` : ref.mime.startsWith('video/') ? `Video ${vidIdx}` : ref.mime.startsWith('audio/') ? `Audio ${audIdx}` : 'File'
+                      return <ChipRef key={i} mime={ref.mime} base64={ref.base64} label={chipLabel} onRemove={() => setRefs(prev => prev.filter((_, j) => j !== i))} />
+                    })}
+                    {imageBase64 && refs.length === 0 && <ChipImage src={`data:image/png;base64,${imageBase64}`} label="Image 1" onRemove={() => removeImage('main')} />}
+                  </>
+                )}
+              </div>
+            )}
 
-          {/* Main row */}
-          <div className="flex items-end gap-2 p-2">
-            {/* Dropzones next to textarea */}
-            {(currentModel.fflfId || isKling) && (
-              isFFLF ? (
-                <div className="flex gap-1 flex-shrink-0">
-                  <div className="relative group">
-                    <label htmlFor="file-first" className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors gap-0.5 overflow-hidden">
-                      {firstFrameBase64 ? (
-                        <img src={`data:image/png;base64,${firstFrameBase64}`} className="w-full h-full object-cover" alt="FF" />
-                      ) : (
-                        <>
-                          <Upload size={10} className="text-surface-500" />
-                          <span className="text-[8px] text-surface-500">FF</span>
-                        </>
-                      )}
-                    </label>
-                    {firstFrameBase64 && (
-                      <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeImage('first') }}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <X size={10} />
-                      </button>
-                    )}
-                  </div>
-                  <input id="file-first" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'first')} />
-                  <div className="relative group">
-                    <label htmlFor="file-last" className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors gap-0.5 overflow-hidden">
-                      {lastFrameBase64 ? (
-                        <img src={`data:image/png;base64,${lastFrameBase64}`} className="w-full h-full object-cover" alt="LF" />
-                      ) : (
-                        <>
-                          <Upload size={10} className="text-surface-500" />
-                          <span className="text-[8px] text-surface-500">LF</span>
-                        </>
-                      )}
-                    </label>
-                    {lastFrameBase64 && (
-                      <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeImage('last') }}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <X size={10} />
-                      </button>
-                    )}
-                  </div>
-                  <input id="file-last" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'last')} />
-                </div>
-              ) : (
-                <div className="relative flex-shrink-0" ref={refPopoverRef}>
-                  {refs.length > 0 ? (
+            {/* Main row */}
+            <div className="flex items-end gap-2 p-2">
+              {/* Dropzones next to textarea */}
+              {(currentModel.fflfId || isKling) && (
+                isFFLF ? (
+                  <div className="flex gap-1 flex-shrink-0">
                     <div className="relative group">
-                      <button onClick={(e) => {
-                          e.preventDefault(); e.stopPropagation()
-                          if (refs.length === 1) {
-                            const mime = refs[0].mime
-                            if (mime.startsWith('video/') || mime.startsWith('audio/')) {
-                              const el = mediaElements.current.get(refs.length - 1)
-                              if (el) handleMediaPlay(el, refs.length - 1)
-                            }
-                          } else {
-                            setShowRefPopover(!showRefPopover)
-                          }
-                        }}
-                        className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg overflow-hidden relative">
-                        <RefThumb mime={refs[refs.length - 1].mime} base64={refs[refs.length - 1].base64} isPlaying={playingIndex === refs.length - 1} onPlay={(el) => handleMediaPlay(el, refs.length - 1)} index={refs.length - 1} onRegister={(i, el) => { if (el) mediaElements.current.set(i, el); else mediaElements.current.delete(i) }} />
-                        {refs.length > 1 && (
-                          <span className="absolute top-0.5 right-0.5 bg-accent-600 text-white text-[9px] font-medium rounded-full w-4 h-4 flex items-center justify-center">
-                            {refs.length}
-                          </span>
+                      <label htmlFor="file-first" className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors gap-0.5 overflow-hidden">
+                        {firstFrameBase64 ? (
+                          <img src={`data:image/png;base64,${firstFrameBase64}`} className="w-full h-full object-cover" alt="FF" />
+                        ) : (
+                          <>
+                            <Upload size={10} className="text-surface-500" />
+                            <span className="text-[8px] text-surface-500">FF</span>
+                          </>
                         )}
-                      </button>
-                      {refs.length === 1 && (
-                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRefs([]); stopPlaying() }}
+                      </label>
+                      {firstFrameBase64 && (
+                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeImage('first') }}
                           className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                           <X size={10} />
                         </button>
                       )}
                     </div>
-                  ) : (
-                    <label htmlFor="file-all" className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors flex-shrink-0">
-                      <Upload size={12} className="text-surface-500" />
-                    </label>
-                  )}
-                  {showRefPopover && refs.length > 0 && (
-                    <div className="absolute bottom-full left-0 mb-2 bg-surface-800 border border-surface-700 rounded-xl p-2 shadow-xl z-50">
-                      <div className="flex items-center gap-2">
-                        {refs.map((ref, i) => (
-                          <div key={i} className="relative group flex-shrink-0">
-                            <div className="w-14 h-14 rounded-lg border border-surface-700 overflow-hidden">
-                              <RefThumb mime={ref.mime} base64={ref.base64} isPlaying={playingIndex === i} onPlay={(el) => handleMediaPlay(el, i)} index={i} onRegister={(idx, el) => { if (el) mediaElements.current.set(idx, el); else mediaElements.current.delete(idx) }} />
-                            </div>
-                            <button onClick={() => setRefs(prev => prev.filter((_, j) => j !== i))}
-                              className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <X size={10} />
-                            </button>
-                          </div>
-                        ))}
-                        <label htmlFor="file-all" className="w-14 h-14 border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors flex-shrink-0 gap-0.5">
-                          <Plus size={12} className="text-surface-500" />
-                          <span className="text-[8px] text-surface-500">Add</span>
-                        </label>
-                      </div>
+                    <input id="file-first" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'first')} />
+                    {firstFrameBase64 && lastFrameBase64 && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault(); e.stopPropagation()
+                          setFirstFrameBase64(lastFrameBase64)
+                          setLastFrameBase64(firstFrameBase64)
+                        }}
+                        className="w-6 h-6 flex items-center justify-center rounded-full bg-surface-800 hover:bg-surface-700 text-surface-400 hover:text-surface-200 transition-colors flex-shrink-0"
+                        title="Swap FF/LF"
+                      >
+                        <ArrowLeftRight size={12} />
+                      </button>
+                    )}
+                    <div className="relative group">
+                      <label htmlFor="file-last" className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors gap-0.5 overflow-hidden">
+                        {lastFrameBase64 ? (
+                          <img src={`data:image/png;base64,${lastFrameBase64}`} className="w-full h-full object-cover" alt="LF" />
+                        ) : (
+                          <>
+                            <Upload size={10} className="text-surface-500" />
+                            <span className="text-[8px] text-surface-500">LF</span>
+                          </>
+                        )}
+                      </label>
+                      {lastFrameBase64 && (
+                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeImage('last') }}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <X size={10} />
+                        </button>
+                      )}
                     </div>
-                  )}
-                </div>
-              )
-            )}
-
-            <div className="flex-1 relative">
-              <textarea
-                ref={textareaRef}
-                value={prompt}
-                onChange={(e) => { setPrompt(e.target.value); adjustTextarea() }}
-                placeholder={mode === 'image' ? 'Describe what you want to generate...' : 'Describe the video you want to create...'}
-                className="w-full bg-transparent text-sm text-surface-100 placeholder-surface-500 resize-none outline-none px-3 py-2.5 min-h-[42px] max-h-[120px] leading-relaxed"
-                rows={1}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate() } }}
-                onPaste={(e) => {
-                  const text = e.clipboardData.getData('text')
-                  try {
-                    const parsed = JSON.parse(text.trim())
-                    if (typeof parsed === 'object' && parsed !== null && (parsed.prompt || parsed.model)) {
-                      e.preventDefault()
-                      if (parsed.prompt) setPrompt(parsed.prompt)
-                      if (parsed.aspect_ratio) setAspectRatio(parsed.aspect_ratio)
-                      if (parsed.resolution) setResolution(parsed.resolution)
-                      if (parsed.model) {
-                        const match = (mode === 'video' ? VIDEO_MODELS : IMAGE_MODELS).find(m =>
-                          m.t2iId === parsed.model || m.i2iId === parsed.model || m.editId === parsed.model ||
-                          m.t2vId === parsed.model || m.i2vId === parsed.model || m.fflfId === parsed.model
-                        )
-                        if (match) setModelName(match.name)
-                      }
-                      adjustTextarea()
-                    }
-                  } catch {}
-                }}
-              />
-              {prompt && (
-                <button onClick={() => setPrompt('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300 transition-colors">
-                  <X size={14} />
-                </button>
+                    <input id="file-last" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'last')} />
+                  </div>
+                ) : (
+                  <div className="relative flex-shrink-0" ref={refPopoverRef}>
+                    {refs.length > 0 ? (
+                      <div className="relative group">
+                        <button onClick={(e) => {
+                            e.preventDefault(); e.stopPropagation()
+                            if (refs.length === 1) {
+                              const mime = refs[0].mime
+                              if (mime.startsWith('video/') || mime.startsWith('audio/')) {
+                                const el = mediaElements.current.get(refs.length - 1)
+                                if (el) handleMediaPlay(el, refs.length - 1)
+                              }
+                            } else {
+                              setShowRefPopover(!showRefPopover)
+                            }
+                          }}
+                          className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg overflow-hidden relative">
+                          <RefThumb mime={refs[refs.length - 1].mime} base64={refs[refs.length - 1].base64} isPlaying={playingIndex === refs.length - 1} onPlay={(el) => handleMediaPlay(el, refs.length - 1)} index={refs.length - 1} onRegister={(i, el) => { if (el) mediaElements.current.set(i, el); else mediaElements.current.delete(i) }} />
+                          {refs.length > 1 && (
+                            <span className="absolute top-0.5 right-0.5 bg-accent-600 text-white text-[9px] font-medium rounded-full w-4 h-4 flex items-center justify-center">
+                              {refs.length}
+                            </span>
+                          )}
+                        </button>
+                        {refs.length === 1 && (
+                          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRefs([]); stopPlaying() }}
+                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <X size={10} />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <label htmlFor="file-all" className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors flex-shrink-0">
+                        <Upload size={12} className="text-surface-500" />
+                      </label>
+                    )}
+                    {showRefPopover && refs.length > 0 && (
+                      <div className="absolute bottom-full left-0 mb-2 bg-surface-800 border border-surface-700 rounded-xl p-2 shadow-xl z-50">
+                        <div className="flex items-center gap-2">
+                          {refs.map((ref, i) => (
+                            <div key={i} className="relative group flex-shrink-0">
+                              <div className="w-14 h-14 rounded-lg border border-surface-700 overflow-hidden">
+                                <RefThumb mime={ref.mime} base64={ref.base64} isPlaying={playingIndex === i} onPlay={(el) => handleMediaPlay(el, i)} index={i} onRegister={(idx, el) => { if (el) mediaElements.current.set(idx, el); else mediaElements.current.delete(idx) }} />
+                              </div>
+                              <button onClick={() => setRefs(prev => prev.filter((_, j) => j !== i))}
+                                className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <X size={10} />
+                              </button>
+                            </div>
+                          ))}
+                          <label htmlFor="file-all" className="w-14 h-14 border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors flex-shrink-0 gap-0.5">
+                            <Plus size={12} className="text-surface-500" />
+                            <span className="text-[8px] text-surface-500">Add</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
               )}
-            </div>
 
-            <div className="flex items-center gap-1.5">
-              <button onClick={handleGenerate} disabled={disabled || (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? !prompt.trim() && !firstFrameBase64 : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0))}
-                className="flex items-center gap-1.5 px-4 h-[42px] bg-accent-600 hover:bg-accent-500 disabled:bg-accent-600/50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all active:scale-[0.97]">
-                <Sparkles size={16} />
-                <span>{totalCredits}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Multi-shot editor for Kling */}
-          {multiShots && isKling && (() => {
-            const maxTotal = 15
-            const totalDuration = multiPrompt.reduce((s, x) => s + x.duration, 0)
-            const canAdd = multiPrompt.length < 5
-            return (
-            <div className="border-t border-surface-800/60 px-3 py-2 space-y-1.5">
-              {multiPrompt.map((shot, i) => {
-                const otherSum = multiPrompt.reduce((s, x, j) => j === i ? s : s + x.duration, 0)
-                const maxForThis = maxTotal - otherSum
-                const options = [2, 3, 4, 5, 6, 8, 10].filter(d => d <= maxForThis || d === shot.duration)
-                return (
-                <div key={i} className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-surface-500 w-5 flex-shrink-0">#{i + 1}</span>
-                  <input
-                    value={shot.prompt}
-                    onChange={(e) => {
-                      const next = [...multiPrompt]
-                      next[i] = { ...next[i], prompt: e.target.value }
-                      setMultiPrompt(next)
-                    }}
-                    placeholder={`Shot ${i + 1} prompt...`}
-                    className="flex-1 bg-surface-800 border border-surface-700 rounded-lg px-2 py-1 text-xs text-surface-200 outline-none focus:border-accent-500/50"
-                  />
-                  <select
-                    value={shot.duration}
-                    onChange={(e) => {
-                      const next = [...multiPrompt]
-                      next[i] = { ...next[i], duration: Number(e.target.value) }
-                      setMultiPrompt(next)
-                    }}
-                    className="bg-surface-800 border border-surface-700 rounded-lg px-1.5 py-1 text-[11px] text-surface-300 outline-none w-12"
-                  >
-                    {options.map(d => <option key={d} value={d}>{d}s</option>)}
-                  </select>
-                  <button onClick={() => setMultiPrompt(prev => prev.filter((_, j) => j !== i))}
-                    className="p-1 text-surface-500 hover:text-red-400">
-                    <X size={12} />
+              <div className="flex-1 relative">
+                <textarea
+                  ref={textareaRef}
+                  value={prompt}
+                  onChange={(e) => { setPrompt(e.target.value); adjustTextarea() }}
+                  placeholder={mode === 'image' ? 'Describe what you want to generate...' : 'Describe the video you want to create...'}
+                  className="w-full bg-transparent text-sm text-surface-100 placeholder-surface-500 resize-none outline-none px-3 py-2.5 min-h-[42px] max-h-[120px] leading-relaxed"
+                  rows={1}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate() } }}
+                  onPaste={(e) => {
+                    const text = e.clipboardData.getData('text')
+                    try {
+                      const parsed = JSON.parse(text.trim())
+                      if (typeof parsed === 'object' && parsed !== null && (parsed.prompt || parsed.model)) {
+                        e.preventDefault()
+                        if (parsed.prompt) setPrompt(parsed.prompt)
+                        if (parsed.aspect_ratio) setAspectRatio(parsed.aspect_ratio)
+                        if (parsed.resolution) setResolution(parsed.resolution)
+                        if (parsed.model) {
+                          const match = (mode === 'video' ? VIDEO_MODELS : IMAGE_MODELS).find(m =>
+                            m.t2iId === parsed.model || m.i2iId === parsed.model || m.editId === parsed.model ||
+                            m.t2vId === parsed.model || m.i2vId === parsed.model || m.fflfId === parsed.model
+                          )
+                          if (match) setModelName(match.name)
+                        }
+                        adjustTextarea()
+                      }
+                    } catch {}
+                  }}
+                />
+                {prompt && (
+                  <button onClick={() => setPrompt('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300 transition-colors">
+                    <X size={14} />
                   </button>
-                </div>
-              )})}
-              <div className="flex items-center justify-between">
-                <button onClick={() => setMultiPrompt(prev => [...prev, { prompt: '', duration: totalDuration >= maxTotal ? 0 : Math.min(5, maxTotal - totalDuration) }])}
-                  disabled={!canAdd || totalDuration >= maxTotal}
-                  className={`text-[10px] ${canAdd && totalDuration < maxTotal ? 'text-accent-400 hover:text-accent-300' : 'text-surface-700 cursor-not-allowed'}`}>
-                  + Add shot
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button onClick={handleGenerate} disabled={disabled || (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? !prompt.trim() && !firstFrameBase64 : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0))}
+                  className="flex items-center gap-1.5 px-4 h-[42px] bg-accent-600 hover:bg-accent-500 disabled:bg-accent-600/50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all active:scale-[0.97]">
+                  <Sparkles size={16} />
+                  <span>{totalCredits}</span>
                 </button>
-                <span className={`text-[10px] ${totalDuration > maxTotal ? 'text-red-400' : 'text-surface-500'}`}>
-                  Total: {totalDuration}s / {maxTotal}s
-                </span>
               </div>
             </div>
-          )})()}
 
-          {/* Bottom bar: model, toggles, selects */}
-          <div className="flex items-center gap-1.5 px-3 pb-2.5">
-            {/* Model */}
-            <div className="relative" ref={modelsRef}>
-              <button onClick={() => setShowModels(!showModels)}
-                className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
-                <Wand2 size={11} /> {currentModel.name} <ChevronDown size={11} />
-              </button>
-              {showModels && (
-                <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[220px] shadow-xl max-h-[280px] overflow-y-auto z-50">
-                  {models.map((m) => (
-                    <button key={m.name}
-                      onClick={() => { setModelName(m.name); setShowModels(false); if (m.prices[0]) setResolution(m.prices[0].resolution) }}
-                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${modelName === m.name ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>
-                      <div><span>{m.name}</span><span className="text-[10px] text-surface-600 ml-2">{m.category}</span></div>
-                      <span className="text-amber-400/80 text-[10px]">{Math.round(m.prices[0]?.cost * 200)} cr</span>
+            {/* Multi-shot editor for Kling */}
+            {multiShots && isKling && (() => {
+              const maxTotal = 15
+              const totalDuration = multiPrompt.reduce((s, x) => s + x.duration, 0)
+              const canAdd = multiPrompt.length < 5
+              return (
+              <div className="border-t border-surface-800/60 px-3 py-2 space-y-1.5">
+                {multiPrompt.map((shot, i) => {
+                  const otherSum = multiPrompt.reduce((s, x, j) => j === i ? s : s + x.duration, 0)
+                  const maxForThis = maxTotal - otherSum
+                  const options = [2, 3, 4, 5, 6, 8, 10].filter(d => d <= maxForThis || d === shot.duration)
+                  return (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-surface-500 w-5 flex-shrink-0">#{i + 1}</span>
+                    <input
+                      value={shot.prompt}
+                      onChange={(e) => {
+                        const next = [...multiPrompt]
+                        next[i] = { ...next[i], prompt: e.target.value }
+                        setMultiPrompt(next)
+                      }}
+                      placeholder={`Shot ${i + 1} prompt...`}
+                      className="flex-1 bg-surface-800 border border-surface-700 rounded-lg px-2 py-1 text-xs text-surface-200 outline-none focus:border-accent-500/50"
+                    />
+                    <select
+                      value={shot.duration}
+                      onChange={(e) => {
+                        const next = [...multiPrompt]
+                        next[i] = { ...next[i], duration: Number(e.target.value) }
+                        setMultiPrompt(next)
+                      }}
+                      className="bg-surface-800 border border-surface-700 rounded-lg px-1.5 py-1 text-[11px] text-surface-300 outline-none w-12"
+                    >
+                      {options.map(d => <option key={d} value={d}>{d}s</option>)}
+                    </select>
+                    <button onClick={() => setMultiPrompt(prev => prev.filter((_, j) => j !== i))}
+                      className="p-1 text-surface-500 hover:text-red-400">
+                      <X size={12} />
                     </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Toggles: FF, Multi-shot, Sound */}
-            {currentModel.fflfId && (
-              <button onClick={() => {
-                  if (isFFLF) { setSeedanceMode('ref'); setFirstFrameBase64(null); setLastFrameBase64(null) }
-                  else { setSeedanceMode('fflf'); setRefs([]) }
-                }}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${isFFLF ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
-                FF
-              </button>
-            )}
-            {isKling && (
-              <button onClick={() => { setMultiShots(!multiShots); if (!multiShots && multiPrompt.length === 0) setMultiPrompt([{ prompt: '', duration: 5 }]) }}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${multiShots ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
-                Multi-shot
-              </button>
-            )}
-            {(isKling || isSeedance) && mode === 'video' && (
-              <button onClick={() => setSoundEnabled(!soundEnabled)}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${soundEnabled ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
-                <Music size={11} />
-              </button>
-            )}
-
-            {/* Selects */}
-
-            {mode === 'image' && (
-              <>
-                <div className="relative" ref={ratiosRef}>
-                  <button onClick={() => setShowRatios(!showRatios)}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
-                    {aspectRatio} <ChevronDown size={11} />
+                  </div>
+                )})}
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setMultiPrompt(prev => [...prev, { prompt: '', duration: totalDuration >= maxTotal ? 0 : Math.min(5, maxTotal - totalDuration) }])}
+                    disabled={!canAdd || totalDuration >= maxTotal}
+                    className={`text-[10px] ${canAdd && totalDuration < maxTotal ? 'text-accent-400 hover:text-accent-300' : 'text-surface-700 cursor-not-allowed'}`}>
+                    + Add shot
                   </button>
-                  {showRatios && (
-                    <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[100px] shadow-xl z-50">
-                      {['auto', '1:1', '16:9', '9:16', '4:3', '3:2', '2:1', '21:9'].map((r) => (
-                        <button key={r} onClick={() => { setAspectRatio(r); setShowRatios(false) }}
-                          className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${aspectRatio === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
-                      ))}
-                    </div>
-                  )}
+                  <span className={`text-[10px] ${totalDuration > maxTotal ? 'text-red-400' : 'text-surface-500'}`}>
+                    Total: {totalDuration}s / {maxTotal}s
+                  </span>
                 </div>
-                {currentModel.prices.length > 1 && (
-                  <div className="flex items-center gap-0.5 bg-surface-800/60 rounded-lg p-0.5">
-                    {currentModel.prices.map((p) => (
-                      <button key={p.resolution} onClick={() => setResolution(p.resolution)}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${resolution === p.resolution ? 'bg-surface-700 text-surface-200' : 'text-surface-500 hover:text-surface-300'}`}>
-                        {p.resolution}
+              </div>
+            )})()}
+
+            {/* Bottom bar: model, toggles, selects */}
+            <div className="flex items-center gap-1.5 px-3 pb-2.5">
+              {/* Model */}
+              <div className="relative" ref={modelsRef}>
+                <button onClick={() => setShowModels(!showModels)}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
+                  <Wand2 size={11} /> {currentModel.name} <ChevronDown size={11} />
+                </button>
+                {showModels && (
+                  <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[220px] shadow-xl max-h-[280px] overflow-y-auto z-50">
+                    {models.map((m) => (
+                      <button key={m.name}
+                        onClick={() => { setModelName(m.name); setShowModels(false); if (m.prices[0]) setResolution(m.prices[0].resolution) }}
+                        className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${modelName === m.name ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>
+                        <div><span>{m.name}</span><span className="text-[10px] text-surface-600 ml-2">{m.category}</span></div>
+                        <span className="text-amber-400/80 text-[10px]">{Math.round(m.prices[0]?.cost * 200)} cr</span>
                       </button>
                     ))}
                   </div>
                 )}
-              </>
-            )}
+              </div>
 
-            {mode === 'video' && (
-              <>
-                <StreamDuration
-                  value={duration}
-                  options={currentModel.durationOptions}
-                  min={4}
-                  max={currentModel.durationMax || 15}
-                  onChange={setDuration}
-                />
-                {currentModel.resolutions && (
-                  <div className="relative" ref={resRef}>
-                    <button onClick={() => setShowRes(!showRes)}
-                      className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
-                      {resolution} <ChevronDown size={11} />
-                    </button>
-                    {showRes && (
-                      <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[80px] shadow-xl z-50">
-                        {currentModel.resolutions.map((r) => (
-                          <button key={r} onClick={() => { setResolution(r); setShowRes(false) }}
-                            className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${resolution === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {(currentModel.t2vId?.startsWith('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/')) && (
+              {/* Toggles: FF, Multi-shot, Sound */}
+              {currentModel.fflfId && (
+                <button onClick={() => {
+                    if (isFFLF) { setSeedanceMode('ref'); setFirstFrameBase64(null); setLastFrameBase64(null) }
+                    else { setSeedanceMode('fflf'); setRefs([]) }
+                  }}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${isFFLF ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
+                  FF
+                </button>
+              )}
+              {isKling && (
+                <button onClick={() => { setMultiShots(!multiShots); if (!multiShots && multiPrompt.length === 0) setMultiPrompt([{ prompt: '', duration: 5 }]) }}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${multiShots ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
+                  Multi-shot
+                </button>
+              )}
+              {(isKling || isSeedance) && mode === 'video' && (
+                <button onClick={() => setSoundEnabled(!soundEnabled)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${soundEnabled ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
+                  <Music size={11} />
+                </button>
+              )}
+
+              {/* Selects */}
+
+              {mode === 'image' && (
+                <>
                   <div className="relative" ref={ratiosRef}>
                     <button onClick={() => setShowRatios(!showRatios)}
                       className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
@@ -789,74 +774,136 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                     </button>
                     {showRatios && (
                       <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[100px] shadow-xl z-50">
-                        {(currentModel.t2vId?.startsWith('bytedance/') ? ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive'] : ['16:9', '9:16']).map((r) => (
+                        {['auto', '1:1', '16:9', '9:16', '4:3', '3:2', '2:1', '21:9'].map((r) => (
                           <button key={r} onClick={() => { setAspectRatio(r); setShowRatios(false) }}
                             className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${aspectRatio === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
                         ))}
                       </div>
                     )}
                   </div>
-                )}
-                {!(currentModel.t2vId?.startsWith('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || isKling) && (
-                  <div className="flex items-center gap-1">
-                    <select value={fps} onChange={(e) => setFps(Number(e.target.value))}
-                      className="bg-surface-800/80 border border-surface-700 rounded-lg px-1.5 py-1 text-[11px] text-surface-300 outline-none">
-                      <option value={24}>24</option><option value={30}>30</option><option value={60}>60</option>
-                    </select>
-                  </div>
-                )}
-              </>
-            )}
+                  {currentModel.prices.length > 1 && (
+                    <div className="flex items-center gap-0.5 bg-surface-800/60 rounded-lg p-0.5">
+                      {currentModel.prices.map((p) => (
+                        <button key={p.resolution} onClick={() => setResolution(p.resolution)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${resolution === p.resolution ? 'bg-surface-700 text-surface-200' : 'text-surface-500 hover:text-surface-300'}`}>
+                          {p.resolution}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
 
-            <div className="flex-1" />
+              {mode === 'video' && (
+                <>
+                  <StreamDuration
+                    value={duration}
+                    options={currentModel.durationOptions}
+                    min={4}
+                    max={currentModel.durationMax || 15}
+                    onChange={setDuration}
+                  />
+                  {currentModel.resolutions && (
+                    <div className="relative" ref={resRef}>
+                      <button onClick={() => setShowRes(!showRes)}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
+                        {resolution} <ChevronDown size={11} />
+                      </button>
+                      {showRes && (
+                        <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[80px] shadow-xl z-50">
+                          {currentModel.resolutions.map((r) => (
+                            <button key={r} onClick={() => { setResolution(r); setShowRes(false) }}
+                              className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${resolution === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(currentModel.t2vId?.startsWith('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/')) && (
+                    <div className="relative" ref={ratiosRef}>
+                      <button onClick={() => setShowRatios(!showRatios)}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
+                        {aspectRatio} <ChevronDown size={11} />
+                      </button>
+                      {showRatios && (
+                        <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[100px] shadow-xl z-50">
+                          {(currentModel.t2vId?.startsWith('bytedance/') ? ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive'] : ['16:9', '9:16']).map((r) => (
+                            <button key={r} onClick={() => { setAspectRatio(r); setShowRatios(false) }}
+                              className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${aspectRatio === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!(currentModel.t2vId?.startsWith('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || isKling) && (
+                    <div className="flex items-center gap-1">
+                      <select value={fps} onChange={(e) => setFps(Number(e.target.value))}
+                        className="bg-surface-800/80 border border-surface-700 rounded-lg px-1.5 py-1 text-[11px] text-surface-300 outline-none">
+                        <option value={24}>24</option><option value={30}>30</option><option value={60}>60</option>
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="flex-1" />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Hidden file inputs */}
-      <input id="file-all" type="file" accept={[
-        ...(mode === 'image' || hasImageSupport ? ['image/*'] : []),
-        ...(currentModel.supportsVideoRef ? ['video/*'] : []),
-        ...(currentModel.supportsAudioRef ? ['audio/*'] : []),
-      ].join(',')} className="hidden" onChange={async (e) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        const { base64, mime } = await readFileAsBase64(file)
-        if (mime.startsWith('audio/') && !currentModel.supportsAudioRef) { showError(`Cannot read "${file.name}" (this model does not support audio input)`); e.target.value = ''; return }
-        if (mime.startsWith('video/') && !currentModel.supportsVideoRef) { showError(`Cannot read "${file.name}" (this model does not support video input)`); e.target.value = ''; return }
-        if (mime.startsWith('image/') && mode !== 'image' && !hasImageSupport) { showError(`Cannot read "${file.name}" (this model does not support image input)`); e.target.value = ''; return }
-        setRefs(prev => [...prev, { base64, mime }])
-        e.target.value = ''
-      }} />
-      <input id="file-video" type="file" accept="video/*" className="hidden" onChange={async (e) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        await handleVideoRef(file)
-        e.target.value = ''
-      }} />
-      <input id="file-audio" type="file" accept="audio/*" className="hidden" onChange={async (e) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        const { base64, mime } = await readFileAsBase64(file)
-        setRefs(prev => [...prev, { base64, mime }])
-        e.target.value = ''
-      }} />
-      <input id="file-first" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'first')} />
-      <input id="file-last" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'last')} />
-      <input id="file-video" type="file" accept="video/*" className="hidden" onChange={async (e) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        await handleVideoRef(file)
-        e.target.value = ''
-      }} />
-      <input id="file-audio" type="file" accept="audio/*" className="hidden" onChange={async (e) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        const { base64, mime } = await readFileAsBase64(file)
-        setRefs(prev => [...prev, { base64, mime }])
-        e.target.value = ''
-      }} />
-    </div>
+        {/* Hidden file inputs */}
+        <input id="file-all" type="file" accept={[
+          ...(mode === 'image' || hasImageSupport ? ['image/*'] : []),
+          ...(currentModel.supportsVideoRef ? ['video/*'] : []),
+          ...(currentModel.supportsAudioRef ? ['audio/*'] : []),
+        ].join(',')} className="hidden" onChange={async (e) => {
+          const files = e.target.files
+          if (!files || files.length === 0) return
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i]
+            const { base64, mime } = await readFileAsBase64(file)
+            if (mime.startsWith('audio/') && !currentModel.supportsAudioRef) { showError(`Cannot read "${file.name}" (this model does not support audio input)`); continue }
+            if (mime.startsWith('video/') && !currentModel.supportsVideoRef) { showError(`Cannot read "${file.name}" (this model does not support video input)`); continue }
+            if (mime.startsWith('image/') && mode !== 'image' && !hasImageSupport) { showError(`Cannot read "${file.name}" (this model does not support image input)`); continue }
+            if (mime.startsWith('image/') && isFFLF) {
+              if (!firstFrameBase64) setFirstFrameBase64(base64)
+              else if (!lastFrameBase64) setLastFrameBase64(base64)
+              else setRefs(prev => [...prev, { base64, mime }])
+            } else {
+              setRefs(prev => [...prev, { base64, mime }])
+            }
+          }
+          e.target.value = ''
+        }} />
+        <input id="file-video" type="file" accept="video/*" className="hidden" onChange={async (e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          await handleVideoRef(file)
+          e.target.value = ''
+        }} />
+        <input id="file-audio" type="file" accept="audio/*" className="hidden" onChange={async (e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          const { base64, mime } = await readFileAsBase64(file)
+          setRefs(prev => [...prev, { base64, mime }])
+          e.target.value = ''
+        }} />
+        <input id="file-first" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'first')} />
+        <input id="file-last" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'last')} />
+        <input id="file-video" type="file" accept="video/*" className="hidden" onChange={async (e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          await handleVideoRef(file)
+          e.target.value = ''
+        }} />
+        <input id="file-audio" type="file" accept="audio/*" className="hidden" onChange={async (e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          const { base64, mime } = await readFileAsBase64(file)
+          setRefs(prev => [...prev, { base64, mime }])
+          e.target.value = ''
+        }} />
+      </div>  
     </>
   )
 })

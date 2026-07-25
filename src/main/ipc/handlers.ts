@@ -48,6 +48,14 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('assets:toggleFavorite', (_e, id: string) => getAssetManager().toggleFavorite(id))
 
+  ipcMain.handle('assets:updateTags', (_e, id: string, tags: string[]) => getAssetManager().updateTags(id, tags))
+
+  ipcMain.handle('assets:deleteMultiple', (_e, ids: string[]) => getAssetManager().deleteAssets(ids))
+
+  ipcMain.handle('assets:addTagsMultiple', (_e, ids: string[], tags: string[]) => getAssetManager().addTagsMultiple(ids, tags))
+
+  ipcMain.handle('assets:readBase64', async (_e, ids: string[]) => getAssetManager().readAssetsBase64(ids))
+
   ipcMain.handle('assets:refresh', (_e, id: string) => getAssetManager().refreshAsset(id))
 
   ipcMain.handle('assets:downloadToLocal', (_e, id: string) => getAssetManager().downloadToLocal(id))

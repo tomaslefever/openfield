@@ -5,12 +5,12 @@ import { Image, Video, Library, Workflow, Film, Settings, ChevronLeft, ChevronRi
 const navItems: { page: Page; label: string; icon: React.FC<{ size?: number }> }[] = [
   { page: 'image', label: 'Image Generation', icon: Image },
   { page: 'video', label: 'Video Generation', icon: Video },
-  { page: 'cinema', label: 'Cinema Studio', icon: Clapperboard },
+  // { page: 'cinema', label: 'Cinema Studio', icon: Clapperboard },
   { page: 'library', label: 'Library', icon: Library },
-  { page: 'workflows', label: 'Workflows', icon: Workflow },
-  { page: 'editor', label: 'Video Editor', icon: Film },
+  // { page: 'workflows', label: 'Workflows', icon: Workflow },
+  // { page: 'editor', label: 'Video Editor', icon: Film },
   { page: 'settings', label: 'Settings', icon: Settings },
-  { page: 'logs', label: 'Run Logs', icon: Terminal },
+  { page: 'logs', label: 'Logs', icon: Terminal },
 ]
 
 export function Sidebar() {

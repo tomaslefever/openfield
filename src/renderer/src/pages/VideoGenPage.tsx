@@ -1,9 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RefreshCw, RotateCcw, Clock, Cloud, FolderOpen } from 'lucide-react'
+import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RefreshCw, RotateCcw, Clock, Cloud, FolderOpen, CheckSquare, Square } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { PromptComposer } from '../components/PromptComposer'
+import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { fileUrl } from '../services/file-url'
 import { AssetBadge } from '../components/ui/asset-badge'
+import { TagEditor } from '../components/ui/TagEditor'
+import { BulkActionBar } from '../components/ui/BulkActionBar'
+import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
+import { BulkTagModal } from '../components/ui/BulkTagModal'
 
 const MODEL_NAMES: Record<string, string> = {
   'kling-3.0/video': 'Kling 3.0',
@@ -26,6 +30,10 @@ export function VideoGenPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [isDev, setIsDev] = useState(false)
   const [videoVersion, setVideoVersion] = useState(0)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBulkTag, setShowBulkTag] = useState(false)
+  const [showBulkDelete, setShowBulkDelete] = useState(false)
+  const composerRef = useRef<PromptComposerHandle>(null)
 
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map())
 
@@ -108,6 +116,40 @@ export function VideoGenPage() {
     } catch (err) { console.error('Video generation failed:', err) }
   }, [refetch])
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
+
+  const handleBulkDelete = useCallback(async () => {
+    const api = (window as any).electronAPI
+    await api?.assets.deleteMultiple(Array.from(selectedIds))
+    setShowBulkDelete(false)
+    clearSelection()
+    refetch()
+  }, [selectedIds, clearSelection, refetch])
+
+  const handleBulkAddTags = useCallback(async (tags: string[]) => {
+    const api = (window as any).electronAPI
+    await api?.assets.addTagsMultiple(Array.from(selectedIds), tags)
+    setShowBulkTag(false)
+    refetch()
+  }, [selectedIds, refetch])
+
+  const handleBulkAddToComposer = useCallback(async () => {
+    const api = (window as any).electronAPI
+    const files = await api?.assets.readBase64(Array.from(selectedIds))
+    if (files && files.length > 0) {
+      composerRef.current?.addRefs(files.map((f: any) => ({ base64: f.base64, mime: f.mime })))
+    }
+    clearSelection()
+  }, [selectedIds, clearSelection])
+
   const params = selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}
 
   const handleReload = () => {
@@ -128,7 +170,9 @@ export function VideoGenPage() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {assets.map((asset: any) => (
+            {assets.map((asset: any) => {
+              const isSel = selectedIds.has(asset.id)
+              return (
               <div key={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={() => setSelectedAsset(asset)} onMouseEnter={() => handleMouseEnter(asset.id)} onMouseLeave={() => handleMouseLeave(asset.id)}>
                 <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
                   {(() => {
@@ -150,19 +194,22 @@ export function VideoGenPage() {
                   })()}
                 </div>
                 {!asset.localPath && asset.filePath?.startsWith('http') && (
-                  <div className="absolute top-2 right-2 bg-black/60 rounded-md p-1">
+                  <div className="absolute top-2 right-2 bg-black/60 rounded-md p-1 z-10">
                     <Cloud size={12} className="text-blue-400" />
                   </div>
                 )}
-                {asset.creditsUsed > 0 && (
-                  <div className="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 bg-black/60 rounded-md">
-                    <Coins size={10} className="text-amber-400" />
-                    <span className="text-[10px] text-amber-400 font-medium">{asset.creditsUsed}</span>
-                  </div>
-                )}
-                {(() => { try { const p = JSON.parse(asset.parameters || '{}'); if (p.aspectRatio) return <AssetBadge value={p.aspectRatio} /> } catch {} return null })()}
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id) }}
+                  className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
+                >
+                  {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
+                </button>
+                <div className="absolute bottom-2 right-2 flex items-center gap-1">
+                  {(() => { try { const p = JSON.parse(asset.parameters || '{}'); if (p.aspectRatio) return <AssetBadge value={p.aspectRatio} /> } catch {} return null })()}
+                  {asset.creditsUsed > 0 && <AssetBadge value={String(asset.creditsUsed)} icon={<Coins size={10} className="text-amber-400" />} />}
+                </div>
               </div>
-            ))}
+            )})}
           </div>
 
           {assets.length === 0 && (
@@ -174,7 +221,31 @@ export function VideoGenPage() {
         </div>
       </div>
 
-      <PromptComposer onGenerate={handleGenerate} mode="video" />
+      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="video" />
+
+      <BulkActionBar
+        selectedCount={selectedIds.size}
+        onAddTags={() => setShowBulkTag(true)}
+        onDelete={() => setShowBulkDelete(true)}
+        onAddToComposer={handleBulkAddToComposer}
+        onClearSelection={clearSelection}
+      />
+
+      {showBulkTag && (
+        <BulkTagModal
+          count={selectedIds.size}
+          onApply={handleBulkAddTags}
+          onClose={() => setShowBulkTag(false)}
+        />
+      )}
+
+      {showBulkDelete && (
+        <ConfirmDeleteModal
+          count={selectedIds.size}
+          onConfirm={handleBulkDelete}
+          onClose={() => setShowBulkDelete(false)}
+        />
+      )}
 
       {/* Detail modal */}
       {selectedAsset && (
@@ -264,6 +335,18 @@ export function VideoGenPage() {
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Created</p>
                 <p className="text-sm text-surface-200">{selectedAsset.createdAt ? new Date(selectedAsset.createdAt).toLocaleString() : '—'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Tags</p>
+                <TagEditor
+                  tags={(selectedAsset.tags ? selectedAsset.tags.split(',').filter(Boolean) : []).map((t: string) => t.trim())}
+                  onChange={async (newTags) => {
+                    const api = (window as any).electronAPI
+                    if (!api?.assets?.updateTags) return
+                    const updated = await api.assets.updateTags(selectedAsset.id, newTags)
+                    if (updated) setSelectedAsset(updated)
+                  }}
+                />
               </div>
               <div className="pt-2 border-t border-surface-800 space-y-1.5">
                 <button onClick={async () => {

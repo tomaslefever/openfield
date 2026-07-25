@@ -9,6 +9,7 @@ type AssetType = 'image' | 'video' | 'audio'
 export interface AssetQuery {
   type?: AssetType
   search?: string
+  tags?: string[]
   modelUsed?: string
   isFavorite?: boolean
   sortBy?: string
@@ -50,11 +51,16 @@ export class AssetManager {
 
     if (query.type) { parts.push('type = ?'); params.push(query.type) }
     if (query.isFavorite !== undefined) { parts.push('is_favorite = ?'); params.push(query.isFavorite ? 1 : 0) }
+    if (query.tags && query.tags.length > 0) {
+      const tagClauses = query.tags.map(() => `(',' || tags || ',' LIKE ?)`)
+      parts.push(`(${tagClauses.join(' AND ')})`)
+      query.tags.forEach(t => params.push(`%,${t},%`))
+    }
     if (query.modelUsed) { parts.push('model_used = ?'); params.push(query.modelUsed) }
     if (query.search) {
-      parts.push('(prompt LIKE ? OR file_name LIKE ? OR model_used LIKE ?)')
+      parts.push('(prompt LIKE ? OR file_name LIKE ? OR model_used LIKE ? OR tags LIKE ?)')
       const s = `%${query.search}%`
-      params.push(s, s, s)
+      params.push(s, s, s, s)
     }
 
     const where = parts.join(' AND ')
@@ -119,6 +125,65 @@ export class AssetManager {
     const newVal = asset.isFavorite ? 0 : 1
     raw.prepare('UPDATE assets SET is_favorite = ?, updated_at = ? WHERE id = ?').run(newVal, Date.now(), id)
     return this.getAsset(id)
+  }
+
+  updateTags(id: string, tags: string[]) {
+    const raw = getRawDb()
+    const asset = this.getAsset(id)
+    if (!asset) return null
+    const tagsStr = tags.length > 0 ? tags.join(',') : null
+    raw.prepare('UPDATE assets SET tags = ?, updated_at = ? WHERE id = ?').run(tagsStr, Date.now(), id)
+    return this.getAsset(id)
+  }
+
+  deleteAssets(ids: string[]): number {
+    const raw = getRawDb()
+    let count = 0
+    for (const id of ids) {
+      const asset = this.getAsset(id) as any
+      if (!asset) continue
+      const localPath = asset.localPath || asset.filePath
+      if (localPath && !localPath.startsWith('http') && !localPath.startsWith('__error__')) {
+        try { fs.unlink(localPath).catch(() => {}) } catch {}
+      }
+      raw.prepare('DELETE FROM assets WHERE id = ?').run(id)
+      count++
+    }
+    return count
+  }
+
+  addTagsMultiple(ids: string[], newTags: string[]): number {
+    const raw = getRawDb()
+    const cleanNew = newTags.map(t => t.trim().toLowerCase()).filter(Boolean)
+    if (cleanNew.length === 0) return 0
+    let count = 0
+    const now = Date.now()
+    for (const id of ids) {
+      const asset = this.getAsset(id) as any
+      if (!asset) continue
+      const existing = asset.tags ? asset.tags.split(',').map((t: string) => t.trim().toLowerCase()).filter(Boolean) : []
+      const merged = [...new Set([...existing, ...cleanNew])]
+      const tagsStr = merged.length > 0 ? merged.join(',') : null
+      raw.prepare('UPDATE assets SET tags = ?, updated_at = ? WHERE id = ?').run(tagsStr, now, id)
+      count++
+    }
+    return count
+  }
+
+  async readAssetsBase64(ids: string[]): Promise<{ id: string; base64: string; mime: string }[]> {
+    const results: { id: string; base64: string; mime: string }[] = []
+    for (const id of ids) {
+      const asset = this.getAsset(id) as any
+      if (!asset) continue
+      const filePath = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') && !asset.filePath.startsWith('http') ? asset.filePath : null)
+      if (!filePath) continue
+      try {
+        const buffer = await fs.readFile(filePath)
+        const base64 = buffer.toString('base64')
+        results.push({ id, base64, mime: asset.mimeType })
+      } catch { continue }
+    }
+    return results
   }
 
   getStorageStats() {

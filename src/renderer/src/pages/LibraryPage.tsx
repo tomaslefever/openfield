@@ -1,13 +1,20 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Search, Filter, Download, Trash2, Heart, Grid3X3, List, Eye, Cloud } from 'lucide-react'
+import { Search, Filter, Download, Trash2, Heart, Grid3X3, List, Eye, Cloud, CheckSquare, Square } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { fileUrl } from '../services/file-url'
+import { TagEditor } from '../components/ui/TagEditor'
+import { BulkActionBar } from '../components/ui/BulkActionBar'
+import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
+import { BulkTagModal } from '../components/ui/BulkTagModal'
 
 export function LibraryPage() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'image' | 'video' | 'audio'>('all')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBulkTag, setShowBulkTag] = useState(false)
+  const [showBulkDelete, setShowBulkDelete] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const dragRef = useRef({ active: false, lastX: 0, lastY: 0 })
@@ -30,6 +37,31 @@ export function LibraryPage() {
     await (window as any).electronAPI?.assets.toggleFavorite(id)
     refetch()
   }, [refetch])
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
+
+  const handleBulkDelete = useCallback(async () => {
+    const api = (window as any).electronAPI
+    await api?.assets.deleteMultiple(Array.from(selectedIds))
+    setShowBulkDelete(false)
+    clearSelection()
+    refetch()
+  }, [selectedIds, clearSelection, refetch])
+
+  const handleBulkAddTags = useCallback(async (tags: string[]) => {
+    const api = (window as any).electronAPI
+    await api?.assets.addTagsMultiple(Array.from(selectedIds), tags)
+    setShowBulkTag(false)
+    refetch()
+  }, [selectedIds, refetch])
 
   const handleWheel = useCallback((e: any) => {
     e.preventDefault()
@@ -109,7 +141,7 @@ export function LibraryPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-6 pb-24">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-lg font-semibold text-surface-100">Library</h1>
@@ -129,7 +161,7 @@ export function LibraryPage() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by prompt, model, or filename..."
+                placeholder="Search by prompt, model, filename, or tag..."
                 className="input-field pl-9"
               />
             </div>
@@ -148,7 +180,9 @@ export function LibraryPage() {
 
           {viewMode === 'grid' ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {assets.map((asset: any) => (
+              {assets.map((asset: any) => {
+                const isSel = selectedIds.has(asset.id)
+                return (
                 <div key={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={() => setSelectedAsset(asset)}>
                   <div className={`bg-surface-800 flex items-center justify-center overflow-hidden ${asset.type === 'video' ? 'aspect-video' : 'aspect-square'}`}>
                     {(() => {
@@ -164,6 +198,12 @@ export function LibraryPage() {
                       <Cloud size={12} className="text-blue-400" />
                     </div>
                   )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id) }}
+                    className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
+                  >
+                    {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
+                  </button>
                   <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                     <button onClick={(e) => { e.stopPropagation(); handleToggleFavorite(asset.id) }} className={`p-1.5 rounded-lg ${asset.isFavorite ? 'text-red-400 bg-red-500/10' : 'bg-black/50 text-white hover:text-red-400'} transition-colors`}>
                       <Heart size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
@@ -175,29 +215,52 @@ export function LibraryPage() {
                   <div className="px-3 py-2">
                     <p className="text-xs text-surface-400 truncate">{asset.prompt || asset.fileName}</p>
                     <p className="text-[10px] text-surface-600 mt-0.5">{asset.modelUsed} · {new Date(asset.createdAt).toLocaleDateString()}</p>
+                    {(asset.tags && asset.tags.length > 0) && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {asset.tags.split(',').filter(Boolean).map((t: string) => (
+                          <span key={t} className="px-1.5 py-0.5 rounded bg-accent-500/10 text-accent-400 text-[9px] font-medium">{t.trim()}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           ) : (
             <div className="panel overflow-hidden">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-surface-800 text-left text-xs text-surface-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 font-medium w-8"></th>
                     <th className="px-4 py-3 font-medium">Name</th>
                     <th className="px-4 py-3 font-medium">Type</th>
                     <th className="px-4 py-3 font-medium">Model</th>
+                    <th className="px-4 py-3 font-medium">Tags</th>
                     <th className="px-4 py-3 font-medium">Prompt</th>
                     <th className="px-4 py-3 font-medium">Created</th>
                     <th className="px-4 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-800">
-                  {assets.map((asset: any) => (
+                  {assets.map((asset: any) => {
+                    const isSel = selectedIds.has(asset.id)
+                    return (
                     <tr key={asset.id} className="hover:bg-surface-800/50 transition-colors cursor-pointer text-sm" onClick={() => setSelectedAsset(asset)}>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <button onClick={() => toggleSelect(asset.id)} className={`p-0.5 rounded transition-colors ${isSel ? 'text-accent-400' : 'text-surface-600 hover:text-surface-300'}`}>
+                          {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-surface-100">{asset.fileName}</td>
                       <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${asset.type === 'image' ? 'bg-blue-500/10 text-blue-400' : asset.type === 'video' ? 'bg-purple-500/10 text-purple-400' : 'bg-green-500/10 text-green-400'}`}>{asset.type}</span></td>
                       <td className="px-4 py-3 text-surface-400">{asset.modelUsed}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {(asset.tags ? asset.tags.split(',').filter(Boolean) : []).map((t: string) => (
+                            <span key={t} className="px-1.5 py-0.5 rounded bg-accent-500/10 text-accent-400 text-[9px] font-medium">{t.trim()}</span>
+                          ))}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-surface-400 max-w-[200px] truncate">{asset.prompt || '-'}</td>
                       <td className="px-4 py-3 text-surface-500">{new Date(asset.createdAt).toLocaleDateString()}</td>
                       <td className="px-4 py-3">
@@ -207,7 +270,7 @@ export function LibraryPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -221,6 +284,29 @@ export function LibraryPage() {
           )}
         </div>
       </div>
+
+      <BulkActionBar
+        selectedCount={selectedIds.size}
+        onAddTags={() => setShowBulkTag(true)}
+        onDelete={() => setShowBulkDelete(true)}
+        onClearSelection={clearSelection}
+      />
+
+      {showBulkTag && (
+        <BulkTagModal
+          count={selectedIds.size}
+          onApply={handleBulkAddTags}
+          onClose={() => setShowBulkTag(false)}
+        />
+      )}
+
+      {showBulkDelete && (
+        <ConfirmDeleteModal
+          count={selectedIds.size}
+          onConfirm={handleBulkDelete}
+          onClose={() => setShowBulkDelete(false)}
+        />
+      )}
 
       {selectedAsset && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setSelectedAsset(null)}>
@@ -287,6 +373,18 @@ export function LibraryPage() {
                     <p className="text-surface-100">{value || '-'}</p>
                   </div>
                 ))}
+              </div>
+              <div className="border-t border-surface-800 pt-4">
+                <p className="text-surface-500 text-xs mb-2">Tags</p>
+                <TagEditor
+                  tags={(selectedAsset.tags ? selectedAsset.tags.split(',').filter(Boolean) : []).map((t: string) => t.trim())}
+                  onChange={async (newTags) => {
+                    const api = (window as any).electronAPI
+                    if (!api?.assets?.updateTags) return
+                    const updated = await api.assets.updateTags(selectedAsset.id, newTags)
+                    if (updated) setSelectedAsset(updated)
+                  }}
+                />
               </div>
               <div className="flex gap-2 mt-6 pt-4 border-t border-surface-800">
                 <button onClick={async () => {
