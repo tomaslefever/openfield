@@ -59,7 +59,7 @@ interface ModelPricing {
 const IMAGE_MODELS: ModelPricing[] = [
   { name: 'GPT Image 2', category: 'OpenAI', unit: 'img', t2iId: 'gpt-image-2-text-to-image', i2iId: 'gpt-image-2-image-to-image',
     prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.05 }, { resolution: '4K', cost: 0.08 }] },
-  { name: 'Nano Banana 2', category: 'Google', unit: 'img', t2iId: 'nano-banana-2', editId: 'nano-banana-edit',
+  { name: 'Nano Banana 2', category: 'Google', unit: 'img', t2iId: 'nano-banana-2',
     prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.06 }, { resolution: '4K', cost: 0.09 }] },
   { name: 'Nano Banana 2 Lite', category: 'Google', unit: 'img', t2iId: 'nano-banana-2-lite',
     prices: [{ resolution: '1K', cost: 0.02 }] },
@@ -238,10 +238,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const models = mode === 'video' ? VIDEO_MODELS : IMAGE_MODELS
   const currentModel = models.find(m => m.name === modelName) || models[0]
 
+  const hasImageRef = refs.some(r => r.mime.startsWith('image/'))
+
   function getActiveModelId(): string {
     if (mode === 'image') {
-      if (imageBase64 && currentModel.editId) return currentModel.editId
-      if (imageBase64 && currentModel.i2iId) return currentModel.i2iId
+      const hasImage = imageBase64 || hasImageRef
+      if (hasImage && currentModel.editId) return currentModel.editId
+      if (hasImage && currentModel.i2iId) return currentModel.i2iId
       return currentModel.t2iId || ''
     }
     if (imageBase64 && currentModel.i2vId) return currentModel.i2vId
@@ -447,11 +450,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           </button>
         </div>
       )}
-      <div className="sticky bottom-0 z-40 px-4 pb-4 pt-2 bg-gradient-to-t from-surface-950 via-surface-950/95 to-transparent pointer-events-none">
+      <div className="sticky bottom-0 z-40 px-4 pb-4 pt-2 pointer-events-none">
       <div className="max-w-5xl mx-auto pointer-events-auto">
         <div
           ref={cardRef}
-          className="relative bg-surface-900/90 backdrop-blur-xl border border-surface-700/60 rounded-2xl shadow-2xl shadow-black/40 transition-all duration-200"
+          className="relative bg-transparent border border-surface-700/60 rounded-2xl shadow-2xl shadow-black/40 transition-all duration-200"
         >
           {/* Image chips at top */}
           {hasMedia && !isFFLF && (

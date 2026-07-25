@@ -34,7 +34,6 @@ export const IMAGE_MODELS = [
   { id: 'gpt-image-2-text-to-image', name: 'GPT Image 2', cost: 0.03, unit: 'img', category: 'OpenAI' },
   { id: 'gpt-image-2-image-to-image', name: 'GPT Image 2 I2I', cost: 0.03, unit: 'img', category: 'OpenAI' },
   { id: 'nano-banana-2', name: 'Nano Banana 2', cost: 0.04, unit: 'img', category: 'Google' },
-  { id: 'nano-banana-edit', name: 'Nano Banana Edit', cost: 0.04, unit: 'img', category: 'Google' },
   { id: 'seedream-5-pro-text-to-image', name: 'Seedream 5 Pro', cost: 0.06, unit: 'img', category: 'Seedream' },
   { id: 'seedream-5-pro-image-to-image', name: 'Seedream 5 Pro I2I', cost: 0.06, unit: 'img', category: 'Seedream' },
   { id: 'flux2-pro-text-to-image', name: 'Flux 2 Pro', cost: 0.05, unit: 'img', category: 'Flux' },
@@ -160,6 +159,9 @@ export class KieApiClient {
       resolution: params.resolution || '1K',
     }
 
+    const isGptImage = params.model?.startsWith('gpt-image')
+    const imageKey = isGptImage ? 'input_urls' : 'image_input'
+
     if (params.imageRefs && params.imageRefs.length > 0) {
       console.log('[KIE] Uploading', params.imageRefs.length, 'reference images')
       const urls: string[] = []
@@ -167,12 +169,12 @@ export class KieApiClient {
         const url = await this.uploadFileBase64(ref.base64, ref.mime)
         if (url) urls.push(url)
       }
-      if (urls.length > 0) input.image_input = urls
+      if (urls.length > 0) input[imageKey] = urls
     } else if (params.imageBase64) {
       console.log('[KIE] Uploading image, length:', params.imageBase64.length)
       const imageUrl = await this.uploadFileBase64(params.imageBase64, params.imageMime || 'image/png')
       console.log('[KIE] Uploaded, url:', imageUrl)
-      if (imageUrl) input.image_input = [imageUrl]
+      if (imageUrl) input[imageKey] = [imageUrl]
     }
 
     console.log('[KIE] createTask:', params.model, JSON.stringify(input).substring(0, 200))

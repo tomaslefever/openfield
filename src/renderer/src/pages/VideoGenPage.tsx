@@ -3,6 +3,7 @@ import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLe
 import { useQuery } from '@tanstack/react-query'
 import { PromptComposer } from '../components/PromptComposer'
 import { fileUrl } from '../services/file-url'
+import { AssetBadge } from '../components/ui/asset-badge'
 
 const MODEL_NAMES: Record<string, string> = {
   'kling-3.0/video': 'Kling 3.0',
@@ -129,7 +130,7 @@ export function VideoGenPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {assets.map((asset: any) => (
               <div key={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={() => setSelectedAsset(asset)} onMouseEnter={() => handleMouseEnter(asset.id)} onMouseLeave={() => handleMouseLeave(asset.id)}>
-                <div className="aspect-video bg-surface-800 flex items-center justify-center overflow-hidden">
+                <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
                   {(() => {
                     const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
                     if (src) return <video ref={(el) => { if (el) { videoRefs.current.set(asset.id, el); el.muted = true } else videoRefs.current.delete(asset.id) }} data-video-id={asset.id} src={fileUrl(src)} className="w-full h-full object-cover" preload="auto" loop playsInline />
@@ -159,6 +160,7 @@ export function VideoGenPage() {
                     <span className="text-[10px] text-amber-400 font-medium">{asset.creditsUsed}</span>
                   </div>
                 )}
+                {(() => { try { const p = JSON.parse(asset.parameters || '{}'); if (p.aspectRatio) return <AssetBadge value={p.aspectRatio} /> } catch {} return null })()}
               </div>
             ))}
           </div>

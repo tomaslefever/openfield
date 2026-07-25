@@ -3,12 +3,12 @@ import { Download, Trash2, Send, Coins, Loader, AlertCircle, X, Copy, Check, Che
 import { useQuery } from '@tanstack/react-query'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { fileUrl } from '../services/file-url'
+import { AssetBadge } from '../components/ui/asset-badge'
 
 const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-text-to-image': 'GPT Image 2',
   'gpt-image-2-image-to-image': 'GPT Image 2 I2I',
   'nano-banana-2': 'Nano Banana 2',
-  'nano-banana-edit': 'Nano Banana Edit',
   'seedream-5-pro-text-to-image': 'Seedream 5 Pro',
   'flux2-pro-text-to-image': 'Flux 2 Pro',
   'grok-imagine/text-to-image': 'Grok Imagine',
@@ -192,11 +192,12 @@ export function ImageGenPage() {
                   </div>
                 )}
                 {asset.creditsUsed > 0 && (
-                  <div className="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 bg-black/60 rounded-md">
+                  <div className="absolute top-2 left-2 flex items-center gap-1 p-1 bg-black/60 rounded-md">
                     <Coins size={10} className="text-amber-400" />
                     <span className="text-[10px] text-amber-400 font-medium">{asset.creditsUsed}</span>
                   </div>
                 )}
+                {(() => { try { const p = JSON.parse(asset.parameters || '{}'); const ar = p.aspectRatio || p.aspect_ratio; if (ar) return <AssetBadge value={ar} /> } catch {} return null })()}
               </div>
             ))}
           </div>
