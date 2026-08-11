@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 release
+release2
+builder-release2.yml
 
 # Editor directories and files
 .vscode/*

@@ -18,6 +18,7 @@ import { registerBridgeHandlers } from './bridge'
 import { registerReplicateHandlers } from './replicate'
 import { registerFalHandlers } from './fal'
 import { registerBalancesHandlers } from './balances'
+import { registerUpdaterHandlers } from './updater'
 
 export function registerIpcHandlers() {
   const ctx = createContext()
@@ -40,4 +41,5 @@ export function registerIpcHandlers() {
   registerReplicateHandlers(ctx)
   registerFalHandlers(ctx)
   registerBalancesHandlers(ctx)
+  registerUpdaterHandlers(ctx)
 }

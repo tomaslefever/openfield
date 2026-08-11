@@ -106,6 +106,7 @@ const electronAPI = {
       'models:download:progress', 'models:download:completed', 'models:download:error',
       'local:image:progress', 'local:image:completed', 'local:image:error',
       'local:audio:progress', 'local:audio:error',
+      'update:status', 'update:progress',
     ];
     if (validChannels.includes(channel)) {
       const subscription = (_event: any, ...args: any[]) => callback(...args);
@@ -114,6 +115,14 @@ const electronAPI = {
     }
   },
   isDev: () => ipcRenderer.invoke('app:isDev'),
+
+  // ─── Auto Updater ────────────────────────────────
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    download: () => ipcRenderer.invoke('updater:download'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    state: () => ipcRenderer.invoke('updater:state'),
+  },
 
   // ─── Storyboard ───────────────────────────────────
   storyboard: {

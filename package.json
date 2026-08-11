@@ -1,7 +1,7 @@
 {
   "name": "openfield",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
@@ -50,6 +50,11 @@
         "deb"
       ],
       "icon": "resources/icon.png"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "tomaslefever",
+      "repo": "openfield"
     }
   },
   "dependencies": {

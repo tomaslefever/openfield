@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Key, Monitor, Palette, Globe, Folder, Save, Coins, Shapes, RotateCcw, Cable, Copy, Check } from 'lucide-react'
+import { Key, Monitor, Palette, Globe, Folder, Save, Coins, Shapes, RotateCcw, Cable, Copy, Check, RefreshCw, Download } from 'lucide-react'
 import { useAppStore } from '../stores/app-store'
 
 export function SettingsPage() {
@@ -24,6 +24,12 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState<{ running: boolean; port: number; enabled: boolean; endpoint: string } | null>(null)
   const [copiedEndpoint, setCopiedEndpoint] = useState(false)
+  const [appVersion, setAppVersion] = useState('0.1.0')
+  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'>('idle')
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null)
+  const [updateProgress, setUpdateProgress] = useState(0)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+  const updateVersionRef = useRef<string | null>(null)
   const settingsLoaded = useRef(false)
 
   const PRIMARY_DEFAULT = 'high quality character portrait, front facing, centered composition, clean lighting, detailed features, professional rendering'
@@ -50,6 +56,23 @@ export function SettingsPage() {
     })
     ;(window as any).electronAPI?.assets?.webpStats?.().then(setWebpStats).catch(() => {})
     ;(window as any).electronAPI?.bridge?.getStatus?.().then(setBridgeStatus).catch(() => {})
+    ;(window as any).electronAPI?.updater?.state?.().then((s: any) => {
+      if (s?.currentVersion) setAppVersion(s.currentVersion)
+    }).catch(() => {})
+    const unsubStatus = (window as any).electronAPI?.on('update:status', (e: any) => {
+      if (!e) return
+      switch (e.state) {
+        case 'checking': setUpdateState('checking'); break
+        case 'available': setUpdateState('downloading'); setUpdateVersion(e.version); updateVersionRef.current = e.version; setUpdateProgress(0); setUpdateError(null); break
+        case 'not-available': setUpdateState('not-available'); break
+        case 'downloaded': setUpdateState('downloaded'); setUpdateVersion(e.version || updateVersionRef.current); updateVersionRef.current = e.version || updateVersionRef.current; setUpdateProgress(100); break
+        case 'error': setUpdateState('error'); setUpdateError(e.message); break
+      }
+    })
+    const unsubProgress = (window as any).electronAPI?.on('update:progress', (p: any) => {
+      if (p?.percent != null) { setUpdateState('downloading'); setUpdateProgress(Math.round(p.percent)) }
+    })
+    return () => { unsubStatus?.(); unsubProgress?.() }
   }, [])
 
   const handleConvertAllWebp = async () => {
@@ -77,6 +100,18 @@ export function SettingsPage() {
       (window as any).electronAPI?.settings.set(key, value)
     }, 2000)
   }, [])
+
+  const handleCheckUpdates = async () => {
+    setUpdateState('checking')
+    setUpdateError(null)
+    try {
+      const res = await (window as any).electronAPI?.updater.check()
+      if (res?.state === 'error') { setUpdateState('error'); setUpdateError(res.message) }
+    } catch (err: any) {
+      setUpdateState('error')
+      setUpdateError(err?.message || String(err))
+    }
+  }
 
   const handleSave = async () => {
     await (window as any).electronAPI?.settings.set('openfieldApiKey', apiKey)
@@ -376,11 +411,57 @@ export function SettingsPage() {
 
             <div className="card">
               <div className="flex items-center gap-2 mb-4">
+                <RefreshCw size={16} className="text-accent-400" />
+                <h2 className="text-sm font-semibold text-surface-100">Updates</h2>
+                {updateState === 'downloaded' && (
+                  <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400">Update ready</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-sm text-surface-400">
+                    Current version: <b className="text-surface-100">{appVersion}</b>
+                    {updateVersion && updateState !== 'downloaded' && (
+                      <span className="text-accent-400"> → v{updateVersion}</span>
+                    )}
+                  </p>
+                  <p className="text-[10px] text-surface-600 mt-1">
+                    {updateState === 'checking' && 'Checking for updates...'}
+                    {updateState === 'downloading' && `Downloading update... ${updateProgress}%`}
+                    {updateState === 'not-available' && 'You are on the latest version.'}
+                    {updateState === 'downloaded' && `v${updateVersion} has been downloaded and will install on restart.`}
+                    {updateState === 'error' && (updateError || 'Update check failed.')}
+                    {updateState === 'idle' && 'Openfield checks for updates automatically on startup.'}
+                  </p>
+                  {updateState === 'downloading' && (
+                    <div className="w-full h-1.5 bg-surface-800 rounded-full mt-2 overflow-hidden">
+                      <div className="h-full bg-accent-500 rounded-full transition-all" style={{ width: `${updateProgress}%` }} />
+                    </div>
+                  )}
+                </div>
+                {updateState === 'downloaded' ? (
+                  <button onClick={() => (window as any).electronAPI?.updater.install()} className="btn-primary text-xs flex items-center gap-1.5 flex-shrink-0">
+                    <Download size={14} /> Restart & Install
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleCheckUpdates}
+                    disabled={updateState === 'checking' || updateState === 'downloading'}
+                    className="btn-ghost text-xs flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                  >
+                    <RefreshCw size={14} className={updateState === 'checking' ? 'animate-spin' : ''} /> Check for Updates
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="flex items-center gap-2 mb-4">
                 <Globe size={16} className="text-accent-400" />
                 <h2 className="text-sm font-semibold text-surface-100">About</h2>
               </div>
               <div className="text-sm text-surface-400 space-y-1">
-                <p>Openfield v0.1.0</p>
+                <p>Openfield v{appVersion}</p>
                 <p>Open Source (MIT License)</p>
                 <p>Built with Electron + React + Vite</p>
               </div>

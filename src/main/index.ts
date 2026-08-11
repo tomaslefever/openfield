@@ -14,6 +14,7 @@ import { initFalQueue } from './services/fal-queue'
 import { getServerManager } from './services/local-models/server-manager'
 import { getMcpBridge } from './services/mcp'
 import { isBridgeEnabled } from './services/storyboard-service'
+import { initUpdater, checkForUpdates } from './services/updater'
 
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev')
 let mainWindow: BrowserWindow | null = null
@@ -151,7 +152,12 @@ async function initialize() {
 }
 
 app.whenReady().then(async () => {
-  protocol.handle('asset', (request) => {
+  // Cache for file reads served over asset:// (thumbnails/grids re-request the same
+  // files often). Keyed by path, invalidated via size+mtime so edits are picked up.
+  const assetCache = new Map<string, { size: number; mtimeMs: number; buffer: Buffer }>()
+  const ASSET_CACHE_MAX = 300
+
+  protocol.handle('asset', async (request) => {
     const decodedUrl = decodeURI(request.url)
     const filePath = decodedUrl.replace(/^asset:\/\/localhost\//, '').replace(/[?#].*$/, '').replace(/\/+$/, '')
     try {
@@ -190,13 +196,24 @@ app.whenReady().then(async () => {
         })
       }
 
-      const data = fs.readFileSync(filePath)
+      const cached = assetCache.get(filePath)
+      let data: Buffer
+      if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+        data = cached.buffer
+      } else {
+        data = await fs.promises.readFile(filePath)
+        assetCache.set(filePath, { size: stat.size, mtimeMs: stat.mtimeMs, buffer: data })
+        if (assetCache.size > ASSET_CACHE_MAX) {
+          const oldestKey = assetCache.keys().next().value
+          if (oldestKey) assetCache.delete(oldestKey)
+        }
+      }
       const headers: Record<string, string> = {
         'Content-Type': mime,
         'Content-Length': String(stat.size),
       }
       if (isVideo) headers['Accept-Ranges'] = 'bytes'
-      return new Response(data, { headers })
+      return new Response(data as unknown as BodyInit, { headers })
     } catch (err: any) {
       console.error('[asset] 404:', filePath, err.message)
       return new Response(null, { status: 404 })
@@ -205,6 +222,11 @@ app.whenReady().then(async () => {
 
   await initialize()
   await createWindow()
+
+  initUpdater()
+  if (app.isPackaged) {
+    setTimeout(() => { checkForUpdates().catch(() => {}) }, 10000)
+  }
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) await createWindow()
