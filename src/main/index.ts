@@ -1,4 +1,4 @@
-﻿import { app, BrowserWindow, shell, protocol, net } from 'electron'
+﻿import { app, BrowserWindow, shell, protocol, net, Menu } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import { initDatabase, runMigrations, getRawDb } from './db'
@@ -219,6 +219,8 @@ app.whenReady().then(async () => {
       return new Response(null, { status: 404 })
     }
   })
+
+  Menu.setApplicationMenu(null)
 
   await initialize()
   await createWindow()

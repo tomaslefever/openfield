@@ -1,5 +1,6 @@
 import { useAppStore, type Page } from './stores/app-store'
 import { Sidebar } from './components/Sidebar'
+import { PanelLeftOpen, PanelLeftClose } from 'lucide-react'
 import { ImageGenPage } from './pages/ImageGenPage'
 import { VideoGenPage } from './pages/VideoGenPage'
 import { AudioGenPage } from './pages/AudioGenPage'
@@ -36,12 +37,20 @@ const pages: Record<Page, React.FC> = {
 function App() {
   const currentPage = useAppStore((s) => s.currentPage)
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
 
   const PageComponent = pages[currentPage]
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface-950">
       <Sidebar />
+      <button
+        onClick={toggleSidebar}
+        title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        className={`fixed top-3.5 z-40 h-7 w-7 flex items-center justify-center rounded-lg bg-surface-900 border border-surface-800 text-surface-500 hover:text-surface-100 hover:border-surface-600 transition-all duration-200 ${sidebarCollapsed ? 'left-[54px]' : 'left-[214px]'}`}
+      >
+        {sidebarCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+      </button>
       <main className={`flex-1 flex flex-col overflow-hidden transition-all duration-200 ${sidebarCollapsed ? 'ml-16' : 'ml-56'}`}>
         <PageComponent />
       </main>

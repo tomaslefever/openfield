@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useAppStore, type Page } from '../stores/app-store'
 import type { LucideIcon } from 'lucide-react'
-import { Image, Video, AudioLines, Library, Workflow, Film, Settings, ChevronLeft, ChevronRight, Coins, RefreshCw, Terminal, Clapperboard, Package, Shapes, AppWindow, BookOpen, MoreHorizontal, User, DollarSign, ExternalLink } from 'lucide-react'
+import { Image, Video, AudioLines, Library, Workflow, Film, Settings, Coins, RefreshCw, Terminal, Clapperboard, Package, Shapes, AppWindow, BookOpen, MoreHorizontal, User, DollarSign, ExternalLink } from 'lucide-react'
 
 const navItems: { page: Page; label: string; icon: React.FC<{ size?: number }> }[] = [
   // { page: 'apps', label: 'Apps', icon: AppWindow },
@@ -47,10 +47,10 @@ export function Sidebar() {
   const currentPage = useAppStore((s) => s.currentPage)
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const setPage = useAppStore((s) => s.setPage)
-  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const setCreditBalance = useAppStore((s) => s.setCreditBalance)
   const [footerOpen, setFooterOpen] = useState(false)
   const [balances, setBalances] = useState<Balance[]>([])
+  const [appVersion, setAppVersion] = useState('')
   const footerRef = useRef<HTMLDivElement>(null)
 
   const fetchBalances = useCallback(async () => {
@@ -82,6 +82,12 @@ export function Sidebar() {
   }, [fetchBalances])
 
   useEffect(() => {
+    ;(window as any).electronAPI?.updater?.state?.().then((s: any) => {
+      if (s?.currentVersion) setAppVersion(s.currentVersion)
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (footerRef.current && !footerRef.current.contains(e.target as Node)) {
         setFooterOpen(false)
@@ -100,15 +106,11 @@ export function Sidebar() {
   return (
     <aside className={`fixed left-0 top-0 h-screen bg-surface-950 border-r border-surface-800 z-50 flex flex-col transition-all duration-200 ${collapsed ? 'w-16' : 'w-56'}`}>
       <div className={`flex items-center h-14 px-4 border-b border-surface-800 ${collapsed ? 'justify-center' : ''}`}>
-        {!collapsed && (
-          <img src="/logo.png" alt="Openfield" className="h-7 w-auto max-w-[140px] object-contain" />
+        {collapsed ? (
+          <img src="./logo.png" alt="Openfield" className="h-8 w-8 object-contain rounded-lg" />
+        ) : (
+          <img src="./logotype.png" alt="Openfield" className="h-7 w-auto max-w-[140px] object-contain" />
         )}
-        <button
-          onClick={toggleSidebar}
-          className={`text-surface-500 hover:text-surface-100 transition-colors ${collapsed ? '' : 'ml-auto'}`}
-        >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-        </button>
       </div>
 
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
@@ -226,7 +228,7 @@ export function Sidebar() {
 
       {!collapsed && (
         <div className="px-4 py-2 border-t border-surface-800">
-          <p className="text-[10px] text-surface-600">Openfield v0.1.0</p>
+          <p className="text-[10px] text-surface-600">Openfield {appVersion ? `v${appVersion}` : ''}</p>
         </div>
       )}
     </aside>
