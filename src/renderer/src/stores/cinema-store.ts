@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type ElementType = 'character' | 'object' | 'scenario'
@@ -468,7 +468,7 @@ export const useCinemaStore = create<CinemaState>()(
       }),
     }),
     {
-      name: 'kie-cinema-studio',
+      name: 'openfield-cinema-studio',
       version: 1,
       partialize: (state) => ({
         projects: state.projects,

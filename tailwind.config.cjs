@@ -34,6 +34,28 @@ module.exports = {
           900: '#312e81',
           950: '#1e1b4b',
         },
+        // shadcn v4 theme tokens ─ mapped to project surface/accent
+        background: '#0f0f12',
+        foreground: '#e1e1e4',
+        primary: {
+          DEFAULT: '#4f46e5',
+          foreground: '#ffffff',
+        },
+        secondary: {
+          DEFAULT: '#34343b',
+          foreground: '#e1e1e4',
+        },
+        muted: {
+          DEFAULT: '#2e2e34',
+          foreground: '#7a7a86',
+        },
+        destructive: {
+          DEFAULT: '#ef4444',
+          foreground: '#ffffff',
+        },
+        border: '#3d3d46',
+        input: '#3d3d46',
+        ring: '#4f46e5',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

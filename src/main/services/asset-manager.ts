@@ -1,8 +1,30 @@
-import * as fs from 'fs/promises'
+﻿import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as crypto from 'crypto'
-import { app } from 'electron'
-import { getRawDb, DbWrapper, getAssetSubDir } from '../db'
+import { getRawDb, DbWrapper, getAssetSubDir, getAssetsDir } from '../db'
+
+function stripForStorage(payload: any): any {
+  if (!payload || typeof payload !== 'object') return payload
+  if (Array.isArray(payload)) return payload.map(stripForStorage)
+  const cleaned: any = {}
+  for (const [k, v] of Object.entries(payload)) {
+    if (k === 'imageBase64' || k === 'firstFrameBase64' || k === 'lastFrameBase64') {
+      cleaned[k] = ''
+    } else if (k === 'imageRefs' && Array.isArray(v)) {
+      cleaned[k] = (v as any[]).map((r: any) => {
+        const s: any = { name: r.name, refType: r.refType, mime: r.mime }
+        if (r.assetId) s.assetId = r.assetId
+        if (!r.assetId && r.base64) s.base64 = r.base64
+        return s
+      })
+    } else if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      cleaned[k] = stripForStorage(v)
+    } else {
+      cleaned[k] = v
+    }
+  }
+  return cleaned
+}
 
 type AssetType = 'image' | 'video' | 'audio'
 
@@ -16,14 +38,14 @@ export interface AssetQuery {
   sortOrder?: 'asc' | 'desc'
   limit?: number
   offset?: number
+  excludeUploads?: boolean
 }
 
 export class AssetManager {
   private assetsDir: string
 
   constructor() {
-    const userDataPath = app.getPath('userData')
-    this.assetsDir = path.join(userDataPath, 'kie-studio', 'assets').replace(/\\/g, '/')
+    this.assetsDir = getAssetsDir()
   }
 
   getAssetsDir() { return this.assetsDir }
@@ -57,6 +79,7 @@ export class AssetManager {
       query.tags.forEach(t => params.push(`%,${t},%`))
     }
     if (query.modelUsed) { parts.push('model_used = ?'); params.push(query.modelUsed) }
+    if (query.excludeUploads) { parts.push("model_used != 'upload'") }
     if (query.search) {
       parts.push('(prompt LIKE ? OR file_name LIKE ? OR model_used LIKE ? OR tags LIKE ?)')
       const s = `%${query.search}%`
@@ -81,6 +104,18 @@ export class AssetManager {
     return getRawDb().prepare('SELECT * FROM assets ORDER BY created_at DESC LIMIT ?').all(limit)
   }
 
+  getAllTags(): string[] {
+    const rows = getRawDb().prepare('SELECT tags FROM assets WHERE tags IS NOT NULL AND tags != ?').all('') as any[]
+    const counts = new Map<string, number>()
+    for (const row of rows) {
+      for (const t of String(row.tags || '').split(',')) {
+        const tag = t.trim()
+        if (tag) counts.set(tag, (counts.get(tag) || 0) + 1)
+      }
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([tag]) => tag)
+  }
+
   async importFile(filePath: string, type: AssetType) {
     await this.ensureDirectories()
     const id = crypto.randomUUID()
@@ -98,12 +133,50 @@ export class AssetManager {
       '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
     }
 
+    let savedPath = destPath
+    let savedMime = mimeTypes[ext] || 'application/octet-stream'
+    let savedSize = stat.size
+    if (type === 'image') {
+      const res = await ensureImageWebp(destPath, savedMime)
+      savedPath = res.path
+      savedMime = res.mime
+      savedSize = res.size
+    }
+
     const raw = getRawDb()
     raw.prepare(
       'INSERT INTO assets (id, type, file_path, file_name, mime_type, model_used, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, type, destPath, fileName, mimeTypes[ext] || 'application/octet-stream', 'import', stat.size, Date.now(), Date.now())
+    ).run(id, type, savedPath, path.basename(savedPath), savedMime, 'import', savedSize, Date.now(), Date.now())
 
-    return { id, type, filePath: destPath, fileName, fileSize: stat.size }
+    return { id, type, filePath: savedPath, fileName: path.basename(savedPath), fileSize: savedSize }
+  }
+
+  async importBase64(base64: string, mimeType: string, fileName: string) {
+    await this.ensureDirectories()
+    const id = crypto.randomUUID()
+    const type: AssetType = mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('audio/') ? 'audio' : 'image'
+    const ext = mimeType.split('/')[1] || 'png'
+    const destFileName = `${id}.${ext}`
+    const destPath = `${this.getSubDir(type)}/${destFileName}`
+    const buffer = Buffer.from(base64, 'base64')
+    await fs.writeFile(destPath, buffer)
+
+    let savedPath = destPath
+    let savedMime = mimeType
+    let savedSize = buffer.length
+    if (type === 'image') {
+      const res = await ensureImageWebp(destPath, mimeType)
+      savedPath = res.path
+      savedMime = res.mime
+      savedSize = res.size
+    }
+
+    const raw = getRawDb()
+    raw.prepare(
+      'INSERT INTO assets (id, type, file_path, file_name, mime_type, model_used, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, type, savedPath, fileName || path.basename(savedPath), savedMime, 'upload', savedSize, Date.now(), Date.now())
+
+    return { id, type, filePath: savedPath, fileName: fileName || path.basename(savedPath), fileSize: savedSize }
   }
 
   deleteAsset(id: string) {
@@ -206,9 +279,9 @@ export class AssetManager {
     if (!asset) return null
 
     // Try to re-download from the original task
-    const task = raw.prepare('SELECT * FROM kie_tasks WHERE task_id = ?').get(asset.taskId) as any
+    const task = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(asset.taskId) as any
     if (!task) {
-      console.error(`[refreshAsset] No kie_task found for task_id: ${asset.taskId}`)
+      console.error(`[refreshAsset] No task found for task_id: ${asset.taskId}`)
       if (!asset.filePath?.startsWith('__error__')) {
         raw.prepare('UPDATE assets SET file_path = ?, updated_at = ? WHERE id = ?')
           .run('__error__:File missing and no task found to recover', Date.now(), id)
@@ -222,14 +295,14 @@ export class AssetManager {
     // Fallback: try to find kieTaskId from run_logs
     if (!kieTaskId) {
       const logRow = raw.prepare(
-        "SELECT message FROM run_logs WHERE task_id = ? AND message LIKE 'KIE task created:%' ORDER BY created_at ASC LIMIT 1"
+        "SELECT message FROM run_logs WHERE task_id = ? AND message LIKE 'Task created:%' ORDER BY created_at ASC LIMIT 1"
       ).get(asset.taskId) as any
       if (logRow?.message) {
-        const match = logRow.message.match(/KIE task created:\s*(.+)$/)
+        const match = logRow.message.match(/Task created:\s*(.+)$/)
         if (match) {
           kieTaskId = match[1]
           console.log(`[refreshAsset] Recovered kieTaskId from logs: ${kieTaskId}`)
-          raw.prepare('UPDATE kie_tasks SET kie_task_id = ? WHERE task_id = ?').run(kieTaskId, asset.taskId)
+          raw.prepare('UPDATE openfield_tasks SET openfield_task_id = ? WHERE task_id = ?').run(kieTaskId, asset.taskId)
         }
       }
     }
@@ -237,16 +310,16 @@ export class AssetManager {
     if (!kieTaskId) {
       console.error(`[refreshAsset] No kieTaskId for task: ${asset.taskId}. Status: ${task.status}`)
       raw.prepare('UPDATE assets SET file_path = ?, updated_at = ? WHERE id = ?')
-        .run(`__error__:Task never submitted to KIE (status: ${task.status})`, Date.now(), id)
+        .run(`__error__:Task never submitted to API (status: ${task.status})`, Date.now(), id)
       return this.getAsset(id)
     }
 
     try {
-      const { KieApiClient } = require('./kie-api')
-      const apiKey = raw.prepare("SELECT value FROM settings WHERE key = 'kieApiKey'").get() as any
+      const { OpenfieldApiClient } = require('./kie')
+      const apiKey = raw.prepare("SELECT value FROM settings WHERE key = 'openfieldApiKey' OR key = 'kieApiKey' ORDER BY CASE WHEN key = 'openfieldApiKey' THEN 0 ELSE 1 END LIMIT 1").get() as any
       if (!apiKey?.value) throw new Error('No API key configured')
       const key = JSON.parse(apiKey.value)
-      const api = new KieApiClient(key)
+      const api = new OpenfieldApiClient(key)
 
       let detail = await api.getTaskDetail(kieTaskId!)
       if (detail.state !== 'success' && detail.state !== 'fail') {
@@ -254,13 +327,13 @@ export class AssetManager {
       }
 
       if (detail.state !== 'success') {
-        console.error(`[refreshAsset] KIE task state is ${detail.state} for ${kieTaskId}`)
+        console.error(`[refreshAsset] Task state is ${detail.state} for ${kieTaskId}`)
         raw.prepare('UPDATE assets SET file_path = ?, updated_at = ? WHERE id = ?')
           .run(`__error__:Task state is ${detail.state}`, Date.now(), id)
         return this.getAsset(id)
       }
 
-      console.log(`[refreshAsset] KIE task OK, model=${detail.model}, credits=${detail.creditsConsumed}`)
+      console.log(`[refreshAsset] Task OK, model=${detail.model}, credits=${detail.creditsConsumed}`)
 
       const { extractUrls } = require('./task-queue')
       const resultUrls = extractUrls(detail.resultJson)
@@ -277,10 +350,10 @@ export class AssetManager {
 
       const type = asset.type as 'image' | 'video'
       const ext = type === 'video' ? '.mp4' : '.png'
-      const mime = type === 'image' ? 'image/png' : 'video/mp4'
+      let mime = type === 'image' ? 'image/png' : 'video/mp4'
       const subDir = getAssetSubDir(type)
-      const fileName = `${id}${ext}`
-      const localPath = `${subDir}/${fileName}`
+      let fileName = `${id}${ext}`
+      let localPath = `${subDir}/${fileName}`
 
       await fs.mkdir(subDir, { recursive: true })
 
@@ -304,14 +377,38 @@ export class AssetManager {
         await fs.writeFile(localPath, buffer)
       }
 
-      // Re-encode video for browser compatibility
+      // Re-encode video for browser compatibility / convert images to WebP
       let fileSize = buffer.length
       if (type === 'video') {
         try {
           const result = await ensurePlayableVideo(localPath)
           fileSize = result.size
         } catch {}
+      } else {
+        const res = await ensureImageWebp(localPath, mime)
+        localPath = res.path
+        mime = res.mime
+        fileName = path.basename(res.path)
+        fileSize = res.size
       }
+
+      // Backfill assetIds saved at enqueue time (keep disk-backed refs for recreate)
+      let storedParams = stripForStorage(taskPayload)
+      try {
+        if (asset.parameters) {
+          const existing = JSON.parse(asset.parameters)
+          for (const k of ['imageAssetId', 'firstFrameAssetId', 'lastFrameAssetId']) {
+            if (existing[k] && !storedParams[k]) storedParams[k] = existing[k]
+          }
+          for (const rk of ['imageRefs', 'videoRefs']) {
+            if (Array.isArray(existing[rk]) && Array.isArray(storedParams[rk])) {
+              for (let i = 0; i < storedParams[rk].length && i < existing[rk].length; i++) {
+                if (existing[rk][i]?.assetId && !storedParams[rk][i]?.assetId) storedParams[rk][i].assetId = existing[rk][i].assetId
+              }
+            }
+          }
+        }
+      } catch {}
 
       raw.prepare(
         `UPDATE assets SET file_path = ?, local_path = ?, file_name = ?, mime_type = ?, model_used = ?, prompt = ?, parameters = ?, file_size = ?, credits_used = ?, updated_at = ? WHERE id = ?`
@@ -319,9 +416,9 @@ export class AssetManager {
         url, localPath, fileName, mime,
         detail.model || taskPayload?.model || '',
         taskPayload?.prompt || '',
-        JSON.stringify(taskPayload),
+        JSON.stringify(storedParams),
         fileSize,
-        detail.creditsConsumed || 0,
+        Math.round(detail.creditsConsumed || 0),
         Date.now(), id
       )
 
@@ -348,8 +445,8 @@ export class AssetManager {
     const type = asset.type as 'image' | 'video'
     const ext = type === 'video' ? '.mp4' : '.png'
     const subDir = getAssetSubDir(type)
-    const fileName = `${id}${ext}`
-    const localPath = `${subDir}/${fileName}`
+    let fileName = `${id}${ext}`
+    let localPath = `${subDir}/${fileName}`
 
     await fs.mkdir(subDir, { recursive: true })
 
@@ -374,23 +471,112 @@ export class AssetManager {
     await fs.writeFile(localPath, buffer)
 
     let fileSize = buffer.length
+    let mime = type === 'image' ? 'image/png' : 'video/mp4'
     if (type === 'video') {
       try {
         const result = await ensurePlayableVideo(localPath)
         fileSize = result.size
       } catch {}
+    } else {
+      const res = await ensureImageWebp(localPath, mime)
+      localPath = res.path
+      mime = res.mime
+      fileName = path.basename(res.path)
+      fileSize = res.size
     }
 
-    raw.prepare('UPDATE assets SET local_path = ?, file_size = ?, updated_at = ? WHERE id = ?')
-      .run(localPath, fileSize, Date.now(), id)
+    raw.prepare('UPDATE assets SET local_path = ?, file_name = ?, mime_type = ?, file_size = ?, updated_at = ? WHERE id = ?')
+      .run(localPath, fileName, mime, fileSize, Date.now(), id)
 
     raw.save()
 
     return this.getAsset(id)
   }
+
+  getWebpStats() {
+    const raw = getRawDb()
+    const total = raw.prepare("SELECT count(*) as c FROM assets WHERE type = 'image'").get()?.c || 0
+    const pending = raw.prepare("SELECT count(*) as c FROM assets WHERE type = 'image' AND mime_type != 'image/webp'").get()?.c || 0
+    return { total, pending }
+  }
+
+  async convertAllImagesToWebp(): Promise<{ converted: number; failed: number }> {
+    const raw = getRawDb()
+    const assets = raw.prepare(
+      `SELECT * FROM assets WHERE type = 'image' AND mime_type != 'image/webp'
+       AND (local_path IS NOT NULL OR (file_path NOT LIKE 'http%' AND file_path NOT LIKE '__error__%'))`
+    ).all() as any[]
+
+    let converted = 0
+    let failed = 0
+    for (const asset of assets) {
+      const filePath = asset.localPath || (asset.filePath && !asset.filePath.startsWith('http') && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
+      if (!filePath) continue
+      try {
+        const res = await ensureImageWebp(filePath, asset.mimeType, true)
+        if (res.path !== filePath) {
+          const fileName = path.basename(res.path)
+          if (asset.localPath) {
+            raw.prepare('UPDATE assets SET local_path = ?, file_name = ?, mime_type = ?, file_size = ?, updated_at = ? WHERE id = ?')
+              .run(res.path, fileName, res.mime, res.size, Date.now(), asset.id)
+          } else {
+            raw.prepare('UPDATE assets SET file_path = ?, file_name = ?, mime_type = ?, file_size = ?, updated_at = ? WHERE id = ?')
+              .run(res.path, fileName, res.mime, res.size, Date.now(), asset.id)
+          }
+          converted++
+        }
+      } catch (err: any) {
+        console.warn('[webp] convert-all failed for', asset.fileName, err?.message)
+        failed++
+      }
+    }
+    if (converted > 0) raw.save()
+    return { converted, failed }
+  }
 }
 
 let assetManagerInstance: AssetManager | null = null
+
+// Whether images should be converted to WebP on save (setting, default ON)
+export function saveImagesAsWebp(): boolean {
+  try {
+    const row = getRawDb().prepare("SELECT value FROM settings WHERE key = 'saveImagesAsWebp'").get() as any
+    return row?.value ? JSON.parse(row.value) !== false : true
+  } catch { return true }
+}
+
+async function convertImageToWebp(inputPath: string): Promise<string | null> {
+  try {
+    const ffmpegStatic = require('ffmpeg-static')
+    const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
+    const outPath = inputPath.replace(/\.[^.]+$/, '') + '.webp'
+    await new Promise<void>((resolve, reject) => {
+      const { spawn } = require('child_process')
+      const proc = spawn(ffmpegPath, ['-y', '-i', inputPath, '-c:v', 'libwebp', '-quality', '90', outPath])
+      proc.on('error', reject)
+      proc.on('close', (code: number) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}`))))
+    })
+    await fs.unlink(inputPath).catch(() => {})
+    return outPath
+  } catch (err: any) {
+    console.warn('[webp] Conversion failed:', err?.message)
+    return null
+  }
+}
+
+// Converts an image file to WebP when the setting is enabled (or `force` is true) and the
+// file isn't already WebP. Returns the (possibly new) path, mime and size.
+export async function ensureImageWebp(filePath: string, mimeType: string, force = false): Promise<{ path: string; mime: string; size: number }> {
+  if (mimeType?.startsWith('image/') && mimeType !== 'image/webp' && (force || saveImagesAsWebp())) {
+    const webpPath = await convertImageToWebp(filePath)
+    if (webpPath) {
+      const st = await fs.stat(webpPath)
+      return { path: webpPath, mime: 'image/webp', size: st.size }
+    }
+  }
+  const st = await fs.stat(filePath)
+  return { path: filePath, mime: mimeType, size: st.size }
+}
 
 export async function ensurePlayableVideo(inputPath: string): Promise<{ path: string; size: number }> {
   try {
@@ -398,7 +584,7 @@ export async function ensurePlayableVideo(inputPath: string): Promise<{ path: st
     const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
     const os = require('os')
     const pathMod = require('path')
-    const tmpPath = pathMod.join(os.tmpdir(), `kie-transcode-${Date.now()}.mp4`)
+    const tmpPath = pathMod.join(os.tmpdir(), `openfield-transcode-${Date.now()}.mp4`)
     console.log('[ensurePlayableVideo] Re-encoding to', tmpPath)
 
     await new Promise<void>((resolve, reject) => {

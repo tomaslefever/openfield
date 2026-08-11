@@ -5,3 +5,8 @@ export function fileUrl(filePath: string, cacheBust?: number): string {
   const qs = cacheBust ? `?t=${cacheBust}` : ''
   return 'asset://localhost/' + normalized + qs
 }
+
+export function srcUrl(filePath: string | undefined | null, cacheBust?: number): string | undefined {
+  if (!filePath) return undefined
+  return fileUrl(filePath, cacheBust)
+}

@@ -166,10 +166,10 @@ REGLAS: Indica siempre qué especialista está trabajando (ej: "[Guionista] Aqu�
         return { role: m.role, content: m.content }
       })]
 
-      const api = (window as any).electronAPI; const useSim = !api?.kie?.agentChat
+      const api = (window as any).electronAPI; const useSim = !api?.openfield?.agentChat
       let response: any
       if (useSim) { await new Promise(r => setTimeout(r, 1000)); response = simulateAgentResponse(messages[messages.length - 1].content) }
-      else { response = await api.kie.agentChat({ messages: apiMessages, model: 'claude-opus-4-20250514', tools: AGENT_TOOLS, stream: false }) }
+      else { response = await api.openfield.agentChat({ messages: apiMessages, model: 'claude-opus-4-20250514', tools: AGENT_TOOLS, stream: false }) }
 
       let assistantContent = response?.content || response?.message?.content || ''
       if (/^[a-z0-9]{8,30}$/.test(assistantContent.trim())) assistantContent = ''

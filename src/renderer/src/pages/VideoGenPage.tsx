@@ -1,9 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RefreshCw, RotateCcw, Clock, Cloud, FolderOpen, CheckSquare, Square } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Clock, Cloud, FolderOpen, CheckSquare, Square, Search, Star } from 'lucide-react'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
-import { fileUrl } from '../services/file-url'
+import { usePagedAssets } from '../hooks/usePagedAssets'
+import { copyText } from '../lib/clipboard'
+import { useAppStore } from '../stores/app-store'
+import { fileUrl, srcUrl } from '../services/file-url'
 import { AssetBadge } from '../components/ui/asset-badge'
+import { AutoPlayVideo } from '../components/ui/AutoPlayVideo'
 import { TagEditor } from '../components/ui/TagEditor'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
@@ -16,24 +19,40 @@ const MODEL_NAMES: Record<string, string> = {
   'grok-imagine/text-to-video': 'Grok Imagine',
   'grok-imagine/image-to-video': 'Grok Imagine',
   'bytedance/seedance-2': 'Seedance 2',
+  'bytedance/seedance-2-5': 'Seedance 2.5',
   'bytedance/seedance-2-fast': 'Seedance 2 Fast',
   'wan-2-7-text-to-video': 'Wan 2.7',
   'wan-2-7-image-to-video': 'Wan 2.7',
   'hailuo/02-text-to-video-pro': 'Hailuo 2 Pro',
   'gemini-omni-video': 'Gemini Omni',
+  'prunaai/p-video-avatar': 'P-Video Avatar',
+  'minimax/h3/reference-to-video': 'MiniMax H3',
 }
 
 export function VideoGenPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'done'>('idle')
   const [isDev, setIsDev] = useState(false)
-  const [videoVersion, setVideoVersion] = useState(0)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
   const [showBulkDelete, setShowBulkDelete] = useState(false)
+  const [search, setSearch] = useState('')
+  const [showFavorites, setShowFavorites] = useState(false)
   const composerRef = useRef<PromptComposerHandle>(null)
+  const composerPayload = useAppStore(s => s.composerPayload)
+  const setComposerPayload = useAppStore(s => s.setComposerPayload)
+
+  // Load prompt from Prompt Library regenerate
+  useEffect(() => {
+    if (composerPayload && composerPayload.mode === 'video') {
+      setTimeout(() => {
+        composerRef.current?.loadFromParams(composerPayload)
+        setComposerPayload(null)
+      }, 100)
+    }
+  }, [composerPayload, setComposerPayload])
 
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map())
 
@@ -41,15 +60,21 @@ export function VideoGenPage() {
 
   const playTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
+  const playAttemptsRef = useRef<Map<string, number>>(new Map())
+
   const handleMouseEnter = (id: string) => {
     const el = getVideoEl(id)
     if (!el) return
     el.currentTime = 0
     el.muted = true
     el.play().catch(() => {})
+    playAttemptsRef.current.set(id, 0)
     const interval = setInterval(() => {
+      const attempts = playAttemptsRef.current.get(id) || 0
+      if (attempts >= 25) { clearInterval(interval); playTimerRef.current.delete(id); playAttemptsRef.current.delete(id); return }
+      playAttemptsRef.current.set(id, attempts + 1)
       if (el.paused && el.readyState >= 2) { el.play().catch(() => {}) }
-    }, 200)
+    }, 500)
     playTimerRef.current.set(id, interval)
   }
   const handleMouseLeave = (id: string) => {
@@ -57,15 +82,10 @@ export function VideoGenPage() {
     if (el) { el.pause(); el.currentTime = 0 }
     const timer = playTimerRef.current.get(id)
     if (timer) { clearInterval(timer); playTimerRef.current.delete(id) }
+    playAttemptsRef.current.delete(id)
   }
 
-  const { data: recentVideos, refetch } = useQuery({
-    queryKey: ['assets', 'recent', 'video'],
-    queryFn: () => (window as any).electronAPI?.assets.list({ type: 'video', limit: 50 }) ?? { assets: [] },
-    refetchInterval: 3000,
-  })
-
-  const assets = Array.isArray(recentVideos?.assets) ? recentVideos.assets : []
+  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset } = usePagedAssets({ type: 'video', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
 
   useEffect(() => {
     try {
@@ -86,10 +106,14 @@ export function VideoGenPage() {
   useEffect(() => {
     const api = (window as any).electronAPI
     if (!api) return
-    const unsubComplete = api.on('kie:task:completed', () => refetch())
-    const unsubFailed = api.on('kie:task:failed', () => refetch())
-    return () => { unsubComplete?.(); unsubFailed?.() }
-  }, [refetch])
+    const unsubComplete = api.on('openfield:task:completed', () => reset())
+    const unsubFailed = api.on('openfield:task:failed', () => reset())
+    const unsubRpComplete = api.on('replicate:task:completed', () => reset())
+    const unsubRpFailed = api.on('replicate:task:failed', () => reset())
+    const unsubFalComplete = api.on('fal:task:completed', () => reset())
+    const unsubFalFailed = api.on('fal:task:failed', () => reset())
+    return () => { unsubComplete?.(); unsubFailed?.(); unsubRpComplete?.(); unsubRpFailed?.(); unsubFalComplete?.(); unsubFalFailed?.() }
+  }, [reset])
 
   useEffect(() => {
     if (!selectedAsset) return
@@ -105,24 +129,72 @@ export function VideoGenPage() {
 
   const handleDelete = useCallback(async (assetId: string) => {
     await (window as any).electronAPI?.assets.delete(assetId)
-    refetch()
+    reset()
     if (selectedAsset?.id === assetId) setSelectedAsset(null)
-  }, [refetch, selectedAsset])
+  }, [reset, selectedAsset])
+
+  const handleToggleFavorite = useCallback(async (id: string) => {
+    const updated = await (window as any).electronAPI?.assets.toggleFavorite(id)
+    if (updated) {
+      updateAsset(updated)
+      setSelectedAsset((prev: any) => prev?.id === updated.id ? updated : prev)
+    }
+  }, [updateAsset])
+
+  const handleSaveAs = async () => {
+    if (!selectedAsset) return
+    setSaveState('saving')
+    try {
+      const res = await (window as any).electronAPI?.assets.saveAs(selectedAsset.id)
+      if (res?.ok) {
+        setSaveState('done')
+        setTimeout(() => setSaveState('idle'), 1500)
+      } else {
+        setSaveState('idle')
+      }
+    } catch (err) {
+      console.error('Save as failed:', err)
+      setSaveState('idle')
+    }
+  }
 
   const handleGenerate = useCallback(async (params: any) => {
     try {
-      await (window as any).electronAPI?.kie.generateVideo(params)
-      refetch()
+      const api = (window as any).electronAPI
+      const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/')
+      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/')
+      if (isFalModel) {
+        await api?.fal.generate(params)
+      } else if (isReplicateModel) {
+        await api?.replicate.generate(params)
+      } else {
+        await api?.openfield.generateVideo(params)
+      }
+      reset()
     } catch (err) { console.error('Video generation failed:', err) }
-  }, [refetch])
+  }, [reset])
 
-  const toggleSelect = useCallback((id: string) => {
+  const lastSelectedRef = useRef<string | null>(null)
+
+  const toggleSelect = useCallback((id: string, shift = false) => {
     setSelectedIds(prev => {
+      if (shift && lastSelectedRef.current && lastSelectedRef.current !== id) {
+        const idxs = assets.map(a => a.id)
+        const start = idxs.indexOf(lastSelectedRef.current)
+        const end = idxs.indexOf(id)
+        if (start >= 0 && end >= 0) {
+          const [lo, hi] = start < end ? [start, end] : [end, start]
+          const next = new Set(prev)
+          for (let i = lo; i <= hi; i++) next.add(idxs[i])
+          return next
+        }
+      }
       const next = new Set(prev)
       if (next.has(id)) next.delete(id); else next.add(id)
+      lastSelectedRef.current = id
       return next
     })
-  }, [])
+  }, [assets])
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
 
@@ -131,15 +203,15 @@ export function VideoGenPage() {
     await api?.assets.deleteMultiple(Array.from(selectedIds))
     setShowBulkDelete(false)
     clearSelection()
-    refetch()
-  }, [selectedIds, clearSelection, refetch])
+    reset()
+  }, [selectedIds, clearSelection, reset])
 
   const handleBulkAddTags = useCallback(async (tags: string[]) => {
     const api = (window as any).electronAPI
     await api?.assets.addTagsMultiple(Array.from(selectedIds), tags)
     setShowBulkTag(false)
-    refetch()
-  }, [selectedIds, refetch])
+    reset()
+  }, [selectedIds, reset])
 
   const handleBulkAddToComposer = useCallback(async () => {
     const api = (window as any).electronAPI
@@ -153,31 +225,46 @@ export function VideoGenPage() {
   const params = selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}
 
   const handleReload = () => {
-    refetch()
+    reset()
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-6 pb-32">
+      <div className="flex-1 overflow-y-auto p-4">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-lg font-semibold text-surface-100">Video Generation</h1>
-            {isDev && (
-              <button onClick={handleReload} className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg text-[11px] font-medium text-amber-400 transition-colors">
-                <RotateCcw size={12} /> Reload
-              </button>
-            )}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] text-surface-600">{total} videos</span>
+            <div className="relative flex-1 max-w-xs ml-auto">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-500" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by tag or prompt..."
+                className="input-field pl-8 text-xs w-full"
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setShowFavorites(v => !v)}
+              title={showFavorites ? 'Show all videos' : 'Show favorites only'}
+              className={`flex-shrink-0 p-1.5 rounded-lg border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-400 hover:border-amber-500/30'}`}
+            >
+              <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
+            </button>
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {assets.map((asset: any) => {
               const isSel = selectedIds.has(asset.id)
               return (
-              <div key={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={() => setSelectedAsset(asset)} onMouseEnter={() => handleMouseEnter(asset.id)} onMouseLeave={() => handleMouseLeave(asset.id)}>
+              <div key={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={(e) => { if (e.shiftKey) { toggleSelect(asset.id, true) } else { setSelectedAsset(asset) } }} onMouseEnter={() => handleMouseEnter(asset.id)} onMouseLeave={() => handleMouseLeave(asset.id)}>
                 <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
                   {(() => {
                     const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
-                    if (src) return <video ref={(el) => { if (el) { videoRefs.current.set(asset.id, el); el.muted = true } else videoRefs.current.delete(asset.id) }} data-video-id={asset.id} src={fileUrl(src)} className="w-full h-full object-cover" preload="auto" loop playsInline />
+                    if (src) return <video ref={(el) => { if (el) { videoRefs.current.set(asset.id, el); el.muted = true } else videoRefs.current.delete(asset.id) }} data-video-id={asset.id} src={srcUrl(src)} className="w-full h-full object-cover" preload="auto" loop playsInline />
                     if (asset.filePath?.startsWith('__error__')) return (
                       <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
                         <AlertCircle size={20} />
@@ -193,26 +280,48 @@ export function VideoGenPage() {
                     return <div className="text-surface-600 text-sm">No preview</div>
                   })()}
                 </div>
-                {!asset.localPath && asset.filePath?.startsWith('http') && (
-                  <div className="absolute top-2 right-2 bg-black/60 rounded-md p-1 z-10">
-                    <Cloud size={12} className="text-blue-400" />
-                  </div>
-                )}
+                <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+                  {!asset.localPath && asset.filePath?.startsWith('http') && (
+                    <div className="bg-black/60 rounded-md p-1">
+                      <Cloud size={12} className="text-blue-400" />
+                    </div>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleToggleFavorite(asset.id) }}
+                    title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
+                    className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+                  >
+                    <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
+                  </button>
+                </div>
                 <button
-                  onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id) }}
+                  onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id, e.shiftKey) }}
                   className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
                 >
                   {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
                 </button>
                 <div className="absolute bottom-2 right-2 flex items-center gap-1">
                   {(() => { try { const p = JSON.parse(asset.parameters || '{}'); if (p.aspectRatio) return <AssetBadge value={p.aspectRatio} /> } catch {} return null })()}
-                  {asset.creditsUsed > 0 && <AssetBadge value={String(asset.creditsUsed)} icon={<Coins size={10} className="text-amber-400" />} />}
+                  {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
                 </div>
               </div>
             )})}
           </div>
 
-          {assets.length === 0 && (
+          {initialLoading && assets.length === 0 && (
+            <div className="flex items-center justify-center gap-2 py-16 text-surface-500">
+              <Loader size={20} className="animate-spin text-accent-400" />
+              <span className="text-xs">Loading...</span>
+            </div>
+          )}
+
+          {hasMore && (
+            <div ref={sentinelRef} className="flex items-center justify-center py-6">
+              {loadingMore && <Loader size={16} className="animate-spin text-surface-500" />}
+            </div>
+          )}
+
+          {assets.length === 0 && !initialLoading && (
             <div className="flex flex-col items-center justify-center py-20 text-surface-600">
               <svg xmlns="http://www.w3.org/2000/svg" width={48} height={48} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-4 opacity-50"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               <p className="text-sm">No videos yet. Generate using the composer below.</p>
@@ -268,21 +377,32 @@ export function VideoGenPage() {
                 </button>
               )}
               {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__'))) ? (
-                <video key={selectedAsset.id} src={fileUrl(selectedAsset.localPath || selectedAsset.filePath, videoVersion)} className="max-w-full max-h-[80vh] object-contain" controls preload="auto" playsInline />
+                <AutoPlayVideo key={selectedAsset.id} src={srcUrl(selectedAsset.localPath || selectedAsset.filePath)} className="max-w-full max-h-[80vh] object-contain" />
               ) : (
                 <div className="text-surface-600">No preview</div>
               )}
-              <button onClick={() => setSelectedAsset(null)} className="absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center text-white/60 hover:text-white">
-                <X size={16} />
+              <button
+                onClick={(e) => { e.stopPropagation(); handleToggleFavorite(selectedAsset.id) }}
+                title={selectedAsset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
+                className={`absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10 transition-colors ${selectedAsset.isFavorite ? 'text-amber-400' : 'text-white/60 hover:text-amber-400'}`}
+              >
+                <Star size={14} fill={selectedAsset.isFavorite ? 'currentColor' : 'none'} />
               </button>
             </div>
             {/* Details */}
-            <div className="w-72 bg-surface-900/80 p-5 overflow-y-auto space-y-4 border-l border-surface-800">
+            <div className="w-72 bg-surface-900/80 border-l border-surface-800 flex flex-col">
+              <div className="flex items-center justify-end px-3 py-2 border-b border-surface-800 flex-shrink-0">
+                <button onClick={() => setSelectedAsset(null)} title="Close"
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
                 <div className="flex items-start gap-1">
-                  <p className="text-sm text-surface-200 leading-relaxed flex-1">{selectedAsset.prompt || '—'}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(selectedAsset.prompt); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
+                  <p className="text-sm text-surface-200 leading-relaxed flex-1">{selectedAsset.prompt || params.prompt || '—'}</p>
+                  <button onClick={() => { copyText(selectedAsset.prompt || params.prompt || ''); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
                     className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
                     {copiedPrompt ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
                   </button>
@@ -330,7 +450,7 @@ export function VideoGenPage() {
               </div>
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Credits Used</p>
-                <p className="text-sm text-amber-400">{selectedAsset.creditsUsed > 0 ? selectedAsset.creditsUsed.toLocaleString() : '—'}</p>
+                <p className="text-sm text-amber-400">{selectedAsset.creditsUsed > 0 ? Math.round(selectedAsset.creditsUsed).toLocaleString() : '—'}</p>
               </div>
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Created</p>
@@ -350,35 +470,53 @@ export function VideoGenPage() {
               </div>
               <div className="pt-2 border-t border-surface-800 space-y-1.5">
                 <button onClick={async () => {
-                  setRefreshing(true)
                   try {
+                    const p = JSON.parse(selectedAsset.parameters || '{}')
                     const api = (window as any).electronAPI
-                    if (api?.assets?.refresh) {
-                      const updated = await api.assets.refresh(selectedAsset.id)
-                      if (updated) { setSelectedAsset(updated); setVideoVersion(v => v + 1) }
-                    } else {
-                      const result = await api?.assets.list({ limit: 200 })
-                      if (result?.assets) {
-                        const updated = result.assets.find((a: any) => a.id === selectedAsset.id)
-                        if (updated) setSelectedAsset(updated)
+                    const loadRefs = async (refs: any[]) => {
+                      if (!refs?.length) return undefined
+                      const ids = refs.map(r => r.assetId).filter(Boolean)
+                      if (ids.length > 0) {
+                        const results = await api?.assets.readBase64(ids)
+                        const map = new Map((results || []).map((r: any) => [r.id, r.base64]))
+                        return refs.map(r => ({ ...r, base64: r.assetId ? (map.get(r.assetId) || '') : (r.base64 || '') })).filter((r: any) => r.base64?.length > 20)
                       }
+                      return refs.filter((r: any) => r.base64?.length > 50)
                     }
-                  } catch (err) { console.error('Refresh failed:', err) }
-                  refetch()
-                  setRefreshing(false)
-                }} disabled={refreshing} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                  <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} /> Refresh
+                    const loadImg = async (key: string) => {
+                      const assetKey = key === 'imageBase64' ? 'imageAssetId' : key === 'firstFrameBase64' ? 'firstFrameAssetId' : key === 'lastFrameBase64' ? 'lastFrameAssetId' : (key + 'AssetId')
+                      const assetId = p[assetKey] || p[key + 'AssetId']
+                      if (assetId) { const r = await api?.assets.readBase64([assetId]); return r?.[0]?.base64 || undefined }
+                      if (typeof p[key] === 'string' && p[key].length > 50) return p[key]
+                      return undefined
+                    }
+                    composerRef.current?.loadFromParams({
+                      prompt: selectedAsset.prompt || '',
+                      model: selectedAsset.modelUsed || '',
+                      aspectRatio: p.aspectRatio || p.aspect_ratio || undefined,
+                      resolution: p.resolution || undefined,
+                      duration: p.duration ?? undefined,
+                      fps: p.fps ?? undefined,
+                      sound: p.sound ?? undefined,
+                      imageBase64: await loadImg('imageBase64'),
+                      imageMime: p.imageMime || 'image/png',
+                      imageRefs: await loadRefs(p.imageRefs),
+                      videoRefs: await loadRefs(p.videoRefs),
+                      audioRefs: await loadRefs(p.audioRefs),
+                      firstFrameBase64: await loadImg('firstFrameBase64'),
+                      lastFrameBase64: await loadImg('lastFrameBase64'),
+                      multiShots: p.multiShots,
+                      multiPrompt: p.multiPrompt,
+                    })
+                  } catch (err) { console.error('Recreate failed:', err) }
+                  setSelectedAsset(null)
+                }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
+                  <RotateCcw size={12} /> Recreate
                 </button>
-<button onClick={async () => {
-                    const api = (window as any).electronAPI
-                    try {
-                      const updated = await api.assets.downloadToLocal(selectedAsset.id)
-                      refetch()
-                      if (updated) { setSelectedAsset(updated); setVideoVersion(v => v + 1) }
-                    } catch (err) { console.error('Download failed:', err) }
-                  }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                    <Download size={12} /> Download
-                  </button>
+                <button onClick={handleSaveAs} disabled={saveState === 'saving'} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
+                  {saveState === 'done' ? <Check size={12} className="text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
+                  {saveState === 'done' ? 'Saved' : 'Save as'}
+                </button>
                   {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') && !selectedAsset.filePath.startsWith('http'))) && (
                     <button onClick={() => (window as any).electronAPI?.assets.showInFolder(selectedAsset.id)}
                       className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
@@ -398,6 +536,7 @@ export function VideoGenPage() {
                     <Trash2 size={12} /> Delete
                   </button>
                 )}
+              </div>
               </div>
             </div>
           </div>

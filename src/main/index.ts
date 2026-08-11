@@ -1,15 +1,27 @@
-import { app, BrowserWindow, shell, protocol, net } from 'electron'
+﻿import { app, BrowserWindow, shell, protocol, net } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import { initDatabase, runMigrations, getRawDb } from './db'
 import { getAssetManager } from './services/asset-manager'
 import { registerIpcHandlers } from './ipc/handlers'
+import { runElementsMigration } from './migrations/migrate-elements'
+import { repairRecreateRefs } from './migrations/repair-recreate-refs'
+import { cleanupRepairDamage } from './migrations/cleanup-repair-damage'
+import { recoverRefsFromBackup } from './migrations/recover-refs-from-backup'
 import { initTaskQueue } from './services/task-queue'
+import { initReplicateQueue } from './services/replicate-queue'
+import { initFalQueue } from './services/fal-queue'
+import { getServerManager } from './services/local-models/server-manager'
+import { getMcpBridge } from './services/mcp'
+import { isBridgeEnabled } from './services/storyboard-service'
 
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev')
 let mainWindow: BrowserWindow | null = null
 
 async function createWindow() {
+  const iconPath = isDev
+    ? path.join(app.getAppPath(), 'resources', 'icon.png')
+    : path.join(process.resourcesPath, 'resources', 'icon.png')
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -17,6 +29,7 @@ async function createWindow() {
     minHeight: 700,
     backgroundColor: '#0f0f0f',
     show: false,
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
       contextIsolation: true,
@@ -48,14 +61,89 @@ async function initialize() {
   await getAssetManager().ensureDirectories()
   registerIpcHandlers()
 
+  // Migrate base64 elements to assets (one-time)
+  try { await runElementsMigration() } catch (err) { console.warn('[Migration] Elements migration failed:', err) }
+
+  // Clean up damage from the buggy repair run (if any), then re-run the corrected repair
+  try {
+    await cleanupRepairDamage()
+  } catch (err) { console.warn('[Migration] Recreate-refs cleanup failed:', err) }
+  try {
+    const raw = getRawDb()
+    const repaired = raw.prepare("SELECT value FROM settings WHERE key = 'repairRecreateRefsV2Done'").get() as any
+    if (!repaired) {
+      await repairRecreateRefs()
+      raw.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('repairRecreateRefsV2Done', '1', ?)").run(Date.now())
+      raw.save()
+    }
+  } catch (err) { console.warn('[Migration] Recreate-refs repair failed:', err) }
+
+  // Recover refs for older assets from the on-disk backup (one-time)
+  try {
+    const raw = getRawDb()
+    const recovered = raw.prepare("SELECT value FROM settings WHERE key = 'refsRecoveredFromBackup'").get() as any
+    if (!recovered) {
+      await recoverRefsFromBackup()
+      raw.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('refsRecoveredFromBackup', '1', ?)").run(Date.now())
+      raw.save()
+    }
+  } catch (err) { console.warn('[Migration] Backup refs recovery failed:', err) }
+
+  // Start local model server if enabled
+  try {
+    const raw = getRawDb()
+    const row = raw.prepare("SELECT value FROM settings WHERE key = 'enableLocalModels'").get() as any
+    if (row?.value) {
+      const enabled = JSON.parse(row.value)
+      if (enabled === true || enabled === 'true') {
+        getServerManager().start().catch(err => console.warn('[local-models] Server start failed:', err.message))
+      }
+    }
+  } catch {}
+
+  // Start MCP bridge (local HTTP bridge on port 19877 by default)
+  try {
+    if (isBridgeEnabled()) {
+      getMcpBridge().start().catch(err => console.warn('[MCP Bridge] Start failed:', err.message))
+    }
+  } catch (err: any) {
+    console.warn('[MCP Bridge] Start failed:', err?.message)
+  }
+
   // Recover interrupted tasks
   try {
     const raw = getRawDb()
-    const row = raw.prepare("SELECT value FROM settings WHERE key = 'kieApiKey'").get() as any
+    const row = raw.prepare("SELECT value FROM settings WHERE key = 'openfieldApiKey' OR key = 'kieApiKey' ORDER BY CASE WHEN key = 'openfieldApiKey' THEN 0 ELSE 1 END LIMIT 1").get() as any
     if (row?.value) {
       const apiKey = JSON.parse(row.value)
       if (apiKey && apiKey.length > 0) {
         const queue = initTaskQueue(apiKey)
+        await queue.recoverPendingTasks()
+      }
+    }
+  } catch {}
+
+  // Recover interrupted Replicate predictions
+  try {
+    const raw = getRawDb()
+    const row = raw.prepare("SELECT value FROM settings WHERE key = 'replicateApiKey'").get() as any
+    if (row?.value) {
+      const apiKey = JSON.parse(row.value)
+      if (apiKey && apiKey.length > 0) {
+        const queue = initReplicateQueue(apiKey)
+        await queue.recoverPendingTasks()
+      }
+    }
+  } catch {}
+
+  // Recover interrupted fal.ai requests
+  try {
+    const raw = getRawDb()
+    const row = raw.prepare("SELECT value FROM settings WHERE key = 'falApiKey'").get() as any
+    if (row?.value) {
+      const apiKey = JSON.parse(row.value)
+      if (apiKey && apiKey.length > 0) {
+        const queue = initFalQueue(apiKey)
         await queue.recoverPendingTasks()
       }
     }
@@ -128,5 +216,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  try { getRawDb().save() } catch {}
+  try { getServerManager().stop() } catch {}
+  try { getMcpBridge().stop() } catch {}
+  try { getRawDb().saveSync() } catch {}
 })

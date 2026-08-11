@@ -1,5 +1,5 @@
 {
-  "name": "kie-studio-desktop",
+  "name": "openfield",
   "private": true,
   "version": "0.1.0",
   "main": "dist/main/index.js",
@@ -17,8 +17,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "build": {
-    "appId": "com.kie-studio.desktop",
-    "productName": "KIE Studio Desktop",
+    "appId": "com.openfield.desktop",
+    "productName": "Openfield",
     "directories": {
       "output": "release"
     },
@@ -32,18 +32,18 @@
         "to": "resources/"
       }
     ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "resources/icon.ico"
-    },
-    "mac": {
-      "target": [
-        "dmg"
-      ],
-      "icon": "resources/icon.icns"
-    },
+      "win": {
+        "target": [
+          "nsis"
+        ],
+        "icon": "resources/icon.png"
+      },
+      "mac": {
+        "target": [
+          "dmg"
+        ],
+        "icon": "resources/icon.icns"
+      },
     "linux": {
       "target": [
         "AppImage",
@@ -53,11 +53,13 @@
     }
   },
   "dependencies": {
+    "@base-ui/react": "^1.6.0",
     "@shadcn/react": "^0.2.1",
     "@tanstack/react-query": "^5.101.3",
     "@tanstack/react-virtual": "^3.14.7",
     "@xyflow/react": "^12.11.2",
     "axios": "^1.18.1",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",

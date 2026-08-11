@@ -1,4 +1,4 @@
-import * as fs from 'fs/promises';
+﻿import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
@@ -113,7 +113,7 @@ constructor(ffmpegPath?: string) {
     const height = options.height || -1;
     const quality = options.quality || 2;
 
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kie-thumb-'));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openfield-thumb-'));
     const thumbPath = path.join(tmpDir, `${crypto.randomUUID()}.jpg`);
 
     return new Promise((resolve, reject) => {
@@ -141,7 +141,7 @@ constructor(ffmpegPath?: string) {
   }
 
   async generateSpriteSheet(inputPath: string, cols: number = 5, rows: number = 5): Promise<string> {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kie-sprite-'));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openfield-sprite-'));
     const outputPath = path.join(tmpDir, `sprite_${crypto.randomUUID()}.jpg`);
     const totalFrames = cols * rows;
 
@@ -208,7 +208,7 @@ constructor(ffmpegPath?: string) {
   }
 
   async concatVideos(inputPaths: string[], outputPath: string): Promise<string> {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kie-concat-'));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openfield-concat-'));
     const fileListPath = path.join(tmpDir, 'files.txt');
 
     const content = inputPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');

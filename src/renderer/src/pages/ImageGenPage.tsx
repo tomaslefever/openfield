@@ -1,17 +1,23 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
-import { Download, Trash2, Send, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RefreshCw, Cloud, FolderOpen, RotateCcw, CheckSquare, Square } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
+import { Trash2, Coins, Loader, AlertCircle, Copy, Check, Cloud, FolderOpen, RotateCcw, CheckSquare, Square, Search, X, Star, Box, Clapperboard, Eraser } from 'lucide-react'
+import { useAppStore } from '../stores/app-store'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
-import { fileUrl } from '../services/file-url'
+import { usePagedAssets } from '../hooks/usePagedAssets'
+import { fileUrl, srcUrl } from '../services/file-url'
 import { AssetBadge } from '../components/ui/asset-badge'
 import { TagEditor } from '../components/ui/TagEditor'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
+import { ImagePreviewModal } from '../components/ui/ImagePreviewModal'
+import { ElementWizard } from '../components/ElementWizard'
+import { copyText } from '../lib/clipboard'
+import { downscaleImage } from '../lib/image'
 
 const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-text-to-image': 'GPT Image 2',
   'gpt-image-2-image-to-image': 'GPT Image 2 I2I',
+  'recraft/remove-background': 'Remove Background',
   'nano-banana-2': 'Nano Banana 2',
   'seedream-5-pro-text-to-image': 'Seedream 5 Pro',
   'flux2-pro-text-to-image': 'Flux 2 Pro',
@@ -19,30 +25,104 @@ const MODEL_NAMES: Record<string, string> = {
   'imagen4-fast': 'Imagen 4 Fast',
 }
 
+const AssetCard = memo(function AssetCard({
+  asset,
+  isSelected,
+  onSelect,
+  onToggleSelect,
+  onToggleFavorite,
+}: {
+  asset: any
+  isSelected: boolean
+  onSelect: (asset: any, shift: boolean) => void
+  onToggleSelect: (id: string, shift: boolean) => void
+  onToggleFavorite: (id: string) => void
+}) {
+  const params = (() => { try { return JSON.parse(asset.parameters || '{}') } catch { return {} } })()
+  const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
+  const isError = asset.filePath?.startsWith('__error__')
+  const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
+  const isCloud = !asset.localPath && asset.filePath?.startsWith('http')
+
+  return (
+    <div
+      className="card group relative overflow-hidden p-0 cursor-pointer"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 250px' }}
+      onClick={(e) => onSelect(asset, e.shiftKey)}
+    >
+      <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
+        {src ? (
+          <img src={srcUrl(src)} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+        ) : isError ? (
+          <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
+            <AlertCircle size={20} />
+            <span className="text-[10px] text-center text-red-400/80 line-clamp-3">{asset.filePath.replace('__error__:', '')}</span>
+          </div>
+        ) : isLoading ? (
+          <div className="flex flex-col items-center gap-2 text-accent-400">
+            <Loader size={24} className="animate-spin" />
+            <span className="text-xs text-surface-500 px-2 text-center line-clamp-2">{asset.prompt}</span>
+          </div>
+        ) : (
+          <div className="text-surface-600 text-sm">No preview</div>
+        )}
+      </div>
+      <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+        {isCloud && (
+          <div className="bg-black/60 rounded-md p-1">
+            <Cloud size={12} className="text-blue-400" />
+          </div>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite(asset.id) }}
+          title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
+          className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+        >
+          <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onToggleSelect(asset.id, e.shiftKey) }}
+        className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSelected ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
+      >
+        {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+      </button>
+      <div className="absolute bottom-2 right-2 flex items-center gap-1">
+        {(params.aspectRatio || params.aspect_ratio) && <AssetBadge value={params.aspectRatio || params.aspect_ratio} />}
+        {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
+      </div>
+    </div>
+  )
+})
+
 export function ImageGenPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
   const [showBulkDelete, setShowBulkDelete] = useState(false)
+  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string } | null>(null)
+  const [promptExpanded, setPromptExpanded] = useState(false)
+  const [search, setSearch] = useState('')
+  const [showFavorites, setShowFavorites] = useState(false)
+  const [recreateMsg, setRecreateMsg] = useState<string | null>(null)
   const composerRef = useRef<PromptComposerHandle>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
-  const dragRef = useRef({ active: false, lastX: 0, lastY: 0 })
-  const zoomRef = useRef(1)
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
+  const composerPayload = useAppStore(s => s.composerPayload)
+  const setComposerPayload = useAppStore(s => s.setComposerPayload)
+  const setPage = useAppStore(s => s.setPage)
 
-  const { data: recentAssets, refetch } = useQuery({
-    queryKey: ['assets', 'recent', 'image'],
-    queryFn: () => (window as any).electronAPI?.assets.list({ type: 'image', limit: 50 }) ?? { assets: [] },
-    refetchInterval: 3000,
-  })
+  // Load prompt from Prompt Library regenerate
+  useEffect(() => {
+    if (composerPayload && composerPayload.mode !== 'video' && composerPayload.mode !== 'audio') {
+      setTimeout(() => {
+        composerRef.current?.loadFromParams(composerPayload)
+        setComposerPayload(null)
+      }, 100)
+    }
+  }, [composerPayload, setComposerPayload])
 
-  const assets = Array.isArray(recentAssets?.assets) ? recentAssets.assets : []
+  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset } = usePagedAssets({ type: 'image', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
 
   useEffect(() => {
     if (selectedAsset && assets.length > 0) {
@@ -52,77 +132,68 @@ export function ImageGenPage() {
   }, [assets, selectedAsset?.id])
 
   useEffect(() => {
-    setZoom(1)
-    setPan({ x: 0, y: 0 })
-  }, [selectedAsset?.id])
-
-  useEffect(() => { zoomRef.current = zoom }, [zoom])
-
-  const clampPan = (px: number, py: number, z: number) => {
-    const c = containerRef.current
-    const img = imgRef.current
-    if (!c || !img) return { x: px, y: py }
-    const cw = c.clientWidth
-    const ch = c.clientHeight
-    const iw = img.offsetWidth
-    const ih = img.offsetHeight
-    const sw = iw * z
-    const sh = ih * z
-    let cx = px, cy = py
-    if (sw > cw) {
-      const lim = (sw - cw) / 2
-      cx = Math.max(-lim, Math.min(lim, px))
-    }
-    if (sh > ch) {
-      const lim = (sh - ch) / 2
-      cy = Math.max(-lim, Math.min(lim, py))
-    }
-    return { x: cx, y: cy }
-  }
-
-  useEffect(() => {
     const api = (window as any).electronAPI
     if (!api) return
-    const unsubComplete = api.on('kie:task:completed', () => refetch())
-    const unsubFailed = api.on('kie:task:failed', () => refetch())
+    const unsubComplete = api.on('openfield:task:completed', () => reset())
+    const unsubFailed = api.on('openfield:task:failed', () => reset())
     return () => { unsubComplete?.(); unsubFailed?.() }
-  }, [refetch])
-
-  useEffect(() => {
-    if (!selectedAsset) return
-    const handler = (e: KeyboardEvent) => {
-      const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
-      if (e.key === 'ArrowLeft' && idx > 0) setSelectedAsset(assets[idx - 1])
-      if (e.key === 'ArrowRight' && idx < assets.length - 1) setSelectedAsset(assets[idx + 1])
-      if (e.key === 'Escape') {
-        if (zoom > 1) { setZoom(1); setPan({ x: 0, y: 0 }); return }
-        setSelectedAsset(null)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [selectedAsset, assets, zoom])
+  }, [reset])
 
   const handleDelete = useCallback(async (assetId: string) => {
     await (window as any).electronAPI?.assets.delete(assetId)
-    refetch()
+    reset()
     if (selectedAsset?.id === assetId) setSelectedAsset(null)
-  }, [refetch, selectedAsset])
+  }, [reset, selectedAsset])
+
+  const handleToggleFavorite = useCallback(async (id: string) => {
+    const updated = await (window as any).electronAPI?.assets.toggleFavorite(id)
+    if (updated) {
+      updateAsset(updated)
+      setSelectedAsset((prev: any) => prev?.id === updated.id ? updated : prev)
+    }
+  }, [updateAsset])
 
   const handleGenerate = useCallback(async (params: any) => {
     try {
-      await (window as any).electronAPI?.kie.generateImage(params)
-      refetch()
+      const api = (window as any).electronAPI
+      if (params.local && params.modelId) {
+        await api?.local.imageGenerate({
+          modelId: params.modelId,
+          prompt: params.prompt,
+          width: params.resolution === '2K' ? 2048 : params.resolution === '4K' ? 4096 : 1024,
+          height: params.resolution === '2K' ? 2048 : params.resolution === '4K' ? 4096 : 1024,
+          steps: 4,
+          guidance: 0,
+          seed: -1,
+        })
+      } else {
+        await api?.openfield.generateImage(params)
+      }
+      reset()
     } catch (err) { console.error('Generation failed:', err) }
-  }, [refetch])
+  }, [reset])
 
-  const toggleSelect = useCallback((id: string) => {
+  const lastSelectedRef = useRef<string | null>(null)
+
+  const toggleSelect = useCallback((id: string, shift = false) => {
     setSelectedIds(prev => {
+      if (shift && lastSelectedRef.current && lastSelectedRef.current !== id) {
+        const idxs = assets.map(a => a.id)
+        const start = idxs.indexOf(lastSelectedRef.current)
+        const end = idxs.indexOf(id)
+        if (start >= 0 && end >= 0) {
+          const [lo, hi] = start < end ? [start, end] : [end, start]
+          const next = new Set(prev)
+          for (let i = lo; i <= hi; i++) next.add(idxs[i])
+          return next
+        }
+      }
       const next = new Set(prev)
       if (next.has(id)) next.delete(id); else next.add(id)
+      lastSelectedRef.current = id
       return next
     })
-  }, [])
+  }, [assets])
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
 
@@ -131,15 +202,15 @@ export function ImageGenPage() {
     await api?.assets.deleteMultiple(Array.from(selectedIds))
     setShowBulkDelete(false)
     clearSelection()
-    refetch()
-  }, [selectedIds, clearSelection, refetch])
+    reset()
+  }, [selectedIds, clearSelection, reset])
 
   const handleBulkAddTags = useCallback(async (tags: string[]) => {
     const api = (window as any).electronAPI
     await api?.assets.addTagsMultiple(Array.from(selectedIds), tags)
     setShowBulkTag(false)
-    refetch()
-  }, [selectedIds, refetch])
+    reset()
+  }, [selectedIds, reset])
 
   const handleBulkAddToComposer = useCallback(async () => {
     const api = (window as any).electronAPI
@@ -150,105 +221,70 @@ export function ImageGenPage() {
     clearSelection()
   }, [selectedIds, clearSelection])
 
-  const handleWheel = useCallback((e: any) => {
-    e.preventDefault()
-    const c = containerRef.current
-    if (!c) return
-    const rect = c.getBoundingClientRect()
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
-    const cw = rect.width
-    const ch = rect.height
-    const delta = e.deltaY < 0 ? 0.1 : -0.1
-    setZoom(prev => {
-      const newZoom = Math.min(4, Math.max(1, prev * (1 + delta)))
-      if (newZoom === prev) return prev
-      if (newZoom === 1) { setPan({ x: 0, y: 0 }); return newZoom }
-      const scale = newZoom / prev
-      setPan(prevPan => {
-        const relX = mx - cw / 2
-        const relY = my - ch / 2
-        return clampPan(relX * (1 - scale) + prevPan.x * scale, relY * (1 - scale) + prevPan.y * scale, newZoom)
-      })
-      return newZoom
-    })
-  }, [])
-
-  const handleMouseDown = useCallback((e: any) => {
-    if (zoomRef.current <= 1) return
-    dragRef.current = { active: true, lastX: e.clientX, lastY: e.clientY }
-    setIsDragging(true)
-  }, [])
-
-  const handleMouseMove = useCallback((e: any) => {
-    if (!dragRef.current.active) return
-    const dx = e.clientX - dragRef.current.lastX
-    const dy = e.clientY - dragRef.current.lastY
-    dragRef.current.lastX = e.clientX
-    dragRef.current.lastY = e.clientY
-    if (dx === 0 && dy === 0) return
-    setPan(prev => clampPan(prev.x + dx, prev.y + dy, zoomRef.current))
-  }, [])
-
-  const handleMouseUp = useCallback(() => {
-    dragRef.current.active = false
-    setIsDragging(false)
-  }, [])
-
-  const params = selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}
+  const params = useMemo(() => selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}, [selectedAsset])
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-6 pb-32">
+      {recreateMsg && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-surface-800 border border-surface-700 rounded-lg px-4 py-2 shadow-xl text-xs text-surface-200 flex items-center gap-2">
+          <span>{recreateMsg}</span>
+          <button onClick={() => setRecreateMsg(null)} className="text-surface-500 hover:text-surface-300">
+            <X size={12} />
+          </button>
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto p-4">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-lg font-semibold text-surface-100">Image Generation</h1>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {assets.map((asset: any) => {
-              const isSel = selectedIds.has(asset.id)
-              return (
-              <div key={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={() => setSelectedAsset(asset)}>
-                <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
-                  {(() => {
-                    const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
-                    if (src) return <img src={fileUrl(src)} className="w-full h-full object-cover" />
-                    if (asset.filePath?.startsWith('__error__')) return (
-                      <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
-                        <AlertCircle size={20} />
-                        <span className="text-[10px] text-center text-red-400/80 line-clamp-3">{asset.filePath.replace('__error__:', '')}</span>
-                      </div>
-                    )
-                    if (asset.modelUsed && asset.modelUsed !== 'import') return (
-                      <div className="flex flex-col items-center gap-2 text-accent-400">
-                        <Loader size={24} className="animate-spin" />
-                        <span className="text-xs text-surface-500 px-2 text-center line-clamp-2">{asset.prompt}</span>
-                      </div>
-                    )
-                    return <div className="text-surface-600 text-sm">No preview</div>
-                  })()}
-                </div>
-                {!asset.localPath && asset.filePath?.startsWith('http') && (
-                  <div className="absolute top-2 right-2 bg-black/60 rounded-md p-1 z-10">
-                    <Cloud size={12} className="text-blue-400" />
-                  </div>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id) }}
-                  className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
-                >
-                  {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] text-surface-600">{total} images</span>
+            <div className="relative flex-1 max-w-xs ml-auto">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-500" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by tag or prompt..."
+                className="input-field pl-8 text-xs w-full"
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300">
+                  <X size={12} />
                 </button>
-                <div className="absolute bottom-2 right-2 flex items-center gap-1">
-                  {(() => { try { const p = JSON.parse(asset.parameters || '{}'); const ar = p.aspectRatio || p.aspect_ratio; if (ar) return <AssetBadge value={ar} /> } catch {} return null })()}
-                  {asset.creditsUsed > 0 && <AssetBadge value={String(asset.creditsUsed)} icon={<Coins size={10} className="text-amber-400" />} />}
-                </div>
-              </div>
-            )})}
+              )}
+            </div>
+            <button
+              onClick={() => setShowFavorites(v => !v)}
+              title={showFavorites ? 'Show all images' : 'Show favorites only'}
+              className={`flex-shrink-0 p-1.5 rounded-lg border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-400 hover:border-amber-500/30'}`}
+            >
+              <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {assets.map((asset: any) => (
+              <AssetCard
+                key={asset.id}
+                asset={asset}
+                isSelected={selectedIds.has(asset.id)}
+                onSelect={(asset, shift) => { if (shift) toggleSelect(asset.id, true); else setSelectedAsset(asset) }}
+                onToggleSelect={toggleSelect}
+                onToggleFavorite={handleToggleFavorite}
+              />            ))}
           </div>
 
-          {assets.length === 0 && (
+          {initialLoading && assets.length === 0 && (
+            <div className="flex items-center justify-center gap-2 py-16 text-surface-500">
+              <Loader size={20} className="animate-spin text-accent-400" />
+              <span className="text-xs">Loading...</span>
+            </div>
+          )}
+
+          {hasMore && (
+            <div ref={sentinelRef} className="flex items-center justify-center py-6">
+              {loadingMore && <Loader size={16} className="animate-spin text-surface-500" />}
+            </div>
+          )}
+
+          {assets.length === 0 && !initialLoading && (
             <div className="flex flex-col items-center justify-center py-20 text-surface-600">
               <svg xmlns="http://www.w3.org/2000/svg" width={48} height={48} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-4 opacity-50"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
               <p className="text-sm">No images yet. Generate using the composer below.</p>
@@ -285,192 +321,238 @@ export function ImageGenPage() {
 
       {/* Detail modal */}
       {selectedAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setSelectedAsset(null)}>
-          <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            {/* Image */}
-            <div
-              ref={containerRef}
-              className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative overflow-hidden"
-              onWheel={handleWheel}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-            >
-              {assets.findIndex((a: any) => a.id === selectedAsset.id) > 0 && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); const idx = assets.findIndex((a: any) => a.id === selectedAsset.id); setSelectedAsset(assets[idx - 1]) }}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors z-10">
-                  <ChevronLeft size={20} />
-                </button>
-              )}
-              {assets.findIndex((a: any) => a.id === selectedAsset.id) < assets.length - 1 && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); const idx = assets.findIndex((a: any) => a.id === selectedAsset.id); setSelectedAsset(assets[idx + 1]) }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors z-10">
-                  <ChevronRight size={20} />
-                </button>
-              )}
-              {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__'))) ? (
-                <img
-                  ref={imgRef}
-                  src={fileUrl(selectedAsset.localPath || selectedAsset.filePath)}
-                  className="max-w-full max-h-[80vh] object-contain select-none"
-                  draggable={false}
-                  style={{
-                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                    transformOrigin: 'center center',
-                    cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
-                  }}
-                />
-              ) : (
-                <div className="text-surface-600">No preview</div>
-              )}
-              <button onClick={() => setSelectedAsset(null)} className="absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center text-white/60 hover:text-white z-10">
-                <X size={16} />
+        <ImagePreviewModal
+          src={fileUrl(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') ? selectedAsset.filePath : ''))}
+          onClose={() => setSelectedAsset(null)}
+          isFavorite={!!selectedAsset.isFavorite}
+          onToggleFavorite={() => handleToggleFavorite(selectedAsset.id)}
+          onPrev={assets.findIndex((a: any) => a.id === selectedAsset.id) > 0 ? () => {
+            const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+            setSelectedAsset(assets[idx - 1])
+          } : undefined}
+          onNext={assets.findIndex((a: any) => a.id === selectedAsset.id) < assets.length - 1 ? () => {
+            const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+            setSelectedAsset(assets[idx + 1])
+          } : undefined}
+        >
+          <div>
+            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
+            <div className="flex items-start gap-1">
+              <p
+                onClick={() => setPromptExpanded(!promptExpanded)}
+                className={`text-sm text-surface-200 leading-relaxed flex-1 cursor-pointer select-none ${promptExpanded ? '' : 'line-clamp-3'}`}
+              >
+                {selectedAsset.prompt || params.prompt || '—'}
+              </p>
+              <button onClick={() => { copyText(selectedAsset.prompt || params.prompt || ''); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
+                className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
+                {copiedPrompt ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
               </button>
-              {zoom > 1 && (
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 rounded-full px-3 py-1.5 z-10">
-                  <span className="text-white/80 text-xs font-medium">{Math.round(zoom * 100)}%</span>
-                  <button
-                    onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }}
-                    className="text-white/60 hover:text-white text-xs"
-                  >
-                    Reset
-                  </button>
-                </div>
-              )}
-            </div>
-            {/* Details */}
-            <div className="w-72 bg-surface-900/80 p-5 overflow-y-auto space-y-4 border-l border-surface-800">
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
-                <div className="flex items-start gap-1">
-                  <p className="text-sm text-surface-200 leading-relaxed flex-1">{selectedAsset.prompt || '—'}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(selectedAsset.prompt); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
-                    className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
-                    {copiedPrompt ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Model</p>
-                <p className="text-sm text-surface-200">{MODEL_NAMES[selectedAsset.modelUsed] || selectedAsset.modelUsed || '—'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Task ID</p>
-                <p className="text-[11px] font-mono text-surface-400 break-all">{selectedAsset.taskId || '—'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Resolution</p>
-                <p className="text-sm text-surface-200">{params.resolution || '—'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Aspect Ratio</p>
-                <p className="text-sm text-surface-200">{params.aspectRatio || params.aspect_ratio || '—'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Dimensions</p>
-                <p className="text-sm text-surface-200">{selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}×${selectedAsset.height}` : '—'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">File Size</p>
-                <p className="text-sm text-surface-200">{selectedAsset.fileSize ? `${(selectedAsset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Credits Used</p>
-                <p className="text-sm text-amber-400">{selectedAsset.creditsUsed > 0 ? selectedAsset.creditsUsed.toLocaleString() : '—'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Created</p>
-                <p className="text-sm text-surface-200">{selectedAsset.createdAt ? new Date(selectedAsset.createdAt).toLocaleString() : '—'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Tags</p>
-                <TagEditor
-                  tags={(selectedAsset.tags ? selectedAsset.tags.split(',').filter(Boolean) : []).map((t: string) => t.trim())}
-                  onChange={async (newTags) => {
-                    const api = (window as any).electronAPI
-                    if (!api?.assets?.updateTags) return
-                    const updated = await api.assets.updateTags(selectedAsset.id, newTags)
-                    if (updated) setSelectedAsset(updated)
-                  }}
-                />
-              </div>
-              <div className="pt-2 border-t border-surface-800 space-y-1.5">
-                <button onClick={() => {
-                  try {
-                    const p = JSON.parse(selectedAsset.parameters || '{}')
-                    composerRef.current?.loadFromParams({
-                      prompt: selectedAsset.prompt || '',
-                      model: selectedAsset.modelUsed || '',
-                      aspectRatio: p.aspectRatio || p.aspect_ratio || 'auto',
-                      resolution: p.resolution || '1K',
-                      imageBase64: p.imageBase64,
-                      imageMime: p.imageMime || 'image/png',
-                      imageRefs: p.imageRefs,
-                    })
-                  } catch {}
-                  setSelectedAsset(null)
-                }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
-                  <RotateCcw size={12} /> Recreate
-                </button>
-                <button onClick={async () => {
-                  setRefreshing(true)
-                  try {
-                    const api = (window as any).electronAPI
-                    if (api?.assets?.refresh) {
-                      const updated = await api.assets.refresh(selectedAsset.id)
-                      if (updated) setSelectedAsset(updated)
-                    } else {
-                      const result = await api?.assets.list({ limit: 200 })
-                      if (result?.assets) {
-                        const updated = result.assets.find((a: any) => a.id === selectedAsset.id)
-                        if (updated) setSelectedAsset(updated)
-                      }
-                    }
-                  } catch (err) { console.error('Refresh failed:', err) }
-                  refetch()
-                  setRefreshing(false)
-                }} disabled={refreshing} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                  <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} /> Refresh
-                </button>
-<button onClick={async () => {
-                    const api = (window as any).electronAPI
-                    try {
-                      const updated = await api.assets.downloadToLocal(selectedAsset.id)
-                      refetch()
-                      if (updated) setSelectedAsset(updated)
-                    } catch (err) { console.error('Download failed:', err) }
-                  }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-<Download size={12} /> Download
-                  </button>
-                  {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') && !selectedAsset.filePath.startsWith('http'))) && (
-                    <button onClick={() => (window as any).electronAPI?.assets.showInFolder(selectedAsset.id)}
-                      className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                      <FolderOpen size={12} /> Show in folder
-                    </button>
-                  )}
-                  <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                  <Send size={12} /> Send to Video
-                </button>
-                {confirmDelete === selectedAsset.id ? (
-                  <div className="flex items-center gap-2 justify-center">
-                    <span className="text-[11px] text-surface-400">Confirm delete?</span>
-                    <button onClick={() => { handleDelete(selectedAsset.id); setConfirmDelete(null) }}
-                      className="px-2 py-1 rounded bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
-                    <button onClick={() => setConfirmDelete(null)}
-                      className="px-2 py-1 rounded bg-white/10 text-white text-[10px]">No</button>
-                  </div>
-                ) : (
-                  <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-400" onClick={() => setConfirmDelete(selectedAsset.id)}>
-                    <Trash2 size={12} /> Delete
-                  </button>
-                )}
-              </div>
             </div>
           </div>
-        </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Model</p>
+              <p className="text-xs text-surface-200 truncate">{MODEL_NAMES[selectedAsset.modelUsed] || selectedAsset.modelUsed || '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Credits</p>
+              <p className="text-xs text-amber-400">{selectedAsset.creditsUsed > 0 ? Math.round(selectedAsset.creditsUsed).toLocaleString() : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Resolution</p>
+              <p className="text-xs text-surface-200">{params.resolution || '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Dimensions</p>
+              <p className="text-xs text-surface-200">{selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}×${selectedAsset.height}` : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Aspect Ratio</p>
+              <p className="text-xs text-surface-200">{params.aspectRatio || params.aspect_ratio || '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">File Size</p>
+              <p className="text-xs text-surface-200">{selectedAsset.fileSize ? `${(selectedAsset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Created</p>
+              <p className="text-xs text-surface-200">{selectedAsset.createdAt ? new Date(selectedAsset.createdAt).toLocaleString() : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Task ID</p>
+              <p className="text-[10px] font-mono text-surface-400 truncate">{selectedAsset.taskId || '—'}</p>
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Tags</p>
+            <TagEditor
+              tags={(selectedAsset.tags ? selectedAsset.tags.split(',').filter(Boolean) : []).map((t: string) => t.trim())}
+              onChange={async (newTags) => {
+                const api = (window as any).electronAPI
+                if (!api?.assets?.updateTags) return
+                const updated = await api.assets.updateTags(selectedAsset.id, newTags)
+                if (updated) setSelectedAsset(updated)
+              }}
+            />
+          </div>
+          <div className="pt-2 border-t border-surface-800 grid grid-cols-2 gap-1.5">
+            <button onClick={async () => {
+              try {
+                const p = JSON.parse(selectedAsset.parameters || '{}')
+                const api = (window as any).electronAPI
+                setRecreateMsg(null)
+                // Load image from asset IDs (new format) or fallback to base64
+                let imageBase64: string | undefined
+                if (p.imageAssetId) {
+                  const results = await api?.assets.readBase64([p.imageAssetId])
+                  imageBase64 = results?.[0]?.base64 || undefined
+                } else if (typeof p.imageBase64 === 'string' && p.imageBase64.length > 50) {
+                  imageBase64 = p.imageBase64
+                }
+                let imageRefs: any[] | undefined
+                if (p.imageRefs?.length) {
+                  const ids = p.imageRefs.map((r: any) => r.assetId).filter(Boolean)
+                  if (ids.length > 0) {
+                    const results = await api?.assets.readBase64(ids)
+                    const map = new Map((results || []).map((r: any) => [r.id, r.base64]))
+                    imageRefs = p.imageRefs.map((r: any) => ({
+                      ...r,
+                      base64: r.assetId ? (map.get(r.assetId) || r.base64 || '') : (r.base64 || ''),
+                    })).filter((r: any) => r.base64?.length > 20)
+                  } else {
+                    imageRefs = p.imageRefs.filter((r: any) => r.base64?.length > 50)
+                  }
+                }
+                let firstFrameBase64: string | undefined
+                let lastFrameBase64: string | undefined
+                if (p.firstFrameAssetId) {
+                  const results = await api?.assets.readBase64([p.firstFrameAssetId])
+                  firstFrameBase64 = results?.[0]?.base64 || undefined
+                } else if (typeof p.firstFrameBase64 === 'string' && p.firstFrameBase64.length > 50) {
+                  firstFrameBase64 = p.firstFrameBase64
+                }
+                if (p.lastFrameAssetId) {
+                  const results = await api?.assets.readBase64([p.lastFrameAssetId])
+                  lastFrameBase64 = results?.[0]?.base64 || undefined
+                } else if (typeof p.lastFrameBase64 === 'string' && p.lastFrameBase64.length > 50) {
+                  lastFrameBase64 = p.lastFrameBase64
+                }
+                if (!imageBase64 && (!imageRefs || imageRefs.length === 0) && !firstFrameBase64 && !lastFrameBase64) {
+                  setRecreateMsg('Esta imagen no tiene referencias guardadas para adjuntar.')
+                }
+                composerRef.current?.loadFromParams({
+                  prompt: selectedAsset.prompt || '',
+                  model: selectedAsset.modelUsed || '',
+                  aspectRatio: p.aspectRatio || p.aspect_ratio || 'auto',
+                  resolution: p.resolution || '1K',
+                  imageBase64,
+                  imageMime: p.imageMime || 'image/png',
+                  imageRefs: imageRefs?.length ? imageRefs : undefined,
+                  firstFrameBase64,
+                  lastFrameBase64,
+                })
+              } catch (err: any) {
+                console.error('Recreate failed:', err)
+                setRecreateMsg(`Error al recrear: ${err?.message || String(err)}`)
+              }
+              setSelectedAsset(null)
+            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
+              <RotateCcw size={12} /> Recreate
+            </button>
+            <button onClick={async () => {
+              try {
+                const api = (window as any).electronAPI
+                const results = await api?.assets.readBase64([selectedAsset.id])
+                const b64 = results?.[0]?.base64 || ''
+                const mime = results?.[0]?.mime || 'image/png'
+                composerRef.current?.addRefs([{ base64: b64, mime }])
+                setSelectedAsset(null)
+              } catch (err) { console.error('Reference failed:', err) }
+            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-blue-400 hover:text-blue-300">
+              <Copy size={12} /> Reference
+            </button>
+            <button onClick={async () => {
+              try {
+                const api = (window as any).electronAPI
+                const results = await api?.assets.readBase64([selectedAsset.id])
+                let b64 = results?.[0]?.base64 || ''
+                const mime = results?.[0]?.mime || 'image/png'
+                if (b64.length > 6990508) b64 = await downscaleImage(b64, mime)
+                setComposerPayload({
+                  mode: 'image',
+                  prompt: 'Remove background',
+                  model: 'recraft/remove-background',
+                  imageBase64: b64,
+                  imageMime: 'image/jpeg',
+                })
+              } catch (err) { console.error('Remove background failed:', err) }
+              setSelectedAsset(null)
+            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-orange-400 hover:text-orange-300">
+              <Eraser size={12} /> Quitar fondo
+            </button>
+            <button onClick={async () => {
+              try {
+                const api = (window as any).electronAPI
+                const results = await api?.assets.readBase64([selectedAsset.id])
+                const b64 = results?.[0]?.base64 || ''
+                const mime = results?.[0]?.mime || 'image/png'
+                setComposerPayload({
+                  mode: 'video',
+                  prompt: selectedAsset.prompt || '',
+                  imageBase64: b64,
+                  imageMime: mime,
+                })
+                setPage('video')
+              } catch (err) { console.error('Animate failed:', err) }
+              setSelectedAsset(null)
+            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-purple-400 hover:text-purple-300">
+              <Clapperboard size={12} /> Animar
+            </button>
+            {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') && !selectedAsset.filePath.startsWith('http'))) && (
+              <button onClick={() => (window as any).electronAPI?.assets.showInFolder(selectedAsset.id)}
+                className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
+                <FolderOpen size={12} /> Show in folder
+              </button>
+            )}
+            <button onClick={async () => {
+              try {
+                const api = (window as any).electronAPI
+                const results = await api?.assets.readBase64([selectedAsset.id])
+                const b64 = results?.[0]?.base64 || ''
+                setSelectedAsset(null)
+                setTimeout(() => {
+                  setCreatingFromAsset({ base64: b64, prompt: selectedAsset.prompt || '' })
+                }, 100)
+              } catch (err) { console.error('Failed to create element:', err) }
+            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300">
+              <Box size={12} /> Crear elemento
+            </button>
+            {confirmDelete === selectedAsset.id ? (
+              <div className="flex items-center gap-2 justify-center col-span-2">
+                <span className="text-[11px] text-surface-400">Confirm delete?</span>
+                <button onClick={() => { handleDelete(selectedAsset.id); setConfirmDelete(null) }}
+                  className="px-2 py-1 rounded bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
+                <button onClick={() => setConfirmDelete(null)}
+                  className="px-2 py-1 rounded bg-white/10 text-white text-[10px]">No</button>
+              </div>
+            ) : (
+              <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-400" onClick={() => setConfirmDelete(selectedAsset.id)}>
+                <Trash2 size={12} /> Delete
+              </button>
+            )}
+          </div>
+        </ImagePreviewModal>
+      )}
+
+      {creatingFromAsset && (
+        <ElementWizard
+          initialData={{
+            imageBase64: creatingFromAsset.base64,
+            prompt: creatingFromAsset.prompt,
+          }}
+          onClose={() => setCreatingFromAsset(null)}
+        />
       )}
     </div>
   )

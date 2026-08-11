@@ -34,9 +34,9 @@ function ShotCard({
     updateStoryboardShot(projectId, shot.id, { isGenerating: true })
     try {
       const api = (window as any).electronAPI
-      if (api?.kie?.generateImage) {
+      if (api?.openfield?.generateImage) {
         // Attempt image generation for storyboard
-        await api.kie.generateImage({
+        await api.openfield.generateImage({
           prompt: shot.prompt,
           model: 'gpt-image-2-text-to-image',
           aspectRatio: '16:9',

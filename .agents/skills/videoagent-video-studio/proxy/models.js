@@ -110,15 +110,31 @@ const MODELS = {
 
   pixverse: {
     provider: FAL,
-    name: "PixVerse v4.5",
-    categories: ["i2v"],
-    i2v: "fal-ai/pixverse/v4.5/image-to-video",
+    name: "PixVerse V6",
+    categories: ["t2v", "i2v", "ref"],
+    t2v: "fal-ai/pixverse/v6/text-to-video",
+    i2v: "fal-ai/pixverse/v6/image-to-video",
+    // Transition: first-frame/last-frame morphing
+    transition: "fal-ai/pixverse/v6/transition",
+    // Fusion multi-reference image to video
+    referenceToVideo: "fal-ai/pixverse/v6/reference-to-video",
     env: "FAL_KEY",
-    falInput: (body) => ({
+    falInput: (body, mode) => ({
       prompt: body.prompt.trim(),
-      image_url: body.imageUrl.trim(),
+      ...(mode === "image-to-video" && body.imageUrl && { image_urls: [body.imageUrl.trim()] }),
       aspect_ratio: body.aspectRatio || "16:9",
+      quality: body.quality || "720p",
+      duration: Math.min(15, Math.max(1, parseInt(body.duration, 10) || 5)),
+      ...(body.sound && { generate_audio_switch: true }),
       output_format: "url",
+    }),
+    refInput: (body) => ({
+      prompt: body.prompt.trim(),
+      image_references: body.imageReferences || (body.imageUrl ? [{ image_url: body.imageUrl, ref_name: "ref_0", type: "subject" }] : []),
+      aspect_ratio: body.aspectRatio || "16:9",
+      quality: body.quality || "720p",
+      duration: Math.min(15, Math.max(1, parseInt(body.duration, 10) || 5)),
+      ...(body.sound && { generate_audio_switch: true }),
     }),
   },
 

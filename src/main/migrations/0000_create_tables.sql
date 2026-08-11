@@ -1,5 +1,5 @@
--- Migration: 0000_create_tables.sql
--- Create all tables for KIE Studio Desktop
+﻿-- Migration: 0000_create_tables.sql
+-- Create all tables for Openfield
 
 -- Assets table
 CREATE TABLE IF NOT EXISTS assets (
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at DESC);
 
--- KIE Tasks table
-CREATE TABLE IF NOT EXISTS kie_tasks (
+-- Tasks table
+CREATE TABLE IF NOT EXISTS openfield_tasks (
     task_id TEXT PRIMARY KEY,
     status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
     type TEXT NOT NULL CHECK (type IN ('image', 'video', 'upscale', 'audio')),
@@ -63,9 +63,9 @@ CREATE TABLE IF NOT EXISTS kie_tasks (
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
 );
 
-CREATE INDEX IF NOT EXISTS idx_kie_tasks_status ON kie_tasks(status);
-CREATE INDEX IF NOT EXISTS idx_kie_tasks_type ON kie_tasks(type);
-CREATE INDEX IF NOT EXISTS idx_kie_tasks_created_at ON kie_tasks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_openfield_tasks_status ON openfield_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_openfield_tasks_type ON openfield_tasks(type);
+CREATE INDEX IF NOT EXISTS idx_openfield_tasks_created_at ON openfield_tasks(created_at DESC);
 
 -- Settings table
 CREATE TABLE IF NOT EXISTS settings (
