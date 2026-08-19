@@ -1,17 +1,20 @@
 import { EventEmitter } from 'events'
 import * as crypto from 'crypto'
 import * as fs from 'fs/promises'
-import { getRawDb, getAssetSubDir } from '../db'
+import { getRawDb } from '../db'
+import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import { ensurePlayableVideo } from './asset-manager'
-import { FalApiClient, getFalModel, type FalVideoResult } from './fal'
+import { attachTaskNotifications } from './task-notifications'
+import { FalApiClient, getFalModel, type FalImageResult, type FalVideoResult } from './fal'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_RETRIES = 3
 
-function logRun(raw: any, taskId: string, step: string, message: string, payload?: any, level = 'info') {
+function logRun(raw: any, taskId: string, step: string, message: string, payload?: any, level = 'info', workspaceId?: string) {
   try {
-    raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(payload) : null, Date.now())
+    const ws = workspaceId || getTaskWorkspace(taskId)
+    raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(payload) : null, ws, Date.now())
   } catch {}
 }
 
@@ -23,6 +26,7 @@ export class FalQueue extends EventEmitter {
   constructor(apiKey: string) {
     super()
     this.apiClient = new FalApiClient(apiKey)
+    attachTaskNotifications(this, 'fal.ai')
   }
 
   setApiKey(apiKey: string) {
@@ -33,22 +37,24 @@ export class FalQueue extends EventEmitter {
     const taskId = crypto.randomUUID()
     const raw = getRawDb()
     const now = Date.now()
+    const wsId = getActiveWorkspaceId()
 
-    logRun(raw, taskId, 'enqueue', `fal.ai task enqueued: model=${payload?.model}, hasImage=${!!payload?.imageBase64}`)
+    logRun(raw, taskId, 'enqueue', `fal.ai task enqueued: model=${payload?.model}, hasImage=${!!payload?.imageBase64}`, undefined, 'info', wsId)
 
     raw.prepare(
-      'INSERT INTO fal_tasks (task_id, status, type, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'pending', type, JSON.stringify(payload), now, now)
+      'INSERT INTO fal_tasks (task_id, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(taskId, 'pending', type, JSON.stringify(payload), wsId, now, now)
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
+    const isImage = type === 'image'
     raw.prepare(
-      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      assetId, type, '', '', `pending-${taskId}`, 'video/mp4',
+      assetId, isImage ? 'image' : 'video', '', '', `pending-${taskId}`, isImage ? 'image/png' : 'video/mp4',
       payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
-      0, taskId, now, now
+      0, taskId, wsId, now, now
     )
     raw.save()
 
@@ -68,6 +74,12 @@ export class FalQueue extends EventEmitter {
   }
 
   private buildInput(payload: any): Record<string, any> {
+    const model = getFalModel(payload.model)
+    if (model?.type === 'image') return this.buildImageInput(payload, model)
+    return this.buildVideoInput(payload)
+  }
+
+  private buildVideoInput(payload: any): Record<string, any> {
     const input: Record<string, any> = {
       prompt: payload.prompt || '',
       duration: payload.duration || 5,
@@ -89,6 +101,34 @@ export class FalQueue extends EventEmitter {
     const audioRefs = (payload.audioRefs || []).filter((r: any) => r.base64)
     if (audioRefs.length > 0) {
       input.reference_audio_urls = audioRefs.map((r: any) => toDataUri(r.base64, r.mime || 'audio/mpeg'))
+    }
+    return input
+  }
+
+  private buildImageInput(payload: any, model: ReturnType<typeof getFalModel>): Record<string, any> {
+    const toDataUri = (b64: string, mime: string) => `data:${mime};base64,${b64}`
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+    }
+    if (payload.batchSize && payload.batchSize > 1) input.num_images = payload.batchSize
+
+    if (model?.aspectField === 'aspect_ratio') {
+      input.aspect_ratio = payload.aspectRatio || '1:1'
+      if (model?.supportsResolution && payload.resolution) input.resolution = payload.resolution
+    } else {
+      input.image_size = aspectToImageSize(payload.aspectRatio)
+    }
+
+    const imageRefs = (payload.imageRefs || []).filter((r: any) => r.base64)
+    const refUrls = imageRefs.length > 0
+      ? imageRefs.map((r: any) => toDataUri(r.base64, r.mime || 'image/png'))
+      : payload.imageBase64
+        ? [toDataUri(payload.imageBase64, payload.imageMime || 'image/png')]
+        : []
+    if (refUrls.length > 0) {
+      const field = model?.editImageField || 'image_url'
+      if (field === 'image_urls') input.image_urls = refUrls
+      else input[field] = refUrls[0]
     }
     return input
   }
@@ -141,7 +181,7 @@ export class FalQueue extends EventEmitter {
     }
   }
 
-  private async poll(modelId: string, requestId: string, taskId: string): Promise<FalVideoResult> {
+  private async poll(modelId: string, requestId: string, taskId: string): Promise<FalVideoResult | FalImageResult> {
     const raw = getRawDb()
     while (true) {
       const status = await this.apiClient.getRequestStatus(modelId, requestId)
@@ -156,12 +196,18 @@ export class FalQueue extends EventEmitter {
     }
   }
 
-  private async handleSuccess(task: any, result: FalVideoResult) {
+  private async handleSuccess(task: any, result: FalVideoResult | FalImageResult) {
     const raw = getRawDb()
-    const assetId = crypto.randomUUID()
     const taskPayload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
+    const isImage = task.type === 'image' || !!(result as FalImageResult).images
 
-    const remoteUrl = result.video?.url || null
+    if (isImage) {
+      await this.handleImageSuccess(task, taskPayload, (result as FalImageResult).images || [])
+      return
+    }
+
+    const assetId = crypto.randomUUID()
+    const remoteUrl = (result as FalVideoResult).video?.url || null
 
     const updatePlaceholder = (fields: Record<string, any>) => {
       const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? AND file_path = ? LIMIT 1').get(task.taskId, '') as any
@@ -176,7 +222,8 @@ export class FalQueue extends EventEmitter {
 
     if (remoteUrl) {
       const fileName = `${assetId}.mp4`
-      const subDir = getAssetSubDir('video')
+      const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
+      const subDir = workspaceAssetSubDir('video', taskWs)
       const localPath = `${subDir}/${fileName}`
 
       try {
@@ -217,6 +264,81 @@ export class FalQueue extends EventEmitter {
       }
     } else {
       logRun(raw, task.taskId, 'no-url', 'No output video URL in result', null, 'warn')
+    }
+
+    raw.prepare(
+      'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+    ).run('completed', localAssetId, 100, Date.now(), Date.now(), task.taskId)
+
+    raw.save()
+
+    this.emit('task:completed', { taskId: task.taskId, assetId: localAssetId, output: remoteUrl })
+  }
+
+  private async handleImageSuccess(task: any, taskPayload: any, images: any[]) {
+    const raw = getRawDb()
+    const image = images[0]
+    if (!image?.url) {
+      logRun(raw, task.taskId, 'no-url', 'No output image URL in result', null, 'warn')
+      raw.prepare(
+        'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+      ).run('completed', null, 100, Date.now(), Date.now(), task.taskId)
+      raw.save()
+      this.emit('task:completed', { taskId: task.taskId, assetId: null, output: null })
+      return
+    }
+
+    const assetId = crypto.randomUUID()
+    const remoteUrl = image.url
+    const mimeType = image.content_type || 'image/png'
+    const ext = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png'
+    const fileName = `${assetId}.${ext}`
+    const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
+    const subDir = workspaceAssetSubDir('image', taskWs)
+    const localPath = `${subDir}/${fileName}`
+
+    const updatePlaceholder = (fields: Record<string, any>) => {
+      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? AND file_path = ? LIMIT 1').get(task.taskId, '') as any
+      if (!placeholder) return null
+      const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ')
+      raw.prepare(`UPDATE assets SET ${sets}, updated_at = ? WHERE id = ?`)
+        .run(...Object.values(fields), Date.now(), placeholder.id)
+      return placeholder.id
+    }
+
+    let localAssetId: string | null = null
+
+    try {
+      logRun(raw, task.taskId, 'download', `Downloading image: ${remoteUrl.substring(0, 80)}...`)
+      const resp = await fetch(remoteUrl)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const buffer = Buffer.from(await resp.arrayBuffer())
+      await fs.mkdir(subDir, { recursive: true })
+      await fs.writeFile(localPath, buffer)
+
+      localAssetId = updatePlaceholder({
+        file_path: remoteUrl,
+        local_path: localPath,
+        file_name: fileName,
+        mime_type: mimeType,
+        width: image.width || null,
+        height: image.height || null,
+        file_size: buffer.length,
+        model_used: taskPayload?.model || '',
+        prompt: taskPayload?.prompt || '',
+        parameters: JSON.stringify(taskPayload),
+      })
+    } catch (err: any) {
+      logRun(raw, task.taskId, 'download-error', `Download failed: ${err.message}`, null, 'error')
+      console.error('[FalQueue] Failed to download image:', err.message)
+      localAssetId = updatePlaceholder({
+        file_path: remoteUrl,
+        file_name: `remote-image-${assetId}`,
+        mime_type: mimeType,
+        model_used: taskPayload?.model || '',
+        prompt: taskPayload?.prompt || '',
+        parameters: JSON.stringify(taskPayload),
+      })
     }
 
     raw.prepare(
@@ -292,4 +414,22 @@ export function getFalQueue(apiKey?: string): FalQueue {
 export function initFalQueue(apiKey: string): FalQueue {
   queueInstance = new FalQueue(apiKey)
   return queueInstance
+}
+
+const ASPECT_TO_IMAGE_SIZE: Record<string, string> = {
+  '1:1': 'square_1_1',
+  '16:9': 'landscape_16_9',
+  '9:16': 'portrait_9_16',
+  '4:3': 'landscape_4_3',
+  '3:4': 'portrait_3_4',
+  '3:2': 'landscape_3_2',
+  '2:3': 'portrait_2_3',
+  '21:9': 'landscape_21_9',
+  '5:4': 'landscape_5_4',
+  '4:5': 'portrait_4_5',
+  'auto': 'square_1_1',
+}
+
+function aspectToImageSize(aspectRatio?: string): string {
+  return ASPECT_TO_IMAGE_SIZE[aspectRatio || '1:1'] || 'square_1_1'
 }

@@ -86,7 +86,7 @@ params:
   data: {
     description?: string
     prompt?: string
-    aspectRatio?: string   // default "16:9"
+    aspectRatio?: string   // default "1:1"
     resolution?: string    // default "1K"
   }
 returns: { id: string, order: number, ...data }
@@ -204,7 +204,7 @@ params:
   params: {
     prompt: string
     model?: string          // default "gpt-image-2-text-to-image"
-    aspectRatio?: string    // default "16:9"
+    aspectRatio?: string    // default "1:1" (scene aspect)
     resolution?: string     // default "1K"
   }
 returns: { taskId: string, sceneId: string }

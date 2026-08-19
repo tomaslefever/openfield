@@ -1,17 +1,20 @@
 import { EventEmitter } from 'events'
 import * as crypto from 'crypto'
 import * as fs from 'fs/promises'
-import { getRawDb, getAssetSubDir } from '../db'
+import { getRawDb } from '../db'
+import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import { ensurePlayableVideo } from './asset-manager'
+import { attachTaskNotifications } from './task-notifications'
 import { ReplicateApiClient, REPLICATE_MODELS, type Prediction } from './replicate'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_RETRIES = 3
 
-function logRun(raw: any, taskId: string, step: string, message: string, payload?: any, level = 'info') {
+function logRun(raw: any, taskId: string, step: string, message: string, payload?: any, level = 'info', workspaceId?: string) {
   try {
-    raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(payload) : null, Date.now())
+    const ws = workspaceId || getTaskWorkspace(taskId)
+    raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(payload) : null, ws, Date.now())
   } catch {}
 }
 
@@ -33,6 +36,7 @@ export class ReplicateQueue extends EventEmitter {
   constructor(apiKey: string) {
     super()
     this.apiClient = new ReplicateApiClient(apiKey)
+    attachTaskNotifications(this, 'Replicate')
   }
 
   setApiKey(apiKey: string) {
@@ -43,22 +47,23 @@ export class ReplicateQueue extends EventEmitter {
     const taskId = crypto.randomUUID()
     const raw = getRawDb()
     const now = Date.now()
+    const wsId = getActiveWorkspaceId()
 
-    logRun(raw, taskId, 'enqueue', `Replicate task enqueued: model=${payload?.model}, hasImage=${!!payload?.imageBase64}`)
+    logRun(raw, taskId, 'enqueue', `Replicate task enqueued: model=${payload?.model}, hasImage=${!!payload?.imageBase64}`, undefined, 'info', wsId)
 
     raw.prepare(
-      'INSERT INTO replicate_tasks (task_id, status, type, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'pending', type, JSON.stringify(payload), now, now)
+      'INSERT INTO replicate_tasks (task_id, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(taskId, 'pending', type, JSON.stringify(payload), wsId, now, now)
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
     raw.prepare(
-      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       assetId, type, '', '', `pending-${taskId}`, 'video/mp4',
       payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
-      0, taskId, now, now
+      0, taskId, wsId, now, now
     )
     raw.save()
 
@@ -185,7 +190,8 @@ export class ReplicateQueue extends EventEmitter {
 
     if (remoteUrl) {
       const fileName = `${assetId}.mp4`
-      const subDir = getAssetSubDir('video')
+      const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
+      const subDir = workspaceAssetSubDir('video', taskWs)
       const localPath = `${subDir}/${fileName}`
 
       try {

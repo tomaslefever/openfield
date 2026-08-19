@@ -2,13 +2,6 @@ import { create } from 'zustand'
 
 export type Page = 'image' | 'video' | 'audio' | 'library' | 'elements' | 'workflows' | 'editor' | 'cinema' | 'settings' | 'logs' | 'marketplace' | 'apps' | 'promptLibrary' | 'storyboard'
 
-export interface TaskNotification {
-  taskId: string
-  message: string
-  type: 'progress' | 'completed' | 'failed'
-  creditsUsed?: number
-}
-
 export interface ComposerPayload {
   prompt: string
   model?: string
@@ -32,40 +25,33 @@ export interface ComposerPayload {
   voiceLanguage?: string
 }
 
+export interface AssetSearch {
+  query: string
+  featured: boolean
+  aspectRatio?: string | null
+  types: { image: boolean; video: boolean; audio: boolean }
+}
+
 interface AppState {
   currentPage: Page
   sidebarCollapsed: boolean
-  tasks: TaskNotification[]
-  theme: 'dark' | 'light' | 'system'
-  creditBalance: number | null
-  lastGeneration: { credits: number; model: string; prompt: string } | null
   composerPayload: ComposerPayload | null
+  assetSearch: AssetSearch
 
   setPage: (page: Page) => void
   toggleSidebar: () => void
-  addTask: (task: TaskNotification) => void
-  removeTask: (taskId: string) => void
-  setTheme: (theme: 'dark' | 'light' | 'system') => void
-  setCreditBalance: (balance: number) => void
-  setLastGeneration: (gen: { credits: number; model: string; prompt: string }) => void
   setComposerPayload: (payload: ComposerPayload | null) => void
+  setAssetSearch: (search: Partial<AssetSearch>) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
   currentPage: 'image',
   sidebarCollapsed: false,
-  tasks: [],
-  theme: 'dark',
-  creditBalance: null,
-  lastGeneration: null,
   composerPayload: null,
+  assetSearch: { query: '', featured: false, types: { image: true, video: true, audio: true } },
 
   setPage: (page) => set({ currentPage: page }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
-  addTask: (task) => set((state) => ({ tasks: [...state.tasks.filter(t => t.taskId !== task.taskId), task] })),
-  removeTask: (taskId) => set((state) => ({ tasks: state.tasks.filter(t => t.taskId !== taskId) })),
-  setTheme: (theme) => set({ theme }),
-  setCreditBalance: (balance) => set({ creditBalance: balance }),
-  setLastGeneration: (gen) => set({ lastGeneration: gen }),
   setComposerPayload: (payload) => set({ composerPayload: payload }),
+  setAssetSearch: (search) => set((state) => ({ assetSearch: { ...state.assetSearch, ...search } })),
 }))

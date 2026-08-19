@@ -43,10 +43,11 @@ export interface GenerateImageParams {
 export interface GenerateVideoParams {
   prompt: string
   model: string
+  taskId?: string
   imageBase64?: string
   imageMime?: string
   imageRefs?: { base64: string; mime: string; name?: string; refType?: string }[]
-  videoRefs?: { base64: string; mime: string }[]
+  videoRefs?: { base64: string; mime: string; assetId?: string }[]
   audioRefs?: { base64: string; mime: string }[]
   firstFrameBase64?: string
   lastFrameBase64?: string

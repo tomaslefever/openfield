@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Clock, Cloud, FolderOpen, CheckSquare, Square, Search, Star } from 'lucide-react'
+import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Clock, Cloud, FolderOpen, CheckSquare, Square, Search, Star, Maximize2, RefreshCw } from 'lucide-react'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { usePagedAssets } from '../hooks/usePagedAssets'
+import { useGridFlip } from '../hooks/useGridFlip'
 import { copyText } from '../lib/clipboard'
 import { useAppStore } from '../stores/app-store'
 import { fileUrl, srcUrl } from '../services/file-url'
@@ -18,6 +19,8 @@ const MODEL_NAMES: Record<string, string> = {
   'kling/v25-turbo-image-to-video-pro': 'Kling 2.5 Turbo',
   'grok-imagine/text-to-video': 'Grok Imagine',
   'grok-imagine/image-to-video': 'Grok Imagine',
+  'grok-imagine/extend': 'Grok Imagine',
+  'grok-imagine/upscale': 'Grok Upscale',
   'bytedance/seedance-2': 'Seedance 2',
   'bytedance/seedance-2-5': 'Seedance 2.5',
   'bytedance/seedance-2-fast': 'Seedance 2 Fast',
@@ -26,14 +29,21 @@ const MODEL_NAMES: Record<string, string> = {
   'hailuo/02-text-to-video-pro': 'Hailuo 2 Pro',
   'gemini-omni-video': 'Gemini Omni',
   'prunaai/p-video-avatar': 'P-Video Avatar',
-  'minimax/h3/reference-to-video': 'MiniMax H3',
+  'minimax-h3/text-to-video': 'MiniMax H3',
+  'minimax-h3/image-to-video': 'MiniMax H3',
+  'minimax-h3/reference-to-video': 'MiniMax H3',
+  'minimax/h3/reference-to-video': 'MiniMax H3 (Fal)',
 }
 
 export function VideoGenPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
+  const [promptExpanded, setPromptExpanded] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'done'>('idle')
+  const [upscaling, setUpscaling] = useState(false)
+  const [upscaleRes, setUpscaleRes] = useState<'720p' | '1080p'>('1080p')
+  const [upscaleError, setUpscaleError] = useState<string | null>(null)
   const [isDev, setIsDev] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
@@ -85,7 +95,17 @@ export function VideoGenPage() {
     playAttemptsRef.current.delete(id)
   }
 
-  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset } = usePagedAssets({ type: 'video', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset, removeAssets } = usePagedAssets({ type: 'video', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { gridRef, capture, fadeOut, animate } = useGridFlip()
+
+  const handleAssetsMoved = (ids: string[]) => {
+    fadeOut(ids)
+    setTimeout(() => {
+      capture()
+      removeAssets(ids)
+      requestAnimationFrame(() => requestAnimationFrame(animate))
+    }, 180)
+  }
 
   useEffect(() => {
     try {
@@ -217,21 +237,37 @@ export function VideoGenPage() {
     const api = (window as any).electronAPI
     const files = await api?.assets.readBase64(Array.from(selectedIds))
     if (files && files.length > 0) {
-      composerRef.current?.addRefs(files.map((f: any) => ({ base64: f.base64, mime: f.mime })))
+      composerRef.current?.addRefs(files.map((f: any) => ({ base64: f.base64, mime: f.mime, assetId: f.id })))
     }
     clearSelection()
   }, [selectedIds, clearSelection])
 
   const params = selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}
 
+  const canUpscale = !!(selectedAsset?.taskId && selectedAsset.modelUsed?.startsWith('grok-imagine'))
+
+  const handleUpscale = async () => {
+    if (!selectedAsset || !canUpscale || upscaling) return
+    setUpscaling(true)
+    setUpscaleError(null)
+    try {
+      await (window as any).electronAPI?.openfield.upscaleVideo(selectedAsset.id, upscaleRes)
+    } catch (err: any) {
+      console.error('Upscale failed:', err)
+      setUpscaleError(err?.message || 'Upscale failed')
+    } finally {
+      setUpscaling(false)
+    }
+  }
+
   const handleReload = () => {
     reset()
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-7xl mx-auto">
+    <div className="flex flex-col h-full relative">
+      <div className="flex-1 overflow-y-auto p-4 pb-64">
+        <div>
           <div className="flex items-center gap-2 mb-3">
             <span className="text-[10px] text-surface-600">{total} videos</span>
             <div className="relative flex-1 max-w-xs ml-auto">
@@ -249,6 +285,13 @@ export function VideoGenPage() {
               )}
             </div>
             <button
+              onClick={handleReload}
+              title="Reload videos"
+              className="flex-shrink-0 p-1.5 rounded-lg border border-surface-800 text-surface-500 hover:text-surface-100 hover:border-surface-600 transition-colors"
+            >
+              <RefreshCw size={14} />
+            </button>
+            <button
               onClick={() => setShowFavorites(v => !v)}
               title={showFavorites ? 'Show all videos' : 'Show favorites only'}
               className={`flex-shrink-0 p-1.5 rounded-lg border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-400 hover:border-amber-500/30'}`}
@@ -256,11 +299,11 @@ export function VideoGenPage() {
               <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
             </button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {assets.map((asset: any) => {
               const isSel = selectedIds.has(asset.id)
               return (
-              <div key={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={(e) => { if (e.shiftKey) { toggleSelect(asset.id, true) } else { setSelectedAsset(asset) } }} onMouseEnter={() => handleMouseEnter(asset.id)} onMouseLeave={() => handleMouseLeave(asset.id)}>
+              <div key={asset.id} data-asset-card={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={(e) => { if (e.shiftKey) { toggleSelect(asset.id, true) } else { setSelectedAsset(asset) } }} onMouseEnter={() => handleMouseEnter(asset.id)} onMouseLeave={() => handleMouseLeave(asset.id)}>
                 <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
                   {(() => {
                     const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
@@ -330,14 +373,16 @@ export function VideoGenPage() {
         </div>
       </div>
 
-      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="video" />
+      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="video" floating />
 
       <BulkActionBar
         selectedCount={selectedIds.size}
+        selectedIds={Array.from(selectedIds)}
         onAddTags={() => setShowBulkTag(true)}
         onDelete={() => setShowBulkDelete(true)}
         onAddToComposer={handleBulkAddToComposer}
         onClearSelection={clearSelection}
+        onAssetsMoved={handleAssetsMoved}
       />
 
       {showBulkTag && (
@@ -401,7 +446,12 @@ export function VideoGenPage() {
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
                 <div className="flex items-start gap-1">
-                  <p className="text-sm text-surface-200 leading-relaxed flex-1">{selectedAsset.prompt || params.prompt || '—'}</p>
+                  <p
+                    onClick={() => setPromptExpanded(!promptExpanded)}
+                    className={`text-sm text-surface-200 leading-relaxed flex-1 cursor-pointer select-none ${promptExpanded ? '' : 'line-clamp-3'}`}
+                  >
+                    {selectedAsset.prompt || params.prompt || '—'}
+                  </p>
                   <button onClick={() => { copyText(selectedAsset.prompt || params.prompt || ''); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
                     className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
                     {copiedPrompt ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
@@ -468,7 +518,7 @@ export function VideoGenPage() {
                   }}
                 />
               </div>
-              <div className="pt-2 border-t border-surface-800 space-y-1.5">
+              <div className="pt-2 border-t border-surface-800 grid grid-cols-2 gap-1.5">
                 <button onClick={async () => {
                   try {
                     const p = JSON.parse(selectedAsset.parameters || '{}')
@@ -517,14 +567,31 @@ export function VideoGenPage() {
                   {saveState === 'done' ? <Check size={12} className="text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
                   {saveState === 'done' ? 'Saved' : 'Save as'}
                 </button>
+                <div className="flex items-center gap-1">
+                  <select value={upscaleRes} onChange={(e) => setUpscaleRes(e.target.value as '720p' | '1080p')} disabled={upscaling} title="Upscale resolution"
+                    className="bg-surface-800 border border-surface-700 rounded-lg px-1 py-1 text-[10px] text-surface-300 outline-none w-14 flex-shrink-0">
+                    <option value="1080p">1080p</option>
+                    <option value="720p">720p</option>
+                  </select>
+                  <button onClick={handleUpscale} disabled={!canUpscale || upscaling}
+                    title={!canUpscale ? 'Upscale solo funciona con videos generados por Grok Imagine' : 'Upscale this video'}
+                    className="btn-ghost text-xs flex-1 justify-center flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+                    {upscaling ? <Loader size={12} className="animate-spin" /> : <Maximize2 size={12} />} Upscale
+                  </button>
+                </div>
                   {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') && !selectedAsset.filePath.startsWith('http'))) && (
                     <button onClick={() => (window as any).electronAPI?.assets.showInFolder(selectedAsset.id)}
                       className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
                       <FolderOpen size={12} /> Show in folder
                     </button>
                   )}
+                {upscaleError && (
+                  <p className="col-span-2 text-[10px] text-red-400 flex items-center gap-1">
+                    <AlertCircle size={10} className="flex-shrink-0" /> <span className="line-clamp-2">{upscaleError}</span>
+                  </p>
+                )}
                 {confirmDelete === selectedAsset.id ? (
-                  <div className="flex items-center gap-2 justify-center">
+                  <div className="col-span-2 flex items-center gap-2 justify-center">
                     <span className="text-[11px] text-surface-400">Confirm delete?</span>
                     <button onClick={() => { handleDelete(selectedAsset.id); setConfirmDelete(null) }}
                       className="px-2 py-1 rounded bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
@@ -532,7 +599,7 @@ export function VideoGenPage() {
                       className="px-2 py-1 rounded bg-white/10 text-white text-[10px]">No</button>
                   </div>
                 ) : (
-                  <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-400" onClick={() => setConfirmDelete(selectedAsset.id)}>
+                  <button className="btn-ghost text-xs w-full col-span-2 justify-center flex items-center gap-1.5 text-red-400" onClick={() => setConfirmDelete(selectedAsset.id)}>
                     <Trash2 size={12} /> Delete
                   </button>
                 )}

@@ -3,6 +3,7 @@ import { Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, Chevro
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { VoiceGenView } from '../components/voice/VoiceGenView'
 import { usePagedAssets } from '../hooks/usePagedAssets'
+import { useGridFlip } from '../hooks/useGridFlip'
 import { copyText } from '../lib/clipboard'
 import { useAppStore } from '../stores/app-store'
 import { srcUrl } from '../services/file-url'
@@ -77,6 +78,7 @@ const AssetCard = memo(function AssetCard({
 
   return (
     <div
+      data-asset-card={asset.id}
       className="card group relative overflow-hidden p-0 cursor-pointer"
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 250px' }}
       onClick={() => onSelect(asset)}
@@ -178,7 +180,17 @@ export function AudioGenPage() {
     }
   }, [composerPayload, setComposerPayload])
 
-  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset } = usePagedAssets({ type: 'audio', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset, removeAssets } = usePagedAssets({ type: 'audio', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { gridRef, capture, fadeOut, animate } = useGridFlip()
+
+  const handleAssetsMoved = (ids: string[]) => {
+    fadeOut(ids)
+    setTimeout(() => {
+      capture()
+      removeAssets(ids)
+      requestAnimationFrame(() => requestAnimationFrame(animate))
+    }, 180)
+  }
 
   // Split assets by kind
   const voiceAssets = useMemo(() => assets.filter((a: any) => getAudioKind(a) === 'voice'), [assets])
@@ -388,8 +400,8 @@ export function AudioGenPage() {
 
   // === Music Tab Layout ===
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-4">
+    <div className="flex flex-col h-full relative">
+      <div className="flex-1 overflow-y-auto p-4 pb-64">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center gap-3 mb-4">
             <Tabs
@@ -424,7 +436,7 @@ export function AudioGenPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {musicAssets.map((asset: any) => (
               <AssetCard
                 key={asset.id}
@@ -503,13 +515,15 @@ export function AudioGenPage() {
         </div>
       )}
 
-      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="audio" subMode={activeTab} />
+      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="audio" subMode={activeTab} floating />
 
       <BulkActionBar
         selectedCount={selectedIds.size}
+        selectedIds={Array.from(selectedIds)}
         onAddTags={() => setShowBulkTag(true)}
         onDelete={() => setShowBulkDelete(true)}
         onClearSelection={clearSelection}
+        onAssetsMoved={handleAssetsMoved}
       />
 
       {showBulkTag && (

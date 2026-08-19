@@ -10,6 +10,7 @@ import {
   type StudioElement,
   KIND_CONFIG,
 } from '../stores/elements-store'
+import { useWorkspaceStore } from '../stores/workspace-store'
 import { TagEditor } from '../components/ui/TagEditor'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { fileUrl } from '../services/file-url'
@@ -74,7 +75,7 @@ function LibraryPickerModal({
   useEffect(() => {
     ;(async () => {
       try {
-        const result = await (window as any).electronAPI?.assets.list({ type: 'image', limit: 60 })
+        const result = await (window as any).electronAPI?.assets.list({ type: 'image', limit: 60, excludeUploads: true })
         setAssets(result?.assets || [])
       } catch { /* ignore */ }
       setLoading(false)
@@ -135,7 +136,7 @@ function LibraryPickerModal({
                     className="aspect-square bg-surface-800 rounded-lg overflow-hidden hover:ring-2 ring-accent-500 transition-all cursor-pointer border border-surface-800 hover:border-accent-500/50"
                   >
                     {resolvedSrc ? (
-                      <img src={resolvedSrc} alt="" className="w-full h-full object-cover" />
+                      <img src={resolvedSrc} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-surface-600 text-[10px]">—</div>
                     )}
@@ -908,6 +909,7 @@ export function ElementsPage() {
   const elements = useElementsStore((s) => s.elements)
   const deleteElement = useElementsStore((s) => s.deleteElement)
   const loadElements = useElementsStore((s) => s.loadElements)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<ElementKind | 'all'>('all')
   const [showModal, setShowModal] = useState(false)
@@ -941,7 +943,7 @@ export function ElementsPage() {
 
   // Poll recent assets to resolve pending pose tasks (same pattern as ImageGenPage)
   const { data: assetPoll } = useQuery({
-    queryKey: ['elements', 'pending-pose'],
+    queryKey: ['elements', 'pending-pose', activeWorkspaceId],
     queryFn: () => (window as any).electronAPI?.assets.list({ type: 'image', limit: 30 }) ?? { assets: [] },
     refetchInterval: 15000,
   })
@@ -1083,7 +1085,7 @@ export function ElementsPage() {
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre o tag..." className="input-field pl-9" />
             </div>
-            <div className="flex gap-1 bg-surface-900 rounded-lg p-1 border border-surface-800">
+            <div className="flex gap-1 bg-surface-900/40 rounded-lg p-1 border border-surface-800/60">
               {KIND_FILTERS.map(({ key, label }) => (
                 <button
                   key={key}

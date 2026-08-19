@@ -3,6 +3,7 @@ import { Trash2, Coins, Loader, AlertCircle, Copy, Check, Cloud, FolderOpen, Rot
 import { useAppStore } from '../stores/app-store'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { usePagedAssets } from '../hooks/usePagedAssets'
+import { useGridFlip } from '../hooks/useGridFlip'
 import { fileUrl, srcUrl } from '../services/file-url'
 import { AssetBadge } from '../components/ui/asset-badge'
 import { TagEditor } from '../components/ui/TagEditor'
@@ -23,6 +24,17 @@ const MODEL_NAMES: Record<string, string> = {
   'flux2-pro-text-to-image': 'Flux 2 Pro',
   'grok-imagine/text-to-image': 'Grok Imagine',
   'imagen4-fast': 'Imagen 4 Fast',
+  'openai/gpt-image-2': 'GPT Image 2 (Fal)',
+  'openai/gpt-image-2/edit': 'GPT Image 2 Edit (Fal)',
+  'fal-ai/nano-banana-pro': 'Nano Banana Pro',
+  'fal-ai/nano-banana-pro/edit': 'Nano Banana Pro Edit',
+  'fal-ai/recraft/v4/text-to-image': 'Recraft V4',
+  'fal-ai/recraft/v4/pro/text-to-image': 'Recraft V4 Pro',
+  'fal-ai/recraft/v3/text-to-image': 'Recraft V3',
+  'imagineart/imagineart-2.0-preview/text-to-image': 'ImagineArt 2.0',
+  'fal-ai/flux-pro/kontext': 'FLUX.1 Kontext [pro]',
+  'fal-ai/flux-krea-lora/stream': 'FLUX Krea LoRA stream',
+  'bria/fibo/generate': 'Bria FIBO',
 }
 
 const AssetCard = memo(function AssetCard({
@@ -46,6 +58,7 @@ const AssetCard = memo(function AssetCard({
 
   return (
     <div
+      data-asset-card={asset.id}
       className="card group relative overflow-hidden p-0 cursor-pointer"
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 250px' }}
       onClick={(e) => onSelect(asset, e.shiftKey)}
@@ -122,7 +135,17 @@ export function ImageGenPage() {
     }
   }, [composerPayload, setComposerPayload])
 
-  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset } = usePagedAssets({ type: 'image', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset, removeAssets } = usePagedAssets({ type: 'image', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { gridRef, capture, fadeOut, animate } = useGridFlip()
+
+  const handleAssetsMoved = (ids: string[]) => {
+    fadeOut(ids)
+    setTimeout(() => {
+      capture()
+      removeAssets(ids)
+      requestAnimationFrame(() => requestAnimationFrame(animate))
+    }, 180)
+  }
 
   useEffect(() => {
     if (selectedAsset && assets.length > 0) {
@@ -136,7 +159,9 @@ export function ImageGenPage() {
     if (!api) return
     const unsubComplete = api.on('openfield:task:completed', () => reset())
     const unsubFailed = api.on('openfield:task:failed', () => reset())
-    return () => { unsubComplete?.(); unsubFailed?.() }
+    const unsubFalComplete = api.on('fal:task:completed', () => reset())
+    const unsubFalFailed = api.on('fal:task:failed', () => reset())
+    return () => { unsubComplete?.(); unsubFailed?.(); unsubFalComplete?.(); unsubFalFailed?.() }
   }, [reset])
 
   const handleDelete = useCallback(async (assetId: string) => {
@@ -156,7 +181,10 @@ export function ImageGenPage() {
   const handleGenerate = useCallback(async (params: any) => {
     try {
       const api = (window as any).electronAPI
-      if (params.local && params.modelId) {
+      const isFalModel = params?.provider === 'fal'
+      if (isFalModel) {
+        await api?.fal.generate(params)
+      } else if (params.local && params.modelId) {
         await api?.local.imageGenerate({
           modelId: params.modelId,
           prompt: params.prompt,
@@ -224,7 +252,7 @@ export function ImageGenPage() {
   const params = useMemo(() => selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}, [selectedAsset])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {recreateMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-surface-800 border border-surface-700 rounded-lg px-4 py-2 shadow-xl text-xs text-surface-200 flex items-center gap-2">
           <span>{recreateMsg}</span>
@@ -233,8 +261,8 @@ export function ImageGenPage() {
           </button>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-7xl mx-auto">
+      <div className="flex-1 overflow-y-auto p-4 pb-64">
+        <div>
           <div className="flex items-center gap-2 mb-3">
             <span className="text-[10px] text-surface-600">{total} images</span>
             <div className="relative flex-1 max-w-xs ml-auto">
@@ -259,7 +287,7 @@ export function ImageGenPage() {
               <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
             </button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {assets.map((asset: any) => (
               <AssetCard
                 key={asset.id}
@@ -293,14 +321,16 @@ export function ImageGenPage() {
         </div>
       </div>
 
-      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="image" />
+      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="image" floating />
 
       <BulkActionBar
         selectedCount={selectedIds.size}
+        selectedIds={Array.from(selectedIds)}
         onAddTags={() => setShowBulkTag(true)}
         onDelete={() => setShowBulkDelete(true)}
         onAddToComposer={handleBulkAddToComposer}
         onClearSelection={clearSelection}
+        onAssetsMoved={handleAssetsMoved}
       />
 
       {showBulkTag && (

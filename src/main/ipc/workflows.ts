@@ -1,16 +1,19 @@
 import * as crypto from 'crypto'
 import type { IpcContext } from './context'
+import { getActiveWorkspaceId } from '../services/workspace-service'
 
 export function registerWorkflowsHandlers({ raw, handle }: IpcContext) {
   handle('workflows:list', () => {
-    return raw.prepare('SELECT * FROM workflows ORDER BY updated_at DESC').all()
+    const wsId = getActiveWorkspaceId()
+    return raw.prepare('SELECT * FROM workflows WHERE workspace_id = ? ORDER BY updated_at DESC').all(wsId)
   })
 
   handle('workflows:create', (_e, data: any) => {
     const id = crypto.randomUUID()
     const now = Date.now()
-    raw.prepare('INSERT INTO workflows (id, name, description, nodes, edges, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, data.name, data.description || '', JSON.stringify(data.nodes || []), JSON.stringify(data.edges || []), now, now)
+    const wsId = getActiveWorkspaceId()
+    raw.prepare('INSERT INTO workflows (id, name, description, nodes, edges, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, data.name, data.description || '', JSON.stringify(data.nodes || []), JSON.stringify(data.edges || []), wsId, now, now)
     return raw.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
   })
 

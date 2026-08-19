@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Terminal, Trash2, RefreshCw, X, ChevronRight, ChevronDown } from 'lucide-react'
+import { useWorkspaceStore } from '../stores/workspace-store'
 
 export function LogsPage() {
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<any>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
 
   const fetchLogs = async () => {
     setLoading(true)
@@ -13,7 +15,7 @@ export function LogsPage() {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { fetchLogs() }, [])
+  useEffect(() => { fetchLogs() }, [activeWorkspaceId])
 
   const grouped = useMemo(() => {
     const map = new Map<string, any[]>()
@@ -130,8 +132,8 @@ export function LogsPage() {
       {selected && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSelected(null)} />
-          <div className="relative w-[480px] h-full bg-surface-950 border-l border-surface-800 shadow-2xl overflow-y-auto">
-            <div className="sticky top-0 bg-surface-950 border-b border-surface-800 px-6 py-4 flex items-center justify-between z-10">
+          <div className="relative w-[480px] h-full bg-surface-950/80 backdrop-blur-sm border-l border-surface-800 shadow-2xl overflow-y-auto">
+            <div className="sticky top-0 bg-surface-950/80 backdrop-blur-sm border-b border-surface-800 px-6 py-4 flex items-center justify-between z-10">
               <h2 className="text-sm font-semibold text-surface-100">Log Detail</h2>
               <button onClick={() => setSelected(null)} className="text-surface-500 hover:text-surface-100">
                 <X size={18} />

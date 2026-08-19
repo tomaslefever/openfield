@@ -119,7 +119,7 @@ const TOOLS: McpTool[] = [
         storyboard_id: { type: 'string' },
         description: { type: 'string', description: 'Narrative description of what happens (in the language the user is using)' },
         prompt: { type: 'string', description: 'Visual generation prompt in English (style suffix is auto-appended)' },
-        aspect_ratio: { type: 'string', description: 'Aspect ratio (16:9, 9:16, 4:3, 1:1, 21:9). Default 16:9' },
+        aspect_ratio: { type: 'string', description: 'Aspect ratio (16:9, 9:16, 4:3, 1:1, 21:9). Default 1:1' },
         resolution: { type: 'string', description: 'Resolution (1K, 2K, 4K). Default 1K' },
       },
       required: ['storyboard_id'],
@@ -129,7 +129,7 @@ const TOOLS: McpTool[] = [
       const scene = createScene(str(args.storyboard_id), {
         description: str(args.description),
         prompt: str(args.prompt),
-        aspectRatio: str(args.aspect_ratio, '16:9'),
+        aspectRatio: str(args.aspect_ratio, '1:1'),
         resolution: str(args.resolution, '1K'),
       })
       return { scene }
@@ -301,7 +301,7 @@ const TOOLS: McpTool[] = [
       properties: {
         transition_id: { type: 'string' },
         prompt: { type: 'string' },
-        model: { type: 'string', description: 'e.g. pixverse-v6/transition, bytedance/seedance-2' },
+        model: { type: 'string', description: 'e.g. pixverse-v6/image-to-video, bytedance/seedance-2' },
         duration: { type: 'number' },
       },
       required: ['transition_id'],

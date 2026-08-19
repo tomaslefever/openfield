@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useWorkspaceStore } from '../stores/workspace-store'
 
 export interface PagedAssetsOptions {
   type?: 'image' | 'video' | 'audio'
+  types?: ('image' | 'video' | 'audio')[]
   search?: string
   isFavorite?: boolean
+  aspectRatio?: string | null
   pageSize?: number
   excludeUploads?: boolean
 }
 
 // Paginated + lazily loaded asset list. Attach `sentinelRef` to a div rendered after
 // the grid; a new page (pageSize items) is fetched when it becomes visible.
-export function usePagedAssets({ type, search, isFavorite, pageSize = 20, excludeUploads = false }: PagedAssetsOptions) {
+export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, pageSize = 20, excludeUploads = false }: PagedAssetsOptions) {
   const [assets, setAssets] = useState<any[]>([])
   const [total, setTotal] = useState(0)
   const [hasMore, setHasMore] = useState(true)
@@ -20,6 +23,7 @@ export function usePagedAssets({ type, search, isFavorite, pageSize = 20, exclud
   const busyRef = useRef(false)
   const pageRef = useRef(0)
   const reqRef = useRef(0)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
 
   const fetchPage = useCallback(async (pageNum: number, append: boolean) => {
     if (busyRef.current) return
@@ -31,8 +35,10 @@ export function usePagedAssets({ type, search, isFavorite, pageSize = 20, exclud
       const api = (window as any).electronAPI
       const res = await api?.assets.list({
         type,
+        ...(types && types.length > 0 ? { types } : {}),
         search: search || undefined,
         ...(isFavorite ? { isFavorite: true } : {}),
+        ...(aspectRatio ? { aspectRatio } : {}),
         limit: pageSize,
         offset: pageNum * pageSize,
         excludeUploads,
@@ -54,7 +60,7 @@ export function usePagedAssets({ type, search, isFavorite, pageSize = 20, exclud
         else setInitialLoading(false)
       }
     }
-  }, [type, search, isFavorite, pageSize, excludeUploads])
+  }, [type, types, search, isFavorite, aspectRatio, pageSize, excludeUploads])
 
   const reset = useCallback(() => {
     reqRef.current++
@@ -88,9 +94,27 @@ export function usePagedAssets({ type, search, isFavorite, pageSize = 20, exclud
     })
   }, [isFavorite])
 
+  // Remove assets from the list in-place (no refetch) — used after moving
+  // assets to another workspace so the grid reflows without a reload.
+  const removeAssets = useCallback((ids: string[]) => {
+    const idSet = new Set(ids)
+    setAssets(prev => prev.filter(a => !idSet.has(a.id)))
+    setTotal(t => Math.max(0, t - ids.length))
+  }, [])
+
   useEffect(() => {
     reset()
-  }, [reset])
+  }, [reset, activeWorkspaceId])
+
+  // Refresh when assets change anywhere in the app (imports, drops, moves)
+  const resetRef = useRef(reset)
+  resetRef.current = reset
+  useEffect(() => {
+    const api = (window as any).electronAPI
+    if (!api?.on) return
+    const unsub = api.on('assets:changed', () => resetRef.current())
+    return () => { try { unsub?.() } catch {} }
+  }, [])
 
   useEffect(() => {
     const el = sentinelRef.current
@@ -105,5 +129,5 @@ export function usePagedAssets({ type, search, isFavorite, pageSize = 20, exclud
     return () => obs.disconnect()
   }, [loadMore, hasMore, assets.length])
 
-  return { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, loadMore, updateAsset }
+  return { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, loadMore, updateAsset, removeAssets }
 }

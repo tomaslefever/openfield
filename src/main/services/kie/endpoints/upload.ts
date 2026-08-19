@@ -1,11 +1,17 @@
 import type { OpenfieldApiClient } from '../client'
 
+const EXT_BY_MIME: Record<string, string> = {
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/x-wav': 'wav',
+}
+
 /**
  * POST /api/file-stream-upload
  * Uploads a base64 file and returns the download URL used as model input.
  */
 export async function uploadFileBase64(client: OpenfieldApiClient, base64: string, mimeType: string): Promise<string> {
-  const ext = mimeType.split('/')[1] || 'png'
+  const ext = EXT_BY_MIME[mimeType] || mimeType.split('/')[1] || 'png'
   console.log('[OF] uploadFile start, length:', base64?.length)
 
   // Decode base64 to binary buffer

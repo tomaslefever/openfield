@@ -1,85 +1,136 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppStore, type Page } from '../stores/app-store'
+import { WorkspaceSelector } from './WorkspaceSelector'
 import type { LucideIcon } from 'lucide-react'
-import { Image, Video, AudioLines, Library, Workflow, Film, Settings, Coins, RefreshCw, Terminal, Clapperboard, Package, Shapes, AppWindow, BookOpen, MoreHorizontal, User, DollarSign, ExternalLink } from 'lucide-react'
+import {
+  Image,
+  Video,
+  Library,
+  Clapperboard,
+  Shapes,
+  Settings,
+  Search,
+} from 'lucide-react'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar'
 
-const navItems: { page: Page; label: string; icon: React.FC<{ size?: number }> }[] = [
-  // { page: 'apps', label: 'Apps', icon: AppWindow },
+const NAV_ITEMS: { page: Page; label: string; icon: LucideIcon }[] = [
+  { page: 'library', label: 'Assets', icon: Library },
   { page: 'image', label: 'Image Generation', icon: Image },
   { page: 'video', label: 'Video Generation', icon: Video },
-  { page: 'audio', label: 'Audio Generation', icon: AudioLines },
-  { page: 'promptLibrary', label: 'Prompt Library', icon: BookOpen },
   { page: 'storyboard', label: 'Storyboard', icon: Clapperboard },
-  { page: 'library', label: 'Library', icon: Library },
   { page: 'elements', label: 'Elements', icon: Shapes },
-  // { page: 'cinema', label: 'Cinema Studio', icon: Clapperboard },
-  // { page: 'workflows', label: 'Workflows', icon: Workflow },
-  // { page: 'editor', label: 'Video Editor', icon: Film },
 ]
 
-const footerItems: { page: Page; label: string; icon: React.FC<{ size?: number }> }[] = [
-  { page: 'marketplace', label: 'Model Marketplace', icon: Package },
+const FOOTER_ITEMS: { page: Page; label: string; icon: LucideIcon }[] = [
   { page: 'settings', label: 'Settings', icon: Settings },
-  { page: 'logs', label: 'Logs', icon: Terminal },
 ]
 
-interface Balance {
-  provider: 'kie' | 'replicate' | 'fal'
-  label: string
-  kind: 'credits' | 'account' | 'dollars'
-  value: number | string
-  url?: string
-}
+function NavGroup({
+  items,
+  currentPage,
+  hovered,
+  onHover,
+  onSelect,
+}: {
+  items: { page: Page; label: string; icon: LucideIcon }[]
+  currentPage: Page
+  hovered: string | null
+  onHover: (page: string | null) => void
+  onSelect: (page: Page) => void
+}) {
+  const [box, setBox] = useState<{ top: number; height: number } | null>(null)
+  const navRef = useRef<HTMLUListElement>(null)
+  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const collapsed = useSidebar().state === 'collapsed'
 
-const BALANCE_CONFIG: Record<Balance['provider'], { icon: LucideIcon; color: string }> = {
-  kie: { icon: Coins, color: 'text-amber-400' },
-  replicate: { icon: User, color: 'text-violet-400' },
-  fal: { icon: DollarSign, color: 'text-sky-400' },
-}
+  const hasActive = items.some((i) => i.page === currentPage)
+  const hasHovered = hovered ? items.some((i) => i.page === hovered) : false
+  const pillTarget = hovered ? (hasHovered ? hovered : null) : hasActive ? currentPage : null
+  const showPill = pillTarget !== null && !collapsed
 
-function formatBalance(b: Balance): string {
-  if (b.kind === 'credits') return `${(b.value as number).toLocaleString()} cr`
-  if (b.kind === 'dollars') return `$${(b.value as number).toFixed(2)}`
-  return `@${b.value}`
-}
-
-export function Sidebar() {
-  const currentPage = useAppStore((s) => s.currentPage)
-  const collapsed = useAppStore((s) => s.sidebarCollapsed)
-  const setPage = useAppStore((s) => s.setPage)
-  const setCreditBalance = useAppStore((s) => s.setCreditBalance)
-  const [footerOpen, setFooterOpen] = useState(false)
-  const [balances, setBalances] = useState<Balance[]>([])
-  const [appVersion, setAppVersion] = useState('')
-  const footerRef = useRef<HTMLDivElement>(null)
-
-  const fetchBalances = useCallback(async () => {
-    try {
-      const api = (window as any).electronAPI
-      let list: any[] | null = null
-      if (api?.balances?.list) {
-        list = await api.balances.list()
-      } else if (api?.openfield?.creditBalance) {
-        const credits = await api.openfield.creditBalance()
-        if (typeof credits === 'number' && credits >= 0) {
-          list = [{ provider: 'kie', label: 'KIE.ai', kind: 'credits', value: credits }]
-        }
-      }
-      if (Array.isArray(list)) {
-        setBalances(list)
-        const kie = list.find((b: any) => b.provider === 'kie')
-        if (kie && typeof kie.value === 'number') setCreditBalance(kie.value)
-      }
-    } catch {
-      /* offline */
+  useLayoutEffect(() => {
+    const container = navRef.current
+    const target = pillTarget ? itemRefs.current[pillTarget] : null
+    if (!container || !target) {
+      setBox(null)
+      return
     }
-  }, [setCreditBalance])
+    const containerRect = container.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    setBox({
+      top: targetRect.top - containerRect.top,
+      height: targetRect.height,
+    })
+  }, [pillTarget, collapsed])
 
-  useEffect(() => {
-    fetchBalances()
-    const interval = setInterval(fetchBalances, 30000)
-    return () => clearInterval(interval)
-  }, [fetchBalances])
+  return (
+    <SidebarGroup>
+      <SidebarMenu
+        ref={navRef}
+        onMouseLeave={() => onHover(null)}
+        className="relative gap-px"
+      >
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 z-0 rounded-[7px] bg-sidebar-accent"
+          style={{
+            top: box?.top ?? 0,
+            height: box?.height ?? 0,
+            opacity: showPill && box ? 1 : 0,
+            transition:
+              'top 220ms cubic-bezier(0.23,1,0.32,1), height 220ms cubic-bezier(0.23,1,0.32,1), opacity 150ms ease',
+          }}
+        />
+        {items.map(({ page, label, icon: Icon }) => {
+          const isActive = page === currentPage
+          return (
+            <SidebarMenuItem key={page}>
+              <SidebarMenuButton
+                ref={(el) => {
+                  itemRefs.current[page] = el
+                }}
+                isActive={isActive}
+                tooltip={label}
+                onMouseEnter={() => onHover(page)}
+                onFocus={() => onHover(page)}
+                onBlur={() => onHover(null)}
+                onClick={() => onSelect(page)}
+                className={`relative z-10 gap-2.5 rounded-[7px] px-2 py-1.5 text-[13px] hover:bg-transparent data-[active=true]:bg-transparent ${
+                  isActive ? 'font-medium text-sidebar-foreground' : 'text-sidebar-foreground/70'
+                }`}
+              >
+                <Icon />
+                <span>{label}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )
+        })}
+      </SidebarMenu>
+    </SidebarGroup>
+  )
+}
+
+export function AppSidebar() {
+  const currentPage = useAppStore((s) => s.currentPage)
+  const setPage = useAppStore((s) => s.setPage)
+  const assetSearch = useAppStore((s) => s.assetSearch)
+  const setAssetSearch = useAppStore((s) => s.setAssetSearch)
+  const { state } = useSidebar()
+  const collapsed = state === 'collapsed'
+  const [hovered, setHovered] = useState<string | null>(null)
+  const [appVersion, setAppVersion] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     ;(window as any).electronAPI?.updater?.state?.().then((s: any) => {
@@ -88,149 +139,86 @@ export function Sidebar() {
   }, [])
 
   useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (footerRef.current && !footerRef.current.contains(e.target as Node)) {
-        setFooterOpen(false)
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === '/' && !collapsed && document.activeElement !== searchRef.current) {
+        e.preventDefault()
+        searchRef.current?.focus()
       }
     }
-    if (footerOpen) {
-      document.addEventListener('mousedown', handleClick)
-      return () => document.removeEventListener('mousedown', handleClick)
-    }
-  }, [footerOpen])
-
-  useEffect(() => {
-    if (!collapsed) setFooterOpen(false)
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
   }, [collapsed])
 
+  const handleSearch = (value: string) => {
+    setAssetSearch({ query: value })
+    if (value && currentPage !== 'library') setPage('library')
+  }
+
   return (
-    <aside className={`fixed left-0 top-0 h-screen bg-surface-950 border-r border-surface-800 z-50 flex flex-col transition-all duration-200 ${collapsed ? 'w-16' : 'w-56'}`}>
-      <div className={`flex items-center h-14 px-4 border-b border-surface-800 ${collapsed ? 'justify-center' : ''}`}>
+    <Sidebar
+      collapsible="icon"
+      variant="floating"
+      className="[&>[data-sidebar=sidebar]]:bg-sidebar/80 [&>[data-sidebar=sidebar]]:shadow-2xl [&>[data-sidebar=sidebar]]:backdrop-blur-2xl [&>[data-sidebar=sidebar]]:backdrop-saturate-150"
+    >
+      <SidebarHeader>
         {collapsed ? (
-          <img src="./logo.png" alt="Openfield" className="h-8 w-8 object-contain rounded-lg" />
+          <WorkspaceSelector collapsed />
         ) : (
-          <img src="./logotype.png" alt="Openfield" className="h-7 w-auto max-w-[140px] object-contain" />
-        )}
-      </div>
-
-      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-        {navItems.map(({ page, label, icon: Icon }) => (
-          <button
-            key={page}
-            onClick={() => setPage(page)}
-            className={`sidebar-item w-full ${currentPage === page ? 'active' : ''}`}
-            title={collapsed ? label : undefined}
-          >
-            <Icon size={18} />
-            {!collapsed && <span>{label}</span>}
-          </button>
-        ))}
-      </nav>
-
-      {/* Footer items */}
-      <div ref={footerRef} className={`border-t border-surface-800 px-2 py-2 space-y-1 relative ${collapsed ? '' : 'border-b-0'}`}>
-        {collapsed ? (
           <>
-            <button
-              onClick={() => setFooterOpen(!footerOpen)}
-              className={`sidebar-item w-full justify-center ${footerOpen ? 'active' : ''}`}
-              title="More"
-            >
-              <MoreHorizontal size={18} />
-            </button>
-            {footerOpen && (
-              <div className="absolute bottom-full left-2 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[180px] shadow-xl z-50">
-                {footerItems.map(({ page, label, icon: Icon }) => (
-                  <button
-                    key={page}
-                    onClick={() => { setPage(page); setFooterOpen(false) }}
-                    className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${currentPage === page ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}
-                  >
-                    <Icon size={14} />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
+            <WorkspaceSelector collapsed={false} />
+            <label className="flex h-8 items-center gap-2 rounded-lg bg-sidebar-accent/60 px-2.5">
+              <Search size={12} className="text-sidebar-foreground/50" />
+              <input
+                ref={searchRef}
+                value={assetSearch.query}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Quick search"
+                className="min-w-0 flex-1 bg-transparent text-[12.5px] text-sidebar-foreground outline-none placeholder:text-sidebar-foreground/40"
+              />
+              <kbd className="flex size-4 items-center justify-center rounded-[5px] bg-sidebar text-[10px] text-sidebar-foreground/50">/</kbd>
+            </label>
           </>
-        ) : (
-          <div className="flex items-center justify-between gap-1">
-            {footerItems.map(({ page, label, icon: Icon }) => (
-              <button
-                key={page}
-                onClick={() => setPage(page)}
-                className={`p-2 rounded-lg text-surface-400 hover:text-surface-100 hover:bg-surface-800 transition-colors ${currentPage === page ? 'text-accent-400 bg-accent-500/10' : ''}`}
-                title={label}
-              >
-                <Icon size={18} />
-              </button>
-            ))}
-          </div>
         )}
-      </div>
+      </SidebarHeader>
 
-      {/* Balances - shown only for providers with a configured API key */}
-      {balances.length > 0 && (
-        <div className="border-t border-surface-800 p-2 space-y-1.5">
-          {!collapsed && (
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[9px] uppercase tracking-wider text-surface-600">Balances</span>
-              <button
-                onClick={fetchBalances}
-                className="text-surface-600 hover:text-surface-300 transition-colors"
-                title="Refresh balances"
+      <SidebarContent>
+        <NavGroup
+          items={NAV_ITEMS}
+          currentPage={currentPage}
+          hovered={hovered}
+          onHover={setHovered}
+          onSelect={setPage}
+        />
+      </SidebarContent>
+
+      <SidebarFooter>
+        <SidebarMenu>
+          {FOOTER_ITEMS.map(({ page, label, icon: Icon }) => (
+            <SidebarMenuItem key={page}>
+              <SidebarMenuButton
+                isActive={currentPage === page}
+                tooltip={label}
+                onClick={() => setPage(page)}
+                className={`gap-2.5 rounded-[7px] px-2 py-1.5 text-[13px] ${
+                  currentPage === page ? 'bg-sidebar-accent font-medium text-sidebar-foreground' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60'
+                }`}
               >
-                <RefreshCw size={10} />
-              </button>
-            </div>
-          )}
-          <div className={collapsed ? 'flex flex-col items-center gap-1.5' : 'space-y-1.5'}>
-            {balances.map((b) => {
-              const cfg = BALANCE_CONFIG[b.provider] || BALANCE_CONFIG.kie
-              const Icon = cfg.icon
-              const rowClasses = `flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-surface-900/60 border border-surface-800 min-w-0 transition-colors ${collapsed ? 'justify-center' : ''}`
-              const inner = (
-                <>
-                  <Icon size={12} className={`${cfg.color} flex-shrink-0`} />
-                  {!collapsed && (
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[9px] text-surface-600 truncate leading-tight">{b.label}</p>
-                      <p className="text-[11px] font-medium text-surface-100 truncate leading-tight">{formatBalance(b)}</p>
-                    </div>
-                  )}
-                  {b.url && !collapsed && <ExternalLink size={10} className="text-surface-600 flex-shrink-0" />}
-                </>
-              )
-              return b.url ? (
-                <a
-                  key={b.provider}
-                  href={b.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={`${b.label}: ${formatBalance(b)} — Ver saldo en el dashboard`}
-                  className={`${rowClasses} hover:border-surface-600`}
-                >
-                  {inner}
-                </a>
-              ) : (
-                <div
-                  key={b.provider}
-                  className={rowClasses}
-                  title={`${b.label}: ${formatBalance(b)}`}
-                >
-                  {inner}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+                <Icon />
+                <span>{label}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
 
-      {!collapsed && (
-        <div className="px-4 py-2 border-t border-surface-800">
-          <p className="text-[10px] text-surface-600">Openfield {appVersion ? `v${appVersion}` : ''}</p>
+        <div className="flex items-center justify-between gap-2 px-1">
+          <SidebarTrigger title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} />
+          {!collapsed && (
+            <p className="text-[10px] text-sidebar-foreground/50">
+              Openfield {appVersion ? `v${appVersion}` : ''}
+            </p>
+          )}
         </div>
-      )}
-    </aside>
+      </SidebarFooter>
+    </Sidebar>
   )
 }

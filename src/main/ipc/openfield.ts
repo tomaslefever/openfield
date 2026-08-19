@@ -17,70 +17,65 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
   handle('openfield:generate:image', async (event, params) => {
     const apiKey = requireApiKey()
     const queue = getTaskQueue(apiKey)
-    const taskId = await queue.enqueue('image', ensureKieModel(params))
-    const sender = event.sender
-
-    const cleanup = () => {
-      queue.off('task:progress', onProgress)
-      queue.off('task:completed', onComplete)
-      queue.off('task:failed', onFailed)
-    }
-
-    const onProgress = (p: any) => { if (p.taskId === taskId) sender.send('openfield:task:progress', p) }
-    const onComplete = (p: any) => { if (p.taskId === taskId) { sender.send('openfield:task:completed', p); cleanup() } }
-    const onFailed = (p: any) => { if (p.taskId === taskId) { sender.send('openfield:task:failed', p); cleanup() } }
-
-    queue.on('task:progress', onProgress)
-    queue.on('task:completed', onComplete)
-    queue.on('task:failed', onFailed)
-
-    return taskId
+    return queue.enqueue('image', ensureKieModel(params))
   })
 
   handle('openfield:generate:video', async (event, params) => {
     const apiKey = requireApiKey()
     const queue = getTaskQueue(apiKey)
-    const taskId = await queue.enqueue('video', ensureKieModel(params))
-    const sender = event.sender
-
-    const cleanup = () => {
-      queue.off('task:progress', onProgress)
-      queue.off('task:completed', onComplete)
-      queue.off('task:failed', onFailed)
-    }
-
-    const onProgress = (p: any) => { if (p.taskId === taskId) sender.send('openfield:task:progress', p) }
-    const onComplete = (p: any) => { if (p.taskId === taskId) { sender.send('openfield:task:completed', p); cleanup() } }
-    const onFailed = (p: any) => { if (p.taskId === taskId) { sender.send('openfield:task:failed', p); cleanup() } }
-
-    queue.on('task:progress', onProgress)
-    queue.on('task:completed', onComplete)
-    queue.on('task:failed', onFailed)
-
-    return taskId
+    return queue.enqueue('video', ensureKieModel(params))
   })
 
   handle('openfield:generate:audio', async (event, params) => {
     const apiKey = requireApiKey()
     const queue = getTaskQueue(apiKey)
-    const taskId = await queue.enqueue('audio', params)
-    const sender = event.sender
+    return queue.enqueue('audio', params)
+  })
 
-    const cleanup = () => {
-      queue.off('task:progress', onProgress)
-      queue.off('task:completed', onComplete)
-      queue.off('task:failed', onFailed)
+  // Grok Upscale: re-runs a completed KIE video task through grok-imagine/upscale.
+  // The KIE task id (openfield_task_id) of the source asset is passed to the API.
+  handle('openfield:upscale:video', async (event, assetId: string, resolution?: string) => {
+    const asset = raw.prepare('SELECT * FROM assets WHERE id = ?').get(assetId) as any
+    if (!asset) throw new Error('Asset not found')
+    if (asset.type !== 'video') throw new Error('Only video assets can be upscaled')
+    if (!asset.taskId) throw new Error('Source video has no generation task')
+    const sourceTask = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(asset.taskId) as any
+    let kieTaskId: string | null = sourceTask?.openfieldTaskId || sourceTask?.kieTaskId || null
+    if (!kieTaskId && sourceTask?.payload) {
+      try {
+        const p = JSON.parse(sourceTask.payload)
+        kieTaskId = p?.kieTaskId || null
+      } catch {}
+    }
+    // Fallback: recover the KIE task id from run_logs for assets generated before openfield_task_id existed
+    if (!kieTaskId) {
+      const logRow = raw.prepare(
+        "SELECT message FROM run_logs WHERE task_id = ? AND message LIKE 'Task created:%' ORDER BY created_at ASC LIMIT 1"
+      ).get(asset.taskId) as any
+      const match = logRow?.message?.match(/Task created:\s*(.+)$/)
+      if (match) kieTaskId = match[1]
+    }
+    if (!kieTaskId) throw new Error('Source video was not generated via KIE.ai')
+    if (sourceTask?.status !== 'completed') throw new Error('Source video task is not completed yet')
+    // grok-imagine/upscale only accepts videos generated with grok-imagine models
+    let sourceModel = ''
+    try {
+      const p = typeof sourceTask.payload === 'string' ? JSON.parse(sourceTask.payload) : (sourceTask.payload || {})
+      sourceModel = p.model || ''
+    } catch {}
+    if (!sourceModel.startsWith('grok-imagine')) {
+      throw new Error('Upscale only works on videos generated with Grok Imagine')
     }
 
-    const onProgress = (p: any) => { if (p.taskId === taskId) sender.send('openfield:task:progress', p) }
-    const onComplete = (p: any) => { if (p.taskId === taskId) { sender.send('openfield:task:completed', p); cleanup() } }
-    const onFailed = (p: any) => { if (p.taskId === taskId) { sender.send('openfield:task:failed', p); cleanup() } }
-
-    queue.on('task:progress', onProgress)
-    queue.on('task:completed', onComplete)
-    queue.on('task:failed', onFailed)
-
-    return taskId
+    const apiKey = requireApiKey()
+    const queue = getTaskQueue(apiKey)
+    return queue.enqueue('video', {
+      model: 'grok-imagine/upscale',
+      taskId: kieTaskId,
+      resolution: resolution === '720p' ? '720p' : '1080p',
+      prompt: asset.prompt ? `Upscale: ${asset.prompt}` : 'Video upscale',
+      upscaleSourceAssetId: assetId,
+    })
   })
 
   handle('openfield:task:status', async (_e, taskId: string) => {

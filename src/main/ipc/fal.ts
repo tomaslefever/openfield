@@ -1,7 +1,7 @@
 import type { IpcContext } from './context'
 import { readSetting } from './helpers'
 import { getFalQueue } from '../services/fal-queue'
-import { FAL_MODELS } from '../services/fal'
+import { FAL_MODELS, getFalModel } from '../services/fal'
 
 export function requireFalKey(): string {
   const key = readSetting('falApiKey')
@@ -13,7 +13,9 @@ export function registerFalHandlers({ raw, handle }: IpcContext) {
   handle('fal:generate', async (event, params) => {
     const apiKey = requireFalKey()
     const queue = getFalQueue(apiKey)
-    const taskId = await queue.enqueue('video', params)
+    const model = getFalModel(params?.model)
+    const type = model?.type === 'image' ? 'image' : 'video'
+    const taskId = await queue.enqueue(type, params)
     const sender = event.sender
 
     const cleanup = () => {

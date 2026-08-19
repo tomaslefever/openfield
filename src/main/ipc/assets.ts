@@ -3,6 +3,15 @@ import * as path from 'path'
 import * as fs from 'fs/promises'
 import type { IpcContext } from './context'
 import { getAssetManager } from '../services/asset-manager'
+import { getActiveWorkspaceId } from '../services/workspace-service'
+
+// Notifies all renderer windows that the asset set changed (imports, moves,
+// orphans adopted) so open grids refresh.
+export function notifyAssetsChanged() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    try { win.webContents.send('assets:changed') } catch {}
+  }
+}
 
 export function registerAssetsHandlers({ handle }: IpcContext) {
   handle('assets:list', (_e, query?: any) => getAssetManager().queryAssets(query || {}))
@@ -16,6 +25,12 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
   handle('assets:updateTags', (_e, id: string, tags: string[]) => getAssetManager().updateTags(id, tags))
 
   handle('assets:deleteMultiple', (_e, ids: string[]) => getAssetManager().deleteAssets(ids))
+
+  handle('assets:moveToWorkspace', async (_e, ids: string[], targetWorkspaceId: string) => {
+    // No broadcast here: the moving window updates its grid in-place with a FLIP
+    // animation, and a full reload would defeat that.
+    return getAssetManager().moveAssetsToWorkspace(ids, targetWorkspaceId)
+  })
 
   handle('assets:addTagsMultiple', (_e, ids: string[], tags: string[]) => getAssetManager().addTagsMultiple(ids, tags))
 
@@ -79,9 +94,16 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
   handle('assets:stats', () => getAssetManager().getStorageStats())
   handle('assets:webpStats', () => getAssetManager().getWebpStats())
   handle('assets:convertAllToWebp', () => getAssetManager().convertAllImagesToWebp())
+  handle('assets:scanOrphans', () => getAssetManager().scanOrphans())
+  handle('assets:adoptOrphans', async (_e, workspaceId?: string) => {
+    const result = await getAssetManager().adoptOrphans(workspaceId)
+    if (result.imported > 0) notifyAssetsChanged()
+    return result
+  })
 
   handle('assets:import', async (_e, filePaths: string[]) => {
     const manager = getAssetManager()
+    const wsId = getActiveWorkspaceId()
     const results = []
     for (const fp of filePaths) {
       const ext = fp.toLowerCase().split('.').pop() || ''
@@ -90,18 +112,24 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
       let type: 'image' | 'video' | 'audio' = 'image'
       if (videoExts.includes(ext)) type = 'video'
       else if (audioExts.includes(ext)) type = 'audio'
-      try { results.push(await manager.importFile(fp, type)) } catch {}
+      try { results.push(await manager.importFile(fp, type, wsId)) } catch {}
     }
+    if (results.length > 0) notifyAssetsChanged()
     return results
   })
 
-  handle('assets:importBase64', async (_e, base64: string, mime: string, fileName: string) => {
-    return getAssetManager().importBase64(base64, mime, fileName || 'image.png')
+  handle('assets:importBase64', async (_e, base64: string, mime: string, fileName: string, workspaceId?: string, modelUsed?: string) => {
+    const result = await getAssetManager().importBase64(base64, mime, fileName || 'image.png', {
+      workspaceId: workspaceId || getActiveWorkspaceId(),
+      modelUsed: modelUsed || undefined,
+    })
+    notifyAssetsChanged()
+    return result
   })
 
   handle('assets:saveRef', async (_e, base64: string, mime: string, name: string) => {
     // Save reference image as a persistent binary asset
-    const result = await getAssetManager().importBase64(base64, mime, name || 'ref.png')
+    const result = await getAssetManager().importBase64(base64, mime, name || 'ref.png', { workspaceId: getActiveWorkspaceId() })
     // Read back base64 for immediate display
     const fs = require('fs/promises')
     try {

@@ -2,9 +2,10 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   Plus, Trash2, Copy, Image, Video, Film, ArrowRight,
   Coins, Settings2, Loader, ArrowLeft, Clapperboard, X, Pencil,
-  Maximize, Monitor, Upload, Wand2, Library, Sparkles, Palette, FileText, Shapes
+  Maximize, Monitor, Upload, Wand2, Library, Sparkles, Palette, FileText, Shapes, RefreshCw
 } from 'lucide-react'
 import { useStoryboardStore, type SceneShot, type SceneTransition, type StoryboardElement } from '../stores/storyboard-store'
+import { useWorkspaceStore } from '../stores/workspace-store'
 import { srcUrl } from '../services/file-url'
 import { StoryboardStyleModal } from '../components/storyboard/StoryboardStyleModal'
 import { QuickPromptComposer, type QuickPromptComposerResult } from '../components/QuickPromptComposer'
@@ -63,6 +64,10 @@ function SceneCard({
     setEditDesc(scene.description)
   }, [scene.description, showDetails])
 
+  useEffect(() => {
+    if (scene.videoBase64) setTab('video')
+  }, [scene.videoBase64])
+
   const handleQuickGenerated = (result: QuickPromptComposerResult) => {
     onUpdate(scene.id, { prompt: result.prompt })
     onImageGenerated(result.base64, result.prompt, result.assetId)
@@ -93,7 +98,7 @@ function SceneCard({
     setShowLibrary(true)
     try {
       const api = (window as any).electronAPI
-      const list = await api?.assets.list({ type: 'image', limit: 60 })
+      const list = await api?.assets.list({ type: 'image', limit: 60, excludeUploads: true })
       setLibraryAssets(list?.assets || [])
     } catch { setLibraryAssets([]) }
   }
@@ -331,6 +336,7 @@ function SceneCard({
                       alt=""
                       className="w-full h-full object-cover"
                       loading="lazy"
+                      decoding="async"
                     />
                   </button>
                 ))}
@@ -361,9 +367,10 @@ const VIDEO_MODELS: { name: string; t2vId: string; i2vId?: string; fflfId?: stri
   { name: 'Grok Imagine', t2vId: 'grok-imagine/text-to-video', i2vId: 'grok-imagine/image-to-video', cost: 3 },
   { name: 'Seedance 2', t2vId: 'bytedance/seedance-2', i2vId: 'bytedance/seedance-2', fflfId: 'bytedance/seedance-2', cost: 41 },
   { name: 'Seedance 2.5', t2vId: 'bytedance/seedance-2-5', i2vId: 'bytedance/seedance-2-5', fflfId: 'bytedance/seedance-2-5', cost: 63 },
-  { name: 'PixVerse V6', t2vId: 'pixverse-v6/text-to-video', i2vId: 'pixverse-v6/image-to-video', fflfId: 'pixverse-v6/transition', cost: 14 },
+  { name: 'PixVerse V6', t2vId: 'pixverse-v6/text-to-video', i2vId: 'pixverse-v6/image-to-video', fflfId: 'pixverse-v6/image-to-video', cost: 14 },
   { name: 'Wan 2.7', t2vId: 'wan-2-7-text-to-video', i2vId: 'wan-2-7-image-to-video', cost: 8 },
   { name: 'Hailuo 2 Pro', t2vId: 'hailuo/02-text-to-video-pro', cost: 12 },
+  { name: 'MiniMax H3', t2vId: 'minimax-h3/text-to-video', i2vId: 'minimax-h3/image-to-video', fflfId: 'minimax-h3/image-to-video', cost: 80 },
 ]
 
 function getImageModelCost(modelId: string): number {
@@ -393,6 +400,7 @@ export function StoryboardPage() {
   const [styleSuffixes, setStyleSuffixes] = useState<Record<string, string>>({})
   const [activeTab, setActiveTab] = useState<'script' | 'elements' | 'story'>('story')
   const dragIndex = useRef<number | null>(null)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
 
   // Load style suffix map (for prompt injection)
   useEffect(() => {
@@ -412,10 +420,10 @@ export function StoryboardPage() {
     return result
   }, [])
 
-  // Load board list on mount
+  // Load board list on mount and when the active workspace changes
   useEffect(() => {
     refreshBoardList()
-  }, [refreshBoardList])
+  }, [refreshBoardList, activeWorkspaceId])
 
   const handleCreateBoard = async (name: string, style: string) => {
     const newId = await store.createBoard(name, style)
@@ -475,6 +483,7 @@ export function StoryboardPage() {
     try {
       const api = (window as any).electronAPI
       const taskId = await api?.openfield.generateVideo({
+        sceneId,
         prompt: scene.prompt,
         model: videoModelId,
         imageBase64: scene.imageBase64,
@@ -524,6 +533,7 @@ export function StoryboardPage() {
     try {
       const api = (window as any).electronAPI
       const taskId = await api?.openfield.generateVideo({
+        transitionId,
         prompt: `Smooth transition from scene to scene`,
         model: transitionModelId,
         firstFrameBase64: fromScene.imageBase64,
@@ -603,6 +613,13 @@ export function StoryboardPage() {
             Storyboards
           </h1>
           <span className="text-[10px] text-surface-600">{boards.length} {boards.length === 1 ? 'board' : 'boards'}</span>
+          <button
+            onClick={() => refreshBoardList()}
+            title="Reload storyboards"
+            className="p-1.5 rounded-lg text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
+          >
+            <RefreshCw size={14} />
+          </button>
           <button onClick={() => setStyleModalMode('create')} className="btn-primary text-xs flex items-center gap-1.5 ml-auto">
             <Plus size={12} /> New Storyboard
           </button>
@@ -742,6 +759,13 @@ export function StoryboardPage() {
           className="p-1.5 rounded-lg text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
         >
           <ArrowLeft size={14} />
+        </button>
+        <button
+          onClick={() => store.loadBoard(boardId)}
+          title="Recargar storyboard"
+          className="p-1.5 rounded-lg text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
+        >
+          <RefreshCw size={14} />
         </button>
         {editNameId === boardId ? (
           <input

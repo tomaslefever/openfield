@@ -1,7 +1,8 @@
 ﻿import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as crypto from 'crypto'
-import { getRawDb, DbWrapper, getAssetSubDir, getAssetsDir } from '../db'
+import { getRawDb, getAssetsDir } from '../db'
+import { getActiveWorkspaceId, workspaceAssetSubDir, workspaceAssetsDir, ensureWorkspaceDirs, listWorkspaces } from './workspace-service'
 
 function stripForStorage(payload: any): any {
   if (!payload || typeof payload !== 'object') return payload
@@ -30,15 +31,18 @@ type AssetType = 'image' | 'video' | 'audio'
 
 export interface AssetQuery {
   type?: AssetType
+  types?: AssetType[]
   search?: string
   tags?: string[]
   modelUsed?: string
   isFavorite?: boolean
+  aspectRatio?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
   limit?: number
   offset?: number
   excludeUploads?: boolean
+  workspaceId?: string
 }
 
 export class AssetManager {
@@ -50,16 +54,12 @@ export class AssetManager {
 
   getAssetsDir() { return this.assetsDir }
 
-  getSubDir(type: AssetType) {
-    const subDirs = { image: 'images', video: 'videos', audio: 'audio' }
-    return `${this.assetsDir}/${subDirs[type]}`
+  getSubDir(type: AssetType, workspaceId?: string) {
+    return workspaceAssetSubDir(type, workspaceId)
   }
 
-  async ensureDirectories() {
-    for (const dir of ['images', 'videos', 'audio']) {
-      const fullPath = path.join(this.assetsDir, dir)
-      await fs.mkdir(fullPath, { recursive: true }).catch(() => {})
-    }
+  async ensureDirectories(workspaceId?: string) {
+    await ensureWorkspaceDirs(workspaceId)
   }
 
   getAsset(id: string) {
@@ -71,15 +71,26 @@ export class AssetManager {
     const parts: string[] = ['1=1']
     const params: any[] = []
 
+    const workspaceId = query.workspaceId || getActiveWorkspaceId()
+    if (workspaceId !== 'all') {
+      parts.push('workspace_id = ?')
+      params.push(workspaceId)
+    }
+
     if (query.type) { parts.push('type = ?'); params.push(query.type) }
+    if (query.types && query.types.length > 0) {
+      parts.push(`type IN (${query.types.map(() => '?').join(', ')})`)
+      query.types.forEach(t => params.push(t))
+    }
     if (query.isFavorite !== undefined) { parts.push('is_favorite = ?'); params.push(query.isFavorite ? 1 : 0) }
+    if (query.aspectRatio) { parts.push('aspect_ratio = ?'); params.push(query.aspectRatio) }
     if (query.tags && query.tags.length > 0) {
       const tagClauses = query.tags.map(() => `(',' || tags || ',' LIKE ?)`)
       parts.push(`(${tagClauses.join(' AND ')})`)
       query.tags.forEach(t => params.push(`%,${t},%`))
     }
     if (query.modelUsed) { parts.push('model_used = ?'); params.push(query.modelUsed) }
-    if (query.excludeUploads) { parts.push("model_used != 'upload'") }
+    if (query.excludeUploads) { parts.push("model_used != 'upload' AND model_used != 'ref'") }
     if (query.search) {
       parts.push('(prompt LIKE ? OR file_name LIKE ? OR model_used LIKE ? OR tags LIKE ?)')
       const s = `%${query.search}%`
@@ -100,12 +111,14 @@ export class AssetManager {
     return { assets: items, total }
   }
 
-  getRecentAssets(limit = 20) {
-    return getRawDb().prepare('SELECT * FROM assets ORDER BY created_at DESC LIMIT ?').all(limit)
+  getRecentAssets(limit = 20, workspaceId?: string) {
+    const ws = workspaceId || getActiveWorkspaceId()
+    return getRawDb().prepare('SELECT * FROM assets WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?').all(ws, limit)
   }
 
-  getAllTags(): string[] {
-    const rows = getRawDb().prepare('SELECT tags FROM assets WHERE tags IS NOT NULL AND tags != ?').all('') as any[]
+  getAllTags(workspaceId?: string): string[] {
+    const ws = workspaceId || getActiveWorkspaceId()
+    const rows = getRawDb().prepare('SELECT tags FROM assets WHERE workspace_id = ? AND tags IS NOT NULL AND tags != ?').all(ws, '') as any[]
     const counts = new Map<string, number>()
     for (const row of rows) {
       for (const t of String(row.tags || '').split(',')) {
@@ -116,14 +129,16 @@ export class AssetManager {
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([tag]) => tag)
   }
 
-  async importFile(filePath: string, type: AssetType) {
-    await this.ensureDirectories()
+  async importFile(filePath: string, type: AssetType, workspaceId?: string) {
+    const ws = workspaceId || getActiveWorkspaceId()
+    await this.ensureDirectories(ws)
     const id = crypto.randomUUID()
     const ext = path.extname(filePath)
     const fileName = `${id}${ext}`
-    const destPath = `${this.getSubDir(type)}/${fileName}`
+    const destPath = `${this.getSubDir(type, ws)}/${fileName}`
     const stat = await fs.stat(filePath)
     const buffer = await fs.readFile(filePath)
+    const contentHash = crypto.createHash('sha256').update(buffer).digest('hex')
     await fs.writeFile(destPath, buffer)
 
     const mimeTypes: Record<string, string> = {
@@ -145,27 +160,58 @@ export class AssetManager {
 
     const raw = getRawDb()
     raw.prepare(
-      'INSERT INTO assets (id, type, file_path, file_name, mime_type, model_used, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, type, savedPath, path.basename(savedPath), savedMime, 'import', savedSize, Date.now(), Date.now())
+      'INSERT INTO assets (id, type, file_path, file_name, mime_type, model_used, file_size, content_hash, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, type, savedPath, path.basename(savedPath), savedMime, 'import', savedSize, contentHash, ws, Date.now(), Date.now())
 
     return { id, type, filePath: savedPath, fileName: path.basename(savedPath), fileSize: savedSize }
   }
 
-  async importBase64(base64: string, mimeType: string, fileName: string) {
-    await this.ensureDirectories()
-    const id = crypto.randomUUID()
-    const type: AssetType = mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('audio/') ? 'audio' : 'image'
-    const ext = mimeType.split('/')[1] || 'png'
-    const destFileName = `${id}.${ext}`
-    const destPath = `${this.getSubDir(type)}/${destFileName}`
+  async importBase64(base64: string, mimeType: string, fileName: string, options?: { modelUsed?: string; workspaceId?: string }) {
+    const ws = options?.workspaceId || getActiveWorkspaceId()
+    await this.ensureDirectories(ws)
     const buffer = Buffer.from(base64, 'base64')
+    const hash = crypto.createHash('sha256').update(buffer).digest('hex')
+
+    // Infer the mime type from the file extension when the browser didn't
+    // provide one (common with .ogg/.m4a/.flac and some video containers).
+    const MIME_BY_EXT: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
+      '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska',
+      '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
+      '.flac': 'audio/flac', '.mpga': 'audio/mpeg',
+    }
+    let effectiveMime = mimeType
+    const nameExt = path.extname(fileName || '').toLowerCase()
+    if (!effectiveMime || effectiveMime === 'application/octet-stream' || effectiveMime === '') {
+      if (MIME_BY_EXT[nameExt]) effectiveMime = MIME_BY_EXT[nameExt]
+    }
+    const type: AssetType = effectiveMime.startsWith('video/') ? 'video' : effectiveMime.startsWith('audio/') ? 'audio' : 'image'
+
+    // Deduplicate by content within the same workspace: re-importing the same image
+    // (e.g. the same dropped reference reused across tasks) reuses the existing asset
+    // instead of piling up copies.
+    const existing = getRawDb().prepare('SELECT * FROM assets WHERE content_hash = ? AND type = ? AND workspace_id = ? LIMIT 1').get(hash, type, ws) as any
+    if (existing) {
+      const existingPath = existing.localPath || (existing.filePath && !existing.filePath.startsWith('__error__') && !existing.filePath.startsWith('http') ? existing.filePath : null)
+      if (existingPath) {
+        try {
+          await fs.access(existingPath)
+          return { id: existing.id, type, filePath: existing.filePath, fileName: existing.fileName, fileSize: existing.fileSize || buffer.length }
+        } catch {}
+      }
+    }
+
+    const id = crypto.randomUUID()
+    const ext = effectiveMime.split('/')[1] || 'bin'
+    const destFileName = `${id}.${ext}`
+    const destPath = `${this.getSubDir(type, ws)}/${destFileName}`
     await fs.writeFile(destPath, buffer)
 
     let savedPath = destPath
-    let savedMime = mimeType
+    let savedMime = effectiveMime
     let savedSize = buffer.length
     if (type === 'image') {
-      const res = await ensureImageWebp(destPath, mimeType)
+      const res = await ensureImageWebp(destPath, effectiveMime)
       savedPath = res.path
       savedMime = res.mime
       savedSize = res.size
@@ -173,8 +219,8 @@ export class AssetManager {
 
     const raw = getRawDb()
     raw.prepare(
-      'INSERT INTO assets (id, type, file_path, file_name, mime_type, model_used, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, type, savedPath, fileName || path.basename(savedPath), savedMime, 'upload', savedSize, Date.now(), Date.now())
+      'INSERT INTO assets (id, type, file_path, file_name, mime_type, model_used, file_size, content_hash, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, type, savedPath, fileName || path.basename(savedPath), savedMime, options?.modelUsed || 'upload', savedSize, hash, ws, Date.now(), Date.now())
 
     return { id, type, filePath: savedPath, fileName: fileName || path.basename(savedPath), fileSize: savedSize }
   }
@@ -225,6 +271,46 @@ export class AssetManager {
     return count
   }
 
+  // Moves assets to another workspace: updates workspace_id and physically
+  // relocates local files to the target workspace's asset folder.
+  async moveAssetsToWorkspace(ids: string[], targetWorkspaceId: string): Promise<{ moved: number }> {
+    const raw = getRawDb()
+    let moved = 0
+    for (const id of ids) {
+      const asset = this.getAsset(id) as any
+      if (!asset || !targetWorkspaceId) continue
+      if ((asset.workspaceId || getActiveWorkspaceId()) === targetWorkspaceId) continue
+
+      const targetSubDir = workspaceAssetSubDir(asset.type, targetWorkspaceId)
+      let newLocalPath: string | null = null
+      let newFilePath: string | null = null
+
+      const localPath = asset.localPath || (asset.filePath && !String(asset.filePath).startsWith('http') && !String(asset.filePath).startsWith('__error__') ? asset.filePath : null)
+      if (localPath) {
+        try {
+          await fs.access(localPath)
+          const fileName = path.basename(localPath)
+          const dest = `${targetSubDir}/${fileName}`
+          await fs.mkdir(targetSubDir, { recursive: true })
+          await fs.rename(localPath, dest)
+          newLocalPath = dest
+          // Keep file_path in sync when it was the local path itself
+          if (asset.localPath && asset.filePath === asset.localPath) newFilePath = dest
+          else if (asset.filePath && !String(asset.filePath).startsWith('http') && !String(asset.filePath).startsWith('__error__')) newFilePath = dest
+        } catch (err: any) {
+          console.warn('[AssetManager] move file failed, only updating metadata:', err?.message)
+        }
+      }
+
+      raw.prepare(
+        'UPDATE assets SET workspace_id = ?, local_path = COALESCE(?, local_path), file_path = COALESCE(?, file_path), updated_at = ? WHERE id = ?'
+      ).run(targetWorkspaceId, newLocalPath, newFilePath, Date.now(), id)
+      moved++
+    }
+    if (moved > 0) raw.save()
+    return { moved }
+  }
+
   addTagsMultiple(ids: string[], newTags: string[]): number {
     const raw = getRawDb()
     const cleanNew = newTags.map(t => t.trim().toLowerCase()).filter(Boolean)
@@ -259,9 +345,96 @@ export class AssetManager {
     return results
   }
 
-  getStorageStats() {
+  // Finds physical files in asset folders that have no matching asset row.
+  async scanOrphans(): Promise<{ workspaceId: string; name: string; count: number; files: string[] }[]> {
     const raw = getRawDb()
-    const all = raw.prepare('SELECT * FROM assets').all()
+    const known = new Set<string>()
+    const rows = raw.prepare('SELECT file_path, local_path FROM assets').all() as any[]
+    for (const r of rows) {
+      for (const p of [r.filePath, r.localPath]) {
+        if (p && typeof p === 'string' && !p.startsWith('http') && !p.startsWith('__error__')) {
+          known.add(path.normalize(p).replace(/\\/g, '/').toLowerCase())
+        }
+      }
+    }
+    const result: { workspaceId: string; name: string; count: number; files: string[] }[] = []
+    for (const ws of listWorkspaces()) {
+      const base = workspaceAssetsDir(ws.id)
+      const files: string[] = []
+      for (const sub of ['images', 'videos', 'audio']) {
+        const dir = path.join(base, sub)
+        let entries: string[] = []
+        try { entries = await fs.readdir(dir) } catch { continue }
+        for (const f of entries) {
+          const full = path.join(dir, f)
+          const key = full.replace(/\\/g, '/').toLowerCase()
+          if (!known.has(key)) files.push(full)
+        }
+      }
+      if (files.length > 0) result.push({ workspaceId: ws.id, name: ws.name, count: files.length, files })
+    }
+    return result
+  }
+
+  // Registers orphan files as assets in-place (no copy). Files are assigned to
+  // the workspace that owns the folder they live in. Duplicate content is removed.
+  async adoptOrphans(workspaceId?: string): Promise<{ imported: number; skipped: number }> {
+    const raw = getRawDb()
+    const scans = await this.scanOrphans()
+    const list = workspaceId ? scans.filter(s => s.workspaceId === workspaceId) : scans
+    const EXT_MIME: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
+      '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+      '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
+    }
+    const EXT_TYPE: Record<string, AssetType> = {
+      '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.webp': 'image', '.gif': 'image',
+      '.mp4': 'video', '.webm': 'video', '.mov': 'video',
+      '.mp3': 'audio', '.wav': 'audio', '.ogg': 'audio',
+    }
+    let imported = 0
+    let skipped = 0
+    for (const s of list) {
+      for (const file of s.files) {
+        const ext = path.extname(file).toLowerCase()
+        const mime = EXT_MIME[ext]
+        const type = EXT_TYPE[ext]
+        if (!mime || !type) { skipped++; continue }
+        let stat
+        try { stat = await fs.stat(file) } catch { skipped++; continue }
+        let hash = ''
+        try {
+          const buffer = await fs.readFile(file)
+          hash = crypto.createHash('sha256').update(buffer).digest('hex')
+        } catch {}
+
+        if (hash) {
+          const existing = raw.prepare('SELECT id FROM assets WHERE content_hash = ? AND type = ? AND workspace_id = ? LIMIT 1')
+            .get(hash, type, s.workspaceId) as any
+          if (existing) {
+            await fs.unlink(file).catch(() => {})
+            skipped++
+            continue
+          }
+        }
+
+        const id = crypto.randomUUID()
+        const norm = file.replace(/\\/g, '/')
+        const now = Date.now()
+        raw.prepare(
+          'INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, file_size, content_hash, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(id, type, norm, norm, path.basename(norm), mime, 'import', stat.size, hash || null, s.workspaceId, now, now)
+        imported++
+      }
+    }
+    if (imported > 0) raw.save()
+    return { imported, skipped }
+  }
+
+  getStorageStats(workspaceId?: string) {
+    const raw = getRawDb()
+    const ws = workspaceId || getActiveWorkspaceId()
+    const all = raw.prepare('SELECT * FROM assets WHERE workspace_id = ?').all(ws)
     const stats = { totalFiles: all.length, totalSize: 0, images: 0, videos: 0, audio: 0, imageSize: 0, videoSize: 0, audioSize: 0 }
     for (const a of all) {
       const s = (a.fileSize || 0) as number
@@ -351,7 +524,8 @@ export class AssetManager {
       const type = asset.type as 'image' | 'video'
       const ext = type === 'video' ? '.mp4' : '.png'
       let mime = type === 'image' ? 'image/png' : 'video/mp4'
-      const subDir = getAssetSubDir(type)
+      const assetWs = asset.workspaceId || getActiveWorkspaceId()
+      const subDir = workspaceAssetSubDir(type, assetWs)
       let fileName = `${id}${ext}`
       let localPath = `${subDir}/${fileName}`
 
@@ -444,7 +618,8 @@ export class AssetManager {
 
     const type = asset.type as 'image' | 'video'
     const ext = type === 'video' ? '.mp4' : '.png'
-    const subDir = getAssetSubDir(type)
+    const assetWs = asset.workspaceId || getActiveWorkspaceId()
+    const subDir = workspaceAssetSubDir(type, assetWs)
     let fileName = `${id}${ext}`
     let localPath = `${subDir}/${fileName}`
 

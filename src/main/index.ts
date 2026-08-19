@@ -22,7 +22,7 @@ let mainWindow: BrowserWindow | null = null
 async function createWindow() {
   const iconPath = isDev
     ? path.join(app.getAppPath(), 'resources', 'icon.png')
-    : path.join(process.resourcesPath, 'resources', 'icon.png')
+    : path.join(process.resourcesPath, 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -152,6 +152,12 @@ async function initialize() {
 }
 
 app.whenReady().then(async () => {
+  // Windows: register the packaged AUMID so notifications/updater shortcuts group under
+  // the app. Skipped in dev: with no registered shortcut for the AUMID, Windows falls
+  // back to electron.exe's default icon on the taskbar.
+  if (process.platform === 'win32' && app.isPackaged) {
+    app.setAppUserModelId('com.openfield.desktop')
+  }
   // Cache for file reads served over asset:// (thumbnails/grids re-request the same
   // files often). Keyed by path, invalidated via size+mtime so edits are picked up.
   const assetCache = new Map<string, { size: number; mtimeMs: number; buffer: Buffer }>()

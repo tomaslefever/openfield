@@ -1,6 +1,11 @@
+import { useEffect } from 'react'
 import { useAppStore, type Page } from './stores/app-store'
-import { Sidebar } from './components/Sidebar'
-import { PanelLeftOpen, PanelLeftClose } from 'lucide-react'
+import { useWorkspaceStore } from './stores/workspace-store'
+import { useElementsStore } from './stores/elements-store'
+import { useStoryboardStore } from './stores/storyboard-store'
+import { usePromptLibraryStore } from './stores/prompt-library-store'
+import { AppSidebar } from './components/Sidebar'
+import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { ImageGenPage } from './pages/ImageGenPage'
 import { VideoGenPage } from './pages/VideoGenPage'
 import { AudioGenPage } from './pages/AudioGenPage'
@@ -16,6 +21,7 @@ import { AppsPage } from './pages/AppsPage'
 import { PromptLibraryPage } from './pages/PromptLibraryPage'
 import { StoryboardPage } from './pages/StoryboardPage'
 import { PanicButton } from './components/PanicButton'
+import { Toaster } from 'sonner'
 
 const pages: Record<Page, React.FC> = {
   apps: AppsPage,
@@ -38,24 +44,48 @@ function App() {
   const currentPage = useAppStore((s) => s.currentPage)
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
+
+  useEffect(() => {
+    useWorkspaceStore.getState().load()
+  }, [])
+
+  // When the active workspace changes, reload workspace-scoped data and reset
+  // any in-memory state that belongs to the previous workspace.
+  useEffect(() => {
+    if (!activeWorkspaceId) return
+    useElementsStore.getState().loadElements()
+    useStoryboardStore.getState().clear()
+    usePromptLibraryStore.getState().loadEntries()
+  }, [activeWorkspaceId])
 
   const PageComponent = pages[currentPage]
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface-950">
-      <Sidebar />
-      <button
-        onClick={toggleSidebar}
-        title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        className={`fixed top-3.5 z-40 h-7 w-7 flex items-center justify-center rounded-lg bg-surface-900 border border-surface-800 text-surface-500 hover:text-surface-100 hover:border-surface-600 transition-all duration-200 ${sidebarCollapsed ? 'left-[54px]' : 'left-[214px]'}`}
-      >
-        {sidebarCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
-      </button>
-      <main className={`flex-1 flex flex-col overflow-hidden transition-all duration-200 ${sidebarCollapsed ? 'ml-16' : 'ml-56'}`}>
+    <SidebarProvider
+      open={!sidebarCollapsed}
+      onOpenChange={(open) => {
+        if (open === sidebarCollapsed) toggleSidebar()
+      }}
+      className="relative h-screen overflow-hidden"
+    >
+      <div
+        className="fixed inset-0 z-0 pointer-events-none"
+        style={{
+          backgroundImage: 'url(./background.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          filter: 'brightness(2.2) saturate(1.2) contrast(1.05)',
+        }}
+      />
+      <div className="fixed inset-0 z-0 pointer-events-none bg-surface-950/90" />
+      <AppSidebar />
+      <SidebarInset className="relative overflow-hidden">
         <PageComponent />
-      </main>
+      </SidebarInset>
       <PanicButton />
-    </div>
+      <Toaster theme="dark" position="bottom-right" richColors toastOptions={{ style: { background: '#17171a', border: '1px solid #2a2a30' } }} />
+    </SidebarProvider>
   )
 }
 

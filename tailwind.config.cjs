@@ -34,7 +34,7 @@ module.exports = {
           900: '#312e81',
           950: '#1e1b4b',
         },
-        // shadcn v4 theme tokens ─ mapped to project surface/accent
+        // shadcn theme tokens ─ mapped to project surface/accent
         background: '#0f0f12',
         foreground: '#e1e1e4',
         primary: {
@@ -56,6 +56,16 @@ module.exports = {
         border: '#3d3d46',
         input: '#3d3d46',
         ring: '#4f46e5',
+        sidebar: {
+          DEFAULT: 'hsl(var(--sidebar-background) / <alpha-value>)',
+          foreground: 'hsl(var(--sidebar-foreground) / <alpha-value>)',
+          primary: 'hsl(var(--sidebar-primary) / <alpha-value>)',
+          'primary-foreground': 'hsl(var(--sidebar-primary-foreground) / <alpha-value>)',
+          accent: 'hsl(var(--sidebar-accent) / <alpha-value>)',
+          'accent-foreground': 'hsl(var(--sidebar-accent-foreground) / <alpha-value>)',
+          border: 'hsl(var(--sidebar-border) / <alpha-value>)',
+          ring: 'hsl(var(--sidebar-ring) / <alpha-value>)',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
@@ -63,5 +73,5 @@ module.exports = {
       },
     },
   },
-  plugins: [],
+  plugins: [require('tailwindcss-animate')],
 }

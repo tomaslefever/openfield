@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Play, Pause, Scissors, Crop, ZoomIn, Volume2, Film, Plus, Download } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useWorkspaceStore } from '../stores/workspace-store'
 
 export function EditorPage() {
   const queryClient = useQueryClient()
@@ -8,9 +9,10 @@ export function EditorPage() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [zoom, setZoom] = useState(1)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
 
   const { data: projects } = useQuery({
-    queryKey: ['projects'],
+    queryKey: ['projects', activeWorkspaceId],
     queryFn: () => (window as any).electronAPI?.projects.list() ?? [],
   })
 

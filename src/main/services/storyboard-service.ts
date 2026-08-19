@@ -2,6 +2,7 @@ import * as crypto from 'crypto'
 import { getRawDb } from '../db'
 import { requireApiKey } from '../ipc/helpers'
 import { getTaskQueue } from './task-queue'
+import { getActiveWorkspaceId } from './workspace-service'
 
 export interface StoryboardStyle {
   id: string
@@ -87,8 +88,9 @@ export function isBridgeEnabled(): boolean {
 
 // ─── Boards ────────────────────────────────────────────────
 
-export function listBoards(): any[] {
+export function listBoards(workspaceId?: string): any[] {
   const raw = getRawDb()
+  const wsId = workspaceId || getActiveWorkspaceId()
   const boards = raw.prepare(`
     SELECT s.*,
       (SELECT COUNT(*) FROM storyboard_scenes sc WHERE sc.storyboard_id = s.id) AS sceneCount,
@@ -101,8 +103,9 @@ export function listBoards(): any[] {
          WHERE sc3.storyboard_id = s.id ORDER BY sc3."order" ASC LIMIT 1)
       ) AS thumbnailPath
     FROM storyboards s
+    WHERE s.workspace_id = ?
     ORDER BY s.updated_at DESC
-  `).all() as any[]
+  `).all(wsId) as any[]
   return boards.map(b => ({
     ...b,
     sceneCount: b.sceneCount ?? 0,
@@ -119,13 +122,14 @@ export function getBoard(id: string): any {
   return { ...board, scenes, transitions }
 }
 
-export function createBoard(name: string, style?: string): any {
+export function createBoard(name: string, style?: string, workspaceId?: string): any {
   const raw = getRawDb()
   const id = crypto.randomUUID()
   const now = Date.now()
+  const wsId = workspaceId || getActiveWorkspaceId()
   raw.prepare(
-    'INSERT INTO storyboards (id, name, style, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, name || 'Untitled Storyboard', style || '', now, now)
+    'INSERT INTO storyboards (id, name, style, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, name || 'Untitled Storyboard', style || '', wsId, now, now)
   raw.save()
   return { id, name: name || 'Untitled Storyboard', style: style || '', createdAt: now, updatedAt: now }
 }
@@ -175,7 +179,7 @@ export function createScene(storyboardId: string, data: any): any {
 
   raw.prepare(
     'INSERT INTO storyboard_scenes (id, storyboard_id, "order", description, prompt, aspect_ratio, resolution, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, storyboardId, maxOrder + 1, data.description || '', prompt, data.aspectRatio || '16:9', data.resolution || '1K', now, now)
+  ).run(id, storyboardId, maxOrder + 1, data.description || '', prompt, data.aspectRatio || '1:1', data.resolution || '1K', now, now)
   raw.save()
   return { id, order: maxOrder + 1, ...data, prompt }
 }
@@ -281,9 +285,10 @@ export async function generateSceneImage(sceneId: string, params: any): Promise<
   let prompt = params.prompt || scene?.prompt || ''
   if (board?.style) prompt = applyStyle(prompt, board.style)
   const taskId = await queue.enqueue('image', {
+    sceneId,
     prompt,
     model: params.model || 'gpt-image-2-text-to-image',
-    aspectRatio: params.aspectRatio || scene?.aspect_ratio || '16:9',
+    aspectRatio: params.aspectRatio || scene?.aspect_ratio || '1:1',
     resolution: params.resolution || scene?.resolution || '1K',
   })
   return { taskId, sceneId }
@@ -297,6 +302,7 @@ export async function generateSceneVideo(sceneId: string, params: any): Promise<
   let prompt = params.prompt || scene?.prompt || ''
   if (board?.style) prompt = applyStyle(prompt, board.style)
   const taskId = await queue.enqueue('video', {
+    sceneId,
     prompt,
     model: params.model || 'kling-3.0/video',
     duration: params.duration || 5,
@@ -312,8 +318,9 @@ export async function generateTransition(transitionId: string, params: any): Pro
   const apiKey = requireApiKey()
   const queue = getTaskQueue(apiKey)
   const taskId = await queue.enqueue('video', {
+    transitionId,
     prompt: params.prompt || 'Smooth cinematic transition',
-    model: params.model || 'pixverse-v6/transition',
+    model: params.model || 'pixverse-v6/image-to-video',
     duration: params.duration || 5,
     firstFrameBase64: params.firstFrameBase64,
     lastFrameBase64: params.lastFrameBase64,

@@ -1,6 +1,7 @@
 ﻿import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
+import * as crypto from 'crypto'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
 
 let dbInstance: DbWrapper | null = null
@@ -170,9 +171,19 @@ export function runMigrations() {
       tags TEXT, is_favorite INTEGER DEFAULT 0, credits_used INTEGER, task_id TEXT,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT DEFAULT '#6366f1',
+      config TEXT DEFAULT '{}', is_archived INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, timeline_data TEXT NOT NULL,
       thumbnail_path TEXT, duration REAL, width INTEGER, height INTEGER, fps INTEGER DEFAULT 30,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS prompts (
+      id TEXT PRIMARY KEY, workspace_id TEXT, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      kind TEXT DEFAULT 'image', refs TEXT DEFAULT '[]', tags TEXT DEFAULT '[]',
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS openfield_tasks (
@@ -241,7 +252,7 @@ export function runMigrations() {
       video_model_id TEXT,
       transition_model_id TEXT,
       default_duration INTEGER DEFAULT 5,
-      default_aspect_ratio TEXT DEFAULT '16:9',
+      default_aspect_ratio TEXT DEFAULT '1:1',
       default_resolution TEXT DEFAULT '1K',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -254,7 +265,7 @@ export function runMigrations() {
       prompt TEXT DEFAULT '',
       image_asset_id TEXT,
       video_asset_id TEXT,
-      aspect_ratio TEXT DEFAULT '16:9',
+      aspect_ratio TEXT DEFAULT '1:1',
       resolution TEXT DEFAULT '1K',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -311,6 +322,54 @@ export function runMigrations() {
   // Migration: add openfield_task_id column to openfield_tasks
   try { raw.exec('ALTER TABLE openfield_tasks ADD COLUMN openfield_task_id TEXT') } catch {}
 
+  // Migration: add content_hash column for deduplicating reference images
+  try { raw.exec('ALTER TABLE assets ADD COLUMN content_hash TEXT') } catch {}
+  try { raw.exec('CREATE INDEX IF NOT EXISTS idx_assets_content_hash ON assets(content_hash)') } catch {}
+
+  // Migration: mark persisted reference images (saved at enqueue time as 'upload') as
+  // 'ref' so they stay out of library listings. An asset is a reference if its id appears
+  // in any stored task payload or asset parameters (imageAssetId / firstFrameAssetId /
+  // lastFrameAssetId / imageRefs[].assetId / videoRefs[].assetId / audioRefs[].assetId).
+  try {
+    const uploadCount = raw.prepare("SELECT count(*) as c FROM assets WHERE model_used = 'upload'").get()?.c || 0
+    if (uploadCount > 0) {
+      const refIds = new Set<string>()
+      const scanForRefIds = (value: any) => {
+        if (!value) return
+        if (typeof value === 'string') {
+          if (value.length > 0 && value.length < 1000000) {
+            try { value = JSON.parse(value) } catch { return }
+          } else { return }
+        }
+        if (Array.isArray(value)) { for (const item of value) scanForRefIds(item); return }
+        if (typeof value !== 'object') return
+        if (typeof value.imageAssetId === 'string') refIds.add(value.imageAssetId)
+        if (typeof value.firstFrameAssetId === 'string') refIds.add(value.firstFrameAssetId)
+        if (typeof value.lastFrameAssetId === 'string') refIds.add(value.lastFrameAssetId)
+        for (const key of ['imageRefs', 'videoRefs', 'audioRefs']) {
+          if (Array.isArray(value[key])) {
+            for (const r of value[key]) {
+              if (r && typeof r.assetId === 'string') refIds.add(r.assetId)
+            }
+          }
+        }
+        for (const v of Object.values(value)) scanForRefIds(v)
+      }
+      const paramRows = raw.all("SELECT parameters FROM assets WHERE parameters IS NOT NULL AND parameters != ''") as any[]
+      for (const row of paramRows) { try { scanForRefIds(row.parameters) } catch {} }
+      for (const table of ['openfield_tasks', 'replicate_tasks', 'fal_tasks']) {
+        const payloadRows = raw.all(`SELECT payload FROM ${table} WHERE payload IS NOT NULL`) as any[]
+        for (const row of payloadRows) { try { scanForRefIds(row.payload) } catch {} }
+      }
+      const now = Date.now()
+      for (const id of refIds) {
+        raw.prepare("UPDATE assets SET model_used = 'ref', updated_at = ? WHERE id = ? AND model_used = 'upload'").run(now, id)
+      }
+    }
+  } catch (err: any) {
+    console.warn('[DB] Ref-marking migration failed:', err?.message)
+  }
+
   // Migration: add style column to storyboards
   try { raw.exec('ALTER TABLE storyboards ADD COLUMN style TEXT DEFAULT \'\'') } catch {}
 
@@ -319,6 +378,50 @@ export function runMigrations() {
 
   // Migration: add elements column to storyboards
   try { raw.exec('ALTER TABLE storyboards ADD COLUMN elements TEXT DEFAULT \'[]\'') } catch {}
+
+  // ─── Workspaces migration ─────────────────────────────────────────
+  // Every project-scoped table gets a workspace_id. Existing rows are assigned to
+  // a "Default" workspace so the user keeps all their data.
+  const workspaceTables = [
+    'assets', 'elements', 'storyboards', 'workflows', 'projects',
+    'openfield_tasks', 'replicate_tasks', 'fal_tasks', 'run_logs',
+  ]
+  for (const table of workspaceTables) {
+    try { raw.exec(`ALTER TABLE ${table} ADD COLUMN workspace_id TEXT`) } catch {}
+  }
+
+  let defaultWorkspaceId = ''
+  try {
+    const existingDefault = raw.prepare("SELECT value FROM settings WHERE key = 'defaultWorkspaceId'").get() as any
+    if (existingDefault?.value) {
+      try { defaultWorkspaceId = JSON.parse(existingDefault.value) } catch { defaultWorkspaceId = existingDefault.value }
+    }
+    if (!defaultWorkspaceId) {
+      const firstWs = raw.prepare('SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1').get() as any
+      defaultWorkspaceId = firstWs?.id || ''
+    }
+    if (!defaultWorkspaceId) {
+      defaultWorkspaceId = crypto.randomUUID()
+      const nowWs = Date.now()
+      raw.prepare(
+        "INSERT INTO workspaces (id, name, color, config, is_archived, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(defaultWorkspaceId, 'Default', '#6366f1', '{}', 0, nowWs, nowWs)
+    }
+    raw.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
+      .run('defaultWorkspaceId', JSON.stringify(defaultWorkspaceId), Date.now())
+    raw.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
+      .run('activeWorkspaceId', JSON.stringify(defaultWorkspaceId), Date.now())
+    for (const table of workspaceTables) {
+      raw.prepare(`UPDATE ${table} SET workspace_id = ? WHERE workspace_id IS NULL`).run(defaultWorkspaceId)
+      try { raw.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_workspace ON ${table}(workspace_id)`) } catch {}
+    }
+  } catch (err: any) {
+    console.warn('[DB] Workspaces migration failed:', err?.message)
+  }
+
+  // Migration: image default aspect is now 1:1 (videos stay 16:9)
+  try { raw.exec("UPDATE storyboards SET default_aspect_ratio = '1:1' WHERE default_aspect_ratio = '16:9'") } catch {}
+  try { raw.exec("UPDATE storyboard_scenes SET aspect_ratio = '1:1' WHERE aspect_ratio = '16:9' AND image_asset_id IS NULL AND video_asset_id IS NULL") } catch {}
 
   const now = Date.now()
   const seed = raw.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
@@ -360,6 +463,22 @@ export function getAssetsDir() {
 export function getAssetSubDir(type: 'image' | 'video' | 'audio') {
   const subDirs = { image: 'images', video: 'videos', audio: 'audio' }
   return path.join(getAssetsDir(), subDirs[type]).replace(/\\/g, '/')
+}
+
+export function getWorkspacesDir() {
+  return path.join(getUserDataDir(), 'workspaces')
+}
+
+// The default workspace keeps the legacy global assets dir so existing
+// files don't need to be moved. New workspaces get their own folder.
+export function getWorkspaceAssetsDir(workspaceId: string, isDefault: boolean) {
+  if (isDefault) return getAssetsDir()
+  return path.join(getWorkspacesDir(), workspaceId, 'assets').replace(/\\/g, '/')
+}
+
+export function getWorkspaceAssetSubDir(workspaceId: string, isDefault: boolean, type: 'image' | 'video' | 'audio') {
+  const subDirs = { image: 'images', video: 'videos', audio: 'audio' }
+  return path.join(getWorkspaceAssetsDir(workspaceId, isDefault), subDirs[type]).replace(/\\/g, '/')
 }
 
 export function getModelsDir() {

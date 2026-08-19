@@ -1,21 +1,24 @@
 import * as crypto from 'crypto'
 import type { IpcContext } from './context'
 import { rowToElement } from './helpers'
+import { getActiveWorkspaceId } from '../services/workspace-service'
 
 export function registerElementsHandlers({ raw, handle }: IpcContext) {
   handle('elements:list', () => {
-    const rows = raw.prepare('SELECT * FROM elements ORDER BY updated_at DESC').all() as any[]
+    const wsId = getActiveWorkspaceId()
+    const rows = raw.prepare('SELECT * FROM elements WHERE workspace_id = ? ORDER BY updated_at DESC').all(wsId) as any[]
     return rows.map(rowToElement)
   })
 
   handle('elements:create', (_e, data: any) => {
     const id = data.id || crypto.randomUUID()
     const now = Date.now()
+    const wsId = getActiveWorkspaceId()
     raw.prepare(
       `INSERT INTO elements (id, name, kind, description, tags, image_base64, prompt, voice_id,
        reference_images, pose_ref, pose_task_id, moodboard_task_id, video_ref, hdri_ref,
-       style, properties, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       style, properties, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, data.name, data.kind, data.description || '',
       JSON.stringify(data.tags || []), data.imageBase64 || '',
@@ -24,7 +27,7 @@ export function registerElementsHandlers({ raw, handle }: IpcContext) {
       data.poseTaskId || '', data.moodboardTaskId || '',
       data.videoRef || '', data.hdriRef || '',
       data.style || '', JSON.stringify(data.properties || {}),
-      now, now
+      wsId, now, now
     )
     const row = raw.prepare('SELECT * FROM elements WHERE id = ?').get(id)
     return row ? rowToElement(row) : null

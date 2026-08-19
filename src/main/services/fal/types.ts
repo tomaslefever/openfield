@@ -12,10 +12,16 @@ export interface FalFile {
   content_type?: string
   file_name?: string
   file_size?: number
+  width?: number
+  height?: number
 }
 
 export interface FalVideoResult {
   video: FalFile
+}
+
+export interface FalImageResult {
+  images: FalFile[]
 }
 
 export interface MiniMaxH3Input {

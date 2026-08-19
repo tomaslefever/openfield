@@ -1,5 +1,7 @@
 import type { FalApiClient } from '../client'
-import type { FalQueueStatusResponse, MiniMaxH3Input, FalVideoResult } from '../types'
+import type { FalQueueStatusResponse, MiniMaxH3Input, FalImageResult, FalVideoResult } from '../types'
+
+export type FalResult = FalVideoResult | FalImageResult
 
 /**
  * POST /{modelId}
@@ -36,8 +38,8 @@ export async function getRequestResult(
   client: FalApiClient,
   modelId: string,
   requestId: string
-): Promise<FalVideoResult> {
-  return client.request<FalVideoResult>(`/${modelId}/requests/${requestId}`)
+): Promise<FalResult> {
+  return client.request<FalResult>(`/${modelId}/requests/${requestId}`)
 }
 
 /**

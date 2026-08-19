@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Sparkles, X, ChevronDown, RefreshCw, Wand2, Plus, BookOpen } from 'lucide-react'
+import { Sparkles, X, ChevronDown, RefreshCw, Wand2, Plus, BookOpen, Library, Upload } from 'lucide-react'
 import { ASPECT_RATIOS } from './aspect-ratios'
+import { ImageLibraryPicker } from './ImageLibraryPicker'
 import { useElementsStore } from '../stores/elements-store'
 import { usePromptLibraryStore } from '../stores/prompt-library-store'
 
@@ -87,6 +88,10 @@ export function QuickPromptComposer({
   const promptLibrary = usePromptLibraryStore(s => s.entries)
 
   const [showPromptLib, setShowPromptLib] = useState(false)
+  const [showInsertMenu, setShowInsertMenu] = useState(false)
+  const [showInsertLibrary, setShowInsertLibrary] = useState(false)
+  const insertRef = useRef<HTMLDivElement>(null)
+  const insertFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { loadElements() }, [loadElements])
 
@@ -162,6 +167,16 @@ export function QuickPromptComposer({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [onClose])
 
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (insertRef.current && !insertRef.current.contains(e.target as Node)) {
+        setShowInsertMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
   const selectedModel = IMAGE_GEN_MODELS.find((m) => m.id === model)
 
   const fullPrompt = promptLocked
@@ -188,6 +203,7 @@ export function QuickPromptComposer({
       } catch {}
     }
     e.target.value = ''
+    setShowInsertMenu(false)
   }
 
   const handleDrop = async (e: React.DragEvent) => {
@@ -209,6 +225,22 @@ export function QuickPromptComposer({
 
   const removeExtRef = (i: number) => {
     setExtRefs(prev => prev.filter((_, j) => j !== i))
+  }
+
+  const handleInsertLibraryOpen = () => {
+    setShowInsertMenu(false)
+    setShowInsertLibrary(true)
+  }
+
+  const handleInsertLibrarySelect = async (asset: any) => {
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([asset.id])
+      const b64 = results?.[0]?.base64
+      const mime = results?.[0]?.mime || 'image/png'
+      if (b64) setExtRefs(prev => [...prev, { base64: b64, mime }])
+    } catch { /* ignore */ }
+    setShowInsertLibrary(false)
   }
 
   const handleGenerate = async () => {
@@ -349,10 +381,28 @@ export function QuickPromptComposer({
             {extRefs.map((ref, i) => (
               <RefChip key={`eref-${i}`} base64={ref.base64} mime={ref.mime} label="Upload" onRemove={() => removeExtRef(i)} />
             ))}
-            <label className="inline-flex items-center justify-center size-6 border border-dashed border-surface-600 hover:border-accent-500/50 rounded-md cursor-pointer transition-colors flex-shrink-0">
-              <Plus size={10} className="text-surface-500" />
-              <input type="file" accept="image/*" multiple className="hidden" onChange={handleFileSelect} />
-            </label>
+            <div className="relative" ref={insertRef}>
+              <button
+                onClick={() => setShowInsertMenu(!showInsertMenu)}
+                className={`inline-flex items-center justify-center size-6 border border-dashed rounded-md cursor-pointer transition-colors flex-shrink-0 ${showInsertMenu ? 'border-accent-500/60 bg-surface-800 text-surface-200' : 'border-surface-600 hover:border-accent-500/50 text-surface-500'}`}
+                title="Add reference"
+              >
+                <Plus size={10} />
+              </button>
+              {showInsertMenu && (
+                <div className="absolute top-full left-0 mt-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[190px] shadow-xl z-50">
+                  <button onClick={handleInsertLibraryOpen}
+                    className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 text-surface-300 hover:bg-surface-700/50 transition-colors">
+                    <Library size={12} className="text-accent-400" /> Insert from library
+                  </button>
+                  <button onClick={() => insertFileRef.current?.click()}
+                    className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 text-surface-300 hover:bg-surface-700/50 transition-colors">
+                    <Upload size={12} className="text-blue-400" /> Upload file
+                  </button>
+                </div>
+              )}
+            </div>
+            <input ref={insertFileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileSelect} />
           </div>
         )}
 
@@ -507,6 +557,10 @@ export function QuickPromptComposer({
             )}
           </div>
         </div>
+
+        {showInsertLibrary && (
+          <ImageLibraryPicker onSelect={handleInsertLibrarySelect} onClose={() => setShowInsertLibrary(false)} />
+        )}
       </div>
     </div>
   )

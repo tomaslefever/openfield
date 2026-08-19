@@ -1,9 +1,11 @@
 ﻿import { EventEmitter } from 'events'
-import { getRawDb, getAssetSubDir } from '../db'
+import { getRawDb } from '../db'
+import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import * as crypto from 'crypto'
 import * as fs from 'fs/promises'
 import { OpenfieldApiClient } from './kie'
 import { ensurePlayableVideo, ensureImageWebp, getAssetManager } from './asset-manager'
+import { attachTaskNotifications } from './task-notifications'
 import * as path from 'path'
 
 export function extractUrls(resultJson: any): string[] {
@@ -125,10 +127,11 @@ function buildStoredParams(taskPayload: any, raw: any, taskId: string): string {
   return JSON.stringify(base)
 }
 
-function logRun(raw: any, taskId: string, step: string, message: string, payload?: any, level = 'info') {
+function logRun(raw: any, taskId: string, step: string, message: string, payload?: any, level = 'info', workspaceId?: string) {
   try {
-    raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(stripForStorage(payload)) : null, Date.now())
+    const ws = workspaceId || getTaskWorkspace(taskId)
+    raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(stripForStorage(payload)) : null, ws, Date.now())
   } catch {}
 }
 
@@ -140,6 +143,7 @@ export class TaskQueue extends EventEmitter {
   constructor(apiKey: string) {
     super()
     this.apiClient = new OpenfieldApiClient(apiKey)
+    attachTaskNotifications(this, 'Openfield')
   }
 
   setApiKey(apiKey: string) {
@@ -149,30 +153,31 @@ export class TaskQueue extends EventEmitter {
     const taskId = crypto.randomUUID()
     const raw = getRawDb()
     const now = Date.now()
+    const wsId = getActiveWorkspaceId()
 
     // Save reference images to disk as binary assets (so parameters only store asset IDs)
     const enrichedPayload = { ...payload }
     try {
       const am = getAssetManager()
       if (enrichedPayload.imageBase64 && typeof enrichedPayload.imageBase64 === 'string' && enrichedPayload.imageBase64.length > 100) {
-        const r = await am.importBase64(enrichedPayload.imageBase64, enrichedPayload.imageMime || 'image/png', 'input.png')
+        const r = await am.importBase64(enrichedPayload.imageBase64, enrichedPayload.imageMime || 'image/png', 'input.png', { modelUsed: 'ref', workspaceId: wsId })
         enrichedPayload.imageAssetId = r.id
       }
       if (enrichedPayload.imageRefs && Array.isArray(enrichedPayload.imageRefs)) {
         enrichedPayload.imageRefs = await Promise.all(enrichedPayload.imageRefs.map(async (r: any) => {
           if (r.base64 && r.base64.length > 100) {
-            const a = await am.importBase64(r.base64, r.mime || 'image/png', r.name || 'ref.png')
+            const a = await am.importBase64(r.base64, r.mime || 'image/png', r.name || 'ref.png', { modelUsed: 'ref', workspaceId: wsId })
             return { ...r, assetId: a.id }
           }
           return r
         }))
       }
       if (enrichedPayload.firstFrameBase64 && typeof enrichedPayload.firstFrameBase64 === 'string' && enrichedPayload.firstFrameBase64.length > 100) {
-        const r = await am.importBase64(enrichedPayload.firstFrameBase64, 'image/png', 'firstframe.png')
+        const r = await am.importBase64(enrichedPayload.firstFrameBase64, 'image/png', 'firstframe.png', { modelUsed: 'ref', workspaceId: wsId })
         enrichedPayload.firstFrameAssetId = r.id
       }
       if (enrichedPayload.lastFrameBase64 && typeof enrichedPayload.lastFrameBase64 === 'string' && enrichedPayload.lastFrameBase64.length > 100) {
-        const r = await am.importBase64(enrichedPayload.lastFrameBase64, 'image/png', 'lastframe.png')
+        const r = await am.importBase64(enrichedPayload.lastFrameBase64, 'image/png', 'lastframe.png', { modelUsed: 'ref', workspaceId: wsId })
         enrichedPayload.lastFrameAssetId = r.id
       }
     } catch (err) { console.warn('[TaskQueue] Failed to save refs to disk:', err) }
@@ -180,23 +185,23 @@ export class TaskQueue extends EventEmitter {
     // Store payloads stripped of large binary data for assets/parameters (keep structure for recreate)
     const storedPayload = stripForStorage(enrichedPayload)
 
-    logRun(raw, taskId, 'enqueue', `Task enqueued: type=${type}`, { type, model: payload?.model, prompt: payload?.prompt?.substring(0, 100), hasImage: !!payload?.imageBase64 })
+    logRun(raw, taskId, 'enqueue', `Task enqueued: type=${type}`, { type, model: payload?.model, prompt: payload?.prompt?.substring(0, 100), hasImage: !!payload?.imageBase64 }, 'info', wsId)
 
     // Persist the enriched payload (with asset IDs) so handleSuccess/refresh keep
     // disk-backed refs instead of overwriting them with raw base64.
     raw.prepare(
-      'INSERT INTO openfield_tasks (task_id, status, type, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'pending', type, JSON.stringify(enrichedPayload), now, now)
+      'INSERT INTO openfield_tasks (task_id, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(taskId, 'pending', type, JSON.stringify(enrichedPayload), wsId, now, now)
 
     // Create optimistic placeholder asset immediately
     const assetId = crypto.randomUUID()
     raw.prepare(
-      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       assetId, type, '', '', `pending-${taskId}`, type === 'image' ? 'image/png' : type === 'audio' ? 'audio/mpeg' : 'video/mp4',
       payload?.model || '', payload?.prompt || '', JSON.stringify(storedPayload),
-      0, taskId, now, now
+      0, taskId, wsId, now, now
     )
     raw.save()
 
@@ -308,7 +313,8 @@ export class TaskQueue extends EventEmitter {
     if (remoteUrl) {
       const ext = type === 'video' ? '.mp4' : type === 'audio' ? '.mp3' : '.png'
       let fileName = `${assetId}${ext}`
-      const subDir = getAssetSubDir(type)
+      const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
+      const subDir = workspaceAssetSubDir(type, taskWs)
       let localPath = `${subDir}/${fileName}`
 
       try {
@@ -358,8 +364,8 @@ export class TaskQueue extends EventEmitter {
           localAssetId = placeholder.id
         } else {
           raw.prepare(
-            `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, file_size, credits_used, task_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, file_size, credits_used, task_id, workspace_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             assetId, type, remoteUrl, localPath, fileName, mime,
             taskPayload?.model || result.model || '',
@@ -367,7 +373,7 @@ export class TaskQueue extends EventEmitter {
             buildStoredParams(taskPayload, raw, task.taskId),
             fileSize,
             creditsUsed,
-            task.taskId, Date.now(), Date.now()
+            task.taskId, taskWs, Date.now(), Date.now()
           )
         }
       } catch (err: any) {
@@ -384,6 +390,23 @@ export class TaskQueue extends EventEmitter {
     raw.prepare(
       'UPDATE openfield_tasks SET status = ?, result_asset_id = ?, credits_used = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId, creditsUsed, 100, Date.now(), Date.now(), task.taskId)
+
+    // Link the result back to the storyboard scene/transition that requested it
+    if (localAssetId) {
+      try {
+        if (taskPayload.sceneId) {
+          const col = type === 'image' ? 'image_asset_id' : 'video_asset_id'
+          raw.prepare(`UPDATE storyboard_scenes SET ${col} = ?, updated_at = ? WHERE id = ?`)
+            .run(localAssetId, Date.now(), taskPayload.sceneId)
+        }
+        if (taskPayload.transitionId) {
+          raw.prepare('UPDATE storyboard_transitions SET video_asset_id = ?, updated_at = ? WHERE id = ?')
+            .run(localAssetId, Date.now(), taskPayload.transitionId)
+        }
+      } catch (err: any) {
+        console.warn('[TaskQueue] Failed to link result to storyboard:', err?.message)
+      }
+    }
 
     raw.save()
 

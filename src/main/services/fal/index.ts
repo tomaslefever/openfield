@@ -1,6 +1,7 @@
 import { FalApiClient as BaseClient } from './client'
 import { submitRequest, getRequestStatus, getRequestResult, cancelRequest } from './endpoints/queue'
-import type { FalQueueStatusResponse, FalVideoResult } from './types'
+import type { FalQueueStatusResponse } from './types'
+import type { FalResult } from './endpoints/queue'
 
 /**
  * Public fal.ai client: composes every endpoint from `endpoints/`.
@@ -14,7 +15,7 @@ export class FalApiClient extends BaseClient {
     return getRequestStatus(this, modelId, requestId)
   }
 
-  getRequestResult(modelId: string, requestId: string): Promise<FalVideoResult> {
+  getRequestResult(modelId: string, requestId: string): Promise<FalResult> {
     return getRequestResult(this, modelId, requestId)
   }
 

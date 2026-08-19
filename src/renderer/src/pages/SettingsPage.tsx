@@ -1,14 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Key, Monitor, Palette, Globe, Folder, Save, Coins, Shapes, RotateCcw, Cable, Copy, Check, RefreshCw, Download } from 'lucide-react'
+import { Monitor, Palette, Globe, Folder, Save, Shapes, RotateCcw, Cable, Copy, Check, RefreshCw, Download, ScrollText } from 'lucide-react'
+import { ProvidersSection } from '../components/ProvidersSection'
 import { useAppStore } from '../stores/app-store'
 
 export function SettingsPage() {
-  const creditBalance = useAppStore((s) => s.creditBalance)
-  const setCreditBalance = useAppStore((s) => s.setCreditBalance)
-  const [apiKey, setApiKey] = useState('')
-  const [replicateApiKey, setReplicateApiKey] = useState('')
-  const [falApiKey, setFalApiKey] = useState('')
-  const [hfToken, setHfToken] = useState('')
+  const setPage = useAppStore((s) => s.setPage)
   const [theme, setTheme] = useState('dark')
   const [language, setLanguage] = useState('en')
   const [defaultImageModel, setDefaultImageModel] = useState('gpt-image-2-text-to-image')
@@ -39,10 +35,6 @@ export function SettingsPage() {
   useEffect(() => {
     (window as any).electronAPI?.settings.getAll().then((settings: any) => {
       if (settings) {
-        setApiKey(settings.openfieldApiKey || settings.kieApiKey || '')
-        setReplicateApiKey(settings.replicateApiKey || '')
-        setFalApiKey(settings.falApiKey || '')
-        setHfToken(settings.hfToken || '')
         setTheme(settings.theme || 'dark')
         setLanguage(settings.language || 'en')
         setDefaultImageModel(settings.defaultImageModel || 'gpt-image-2-text-to-image')
@@ -114,10 +106,6 @@ export function SettingsPage() {
   }
 
   const handleSave = async () => {
-    await (window as any).electronAPI?.settings.set('openfieldApiKey', apiKey)
-    await (window as any).electronAPI?.settings.set('replicateApiKey', replicateApiKey)
-    await (window as any).electronAPI?.settings.set('falApiKey', falApiKey)
-    await (window as any).electronAPI?.settings.set('hfToken', hfToken)
     await (window as any).electronAPI?.settings.set('theme', theme)
     await (window as any).electronAPI?.settings.set('language', language)
     await (window as any).electronAPI?.settings.set('defaultImageModel', defaultImageModel)
@@ -128,7 +116,6 @@ export function SettingsPage() {
     await (window as any).electronAPI?.settings.set('elements:moodboardBasePrompt', moodboardBasePrompt)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-    ;(window as any).electronAPI?.openfield.creditBalance().then(setCreditBalance)
   }
 
   return (
@@ -143,85 +130,7 @@ export function SettingsPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="card">
-              <div className="flex items-center gap-2 mb-4">
-                <Key size={16} className="text-accent-400" />
-                <h2 className="text-sm font-semibold text-surface-100">API Configuration</h2>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs text-surface-500 mb-1">KIE.ai API Key</label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Enter your KIE.ai API key"
-                    className="input-field"
-                  />
-                  <p className="text-xs text-surface-600 mt-1">Your API key is stored locally and never shared.</p>
-                </div>
-                <div>
-                  <label className="block text-xs text-surface-500 mb-1">Replicate.com API Key</label>
-                  <input
-                    type="password"
-                    value={replicateApiKey}
-                    onChange={(e) => setReplicateApiKey(e.target.value)}
-                    placeholder="r8_... (for Replicate models)"
-                    className="input-field"
-                  />
-                  <p className="text-xs text-surface-600 mt-1">
-                    <a href="https://replicate.com/account/api-tokens" target="_blank" className="text-accent-400 hover:underline">Get a token</a> for cloud models like P-Video Avatar.
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs text-surface-500 mb-1">fal.ai API Key</label>
-                  <input
-                    type="password"
-                    value={falApiKey}
-                    onChange={(e) => setFalApiKey(e.target.value)}
-                    placeholder="FAL_KEY (for MiniMax H3 and more)"
-                    className="input-field"
-                  />
-                  <p className="text-xs text-surface-600 mt-1">
-                    <a href="https://fal.ai/dashboard/keys" target="_blank" className="text-accent-400 hover:underline">Get a key</a> for fal.ai cloud models.
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs text-surface-500 mb-1">HuggingFace Token</label>
-                  <input
-                    type="password"
-                    value={hfToken}
-                    onChange={(e) => setHfToken(e.target.value)}
-                    placeholder="hf_... (for gated models like FLUX)"
-                    className="input-field"
-                  />
-                  <p className="text-xs text-surface-600 mt-1">
-                    <a href="https://huggingface.co/settings/tokens" target="_blank" className="text-accent-400 hover:underline">Create a token</a> with read access. Required for gated models.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="flex items-center gap-2 mb-4">
-                <Coins size={16} className="text-amber-400" />
-                <h2 className="text-sm font-semibold text-surface-100">Credits & Billing</h2>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
-                  <p className="text-sm text-surface-400">Available Balance</p>
-                  <p className="text-2xl font-semibold text-surface-100 mt-1">
-                    {creditBalance !== null ? `${creditBalance.toLocaleString()} credits` : '—'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => (window as any).electronAPI?.openfield.creditBalance().then(setCreditBalance)}
-                  className="btn-ghost text-xs"
-                >
-                  Refresh
-                </button>
-              </div>
-            </div>
+            <ProvidersSection />
 
             <div className="card">
               <div className="flex items-center gap-2 mb-4">
@@ -465,6 +374,19 @@ export function SettingsPage() {
                 <p>Open Source (MIT License)</p>
                 <p>Built with Electron + React + Vite</p>
               </div>
+            </div>
+
+            <div className="card">
+              <div className="flex items-center gap-2 mb-4">
+                <ScrollText size={16} className="text-accent-400" />
+                <h2 className="text-sm font-semibold text-surface-100">Logs</h2>
+              </div>
+              <p className="text-xs text-surface-500 mb-3">
+                Revisa el historial de generaciones, tareas y errores de la aplicación.
+              </p>
+              <button onClick={() => setPage('logs')} className="btn-ghost text-xs flex items-center gap-1.5">
+                <ScrollText size={14} /> Open Logs
+              </button>
             </div>
           </div>
         </div>

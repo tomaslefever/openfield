@@ -19,6 +19,8 @@ import { registerReplicateHandlers } from './replicate'
 import { registerFalHandlers } from './fal'
 import { registerBalancesHandlers } from './balances'
 import { registerUpdaterHandlers } from './updater'
+import { registerWorkspacesHandlers } from './workspaces'
+import { registerPromptsHandlers } from './prompts'
 
 export function registerIpcHandlers() {
   const ctx = createContext()
@@ -42,4 +44,6 @@ export function registerIpcHandlers() {
   registerFalHandlers(ctx)
   registerBalancesHandlers(ctx)
   registerUpdaterHandlers(ctx)
+  registerWorkspacesHandlers(ctx)
+  registerPromptsHandlers(ctx)
 }

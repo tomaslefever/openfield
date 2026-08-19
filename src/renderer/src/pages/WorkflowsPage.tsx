@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { Plus, Play, Save, Trash2, Workflow } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useWorkspaceStore } from '../stores/workspace-store'
 
 export function WorkflowsPage() {
   const queryClient = useQueryClient()
   const [selectedWorkflow, setSelectedWorkflow] = useState<any>(null)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
 
   const { data: workflows } = useQuery({
-    queryKey: ['workflows'],
+    queryKey: ['workflows', activeWorkspaceId],
     queryFn: () => (window as any).electronAPI?.workflows.list() ?? [],
   })
 
