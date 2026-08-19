@@ -41,7 +41,7 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({ onSelect, o
   }, [workspaceFilter])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
       <div className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col m-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-800 gap-3">
           <h3 className="text-sm font-semibold text-surface-100 flex-shrink-0">Image Library</h3>

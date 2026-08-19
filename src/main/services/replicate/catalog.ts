@@ -13,6 +13,7 @@ export interface ReplicateModelCatalogEntry {
 }
 
 export const P_VIDEO_AVATAR_VERSION = '8a54bb678ef43a7a40950731bad3f33f4ac904267fecebd2186c826a6da6f5a5'
+export const P_VIDEO_VERSION = '4420187a2059aa9ec6836c7da161eb11dce9afda5310e29e1d9f65efa9fd58ad'
 
 export const P_VIDEO_AVATAR_VOICES = [
   'Zephyr (Female)', 'Puck (Male)', 'Charon (Male)', 'Kore (Female)', 'Fenrir (Male)',
@@ -40,6 +41,15 @@ export const REPLICATE_MODELS: ReplicateModelCatalogEntry[] = [
     resolutions: ['720p', '1080p'],
     voices: P_VIDEO_AVATAR_VOICES,
     languages: P_VIDEO_AVATAR_LANGUAGES,
+  },
+  {
+    id: 'prunaai/p-video',
+    name: 'P-Video',
+    category: 'PrunaAI',
+    version: P_VIDEO_VERSION,
+    type: 'video',
+    costPerSecond: 0.02,
+    resolutions: ['720p', '1080p'],
   },
 ]
 

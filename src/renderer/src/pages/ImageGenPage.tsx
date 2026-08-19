@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
-import { Trash2, Coins, Loader, AlertCircle, Copy, Check, Cloud, FolderOpen, RotateCcw, CheckSquare, Square, Search, X, Star, Box, Clapperboard, Eraser } from 'lucide-react'
+import { Trash2, Coins, Loader, AlertCircle, Copy, Check, Cloud, FolderOpen, RotateCcw, CheckSquare, Square, Search, X, Star, Box, Clapperboard, Eraser, ImageIcon } from 'lucide-react'
 import { useAppStore } from '../stores/app-store'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { usePagedAssets } from '../hooks/usePagedAssets'
@@ -12,7 +12,7 @@ import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
 import { ImagePreviewModal } from '../components/ui/ImagePreviewModal'
 import { ElementWizard } from '../components/ElementWizard'
-import { copyText } from '../lib/clipboard'
+import { copyText, copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
 
 const MODEL_NAMES: Record<string, string> = {
@@ -37,18 +37,24 @@ const MODEL_NAMES: Record<string, string> = {
   'bria/fibo/generate': 'Bria FIBO',
 }
 
+const MODAL_ACTION_BTN = 'text-[11px] w-full justify-center flex items-center gap-1.5 px-4 py-2 rounded-xl border border-surface-700 bg-surface-800/60 text-surface-300 hover:bg-surface-700 hover:text-surface-100 hover:border-surface-600 transition-colors'
+
 const AssetCard = memo(function AssetCard({
   asset,
   isSelected,
   onSelect,
   onToggleSelect,
   onToggleFavorite,
+  onCopyImage,
+  copied,
 }: {
   asset: any
   isSelected: boolean
   onSelect: (asset: any, shift: boolean) => void
   onToggleSelect: (id: string, shift: boolean) => void
   onToggleFavorite: (id: string) => void
+  onCopyImage: (asset: any) => void
+  copied: boolean
 }) {
   const params = (() => { try { return JSON.parse(asset.parameters || '{}') } catch { return {} } })()
   const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
@@ -87,6 +93,13 @@ const AssetCard = memo(function AssetCard({
           </div>
         )}
         <button
+          onClick={(e) => { e.stopPropagation(); onCopyImage(asset) }}
+          title="Copiar imagen"
+          className={`p-1 rounded-md transition-colors ${copied ? 'text-green-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-white'}`}
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+        <button
           onClick={(e) => { e.stopPropagation(); onToggleFavorite(asset.id) }}
           title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
           className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
@@ -112,6 +125,7 @@ export function ImageGenPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
+  const [copiedAssetId, setCopiedAssetId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
   const [showBulkDelete, setShowBulkDelete] = useState(false)
@@ -177,6 +191,20 @@ export function ImageGenPage() {
       setSelectedAsset((prev: any) => prev?.id === updated.id ? updated : prev)
     }
   }, [updateAsset])
+
+  const handleCopyImage = useCallback(async (asset: any) => {
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([asset.id])
+      const b64 = results?.[0]?.base64 || ''
+      const mime = results?.[0]?.mime || 'image/png'
+      const ok = await copyImage(b64, mime)
+      if (ok) {
+        setCopiedAssetId(asset.id)
+        setTimeout(() => setCopiedAssetId(null), 1500)
+      }
+    } catch (err) { console.error('Copy image failed:', err) }
+  }, [])
 
   const handleGenerate = useCallback(async (params: any) => {
     try {
@@ -296,6 +324,8 @@ export function ImageGenPage() {
                 onSelect={(asset, shift) => { if (shift) toggleSelect(asset.id, true); else setSelectedAsset(asset) }}
                 onToggleSelect={toggleSelect}
                 onToggleFavorite={handleToggleFavorite}
+                onCopyImage={handleCopyImage}
+                copied={copiedAssetId === asset.id}
               />            ))}
           </div>
 
@@ -356,6 +386,8 @@ export function ImageGenPage() {
           onClose={() => setSelectedAsset(null)}
           isFavorite={!!selectedAsset.isFavorite}
           onToggleFavorite={() => handleToggleFavorite(selectedAsset.id)}
+          onCopyImage={() => handleCopyImage(selectedAsset)}
+          copiedImage={copiedAssetId === selectedAsset.id}
           onPrev={assets.findIndex((a: any) => a.id === selectedAsset.id) > 0 ? () => {
             const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
             setSelectedAsset(assets[idx - 1])
@@ -487,7 +519,7 @@ export function ImageGenPage() {
                 setRecreateMsg(`Error al recrear: ${err?.message || String(err)}`)
               }
               setSelectedAsset(null)
-            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
+            }} className={MODAL_ACTION_BTN}>
               <RotateCcw size={12} /> Recreate
             </button>
             <button onClick={async () => {
@@ -499,8 +531,8 @@ export function ImageGenPage() {
                 composerRef.current?.addRefs([{ base64: b64, mime }])
                 setSelectedAsset(null)
               } catch (err) { console.error('Reference failed:', err) }
-            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-blue-400 hover:text-blue-300">
-              <Copy size={12} /> Reference
+            }} className={MODAL_ACTION_BTN}>
+              <ImageIcon size={12} /> Reference
             </button>
             <button onClick={async () => {
               try {
@@ -518,7 +550,7 @@ export function ImageGenPage() {
                 })
               } catch (err) { console.error('Remove background failed:', err) }
               setSelectedAsset(null)
-            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-orange-400 hover:text-orange-300">
+            }} className={MODAL_ACTION_BTN}>
               <Eraser size={12} /> Quitar fondo
             </button>
             <button onClick={async () => {
@@ -536,12 +568,12 @@ export function ImageGenPage() {
                 setPage('video')
               } catch (err) { console.error('Animate failed:', err) }
               setSelectedAsset(null)
-            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-purple-400 hover:text-purple-300">
+            }} className={MODAL_ACTION_BTN}>
               <Clapperboard size={12} /> Animar
             </button>
             {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') && !selectedAsset.filePath.startsWith('http'))) && (
               <button onClick={() => (window as any).electronAPI?.assets.showInFolder(selectedAsset.id)}
-                className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
+                className={MODAL_ACTION_BTN}>
                 <FolderOpen size={12} /> Show in folder
               </button>
             )}
@@ -555,19 +587,19 @@ export function ImageGenPage() {
                   setCreatingFromAsset({ base64: b64, prompt: selectedAsset.prompt || '' })
                 }, 100)
               } catch (err) { console.error('Failed to create element:', err) }
-            }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300">
+            }} className={MODAL_ACTION_BTN}>
               <Box size={12} /> Crear elemento
             </button>
             {confirmDelete === selectedAsset.id ? (
               <div className="flex items-center gap-2 justify-center col-span-2">
                 <span className="text-[11px] text-surface-400">Confirm delete?</span>
                 <button onClick={() => { handleDelete(selectedAsset.id); setConfirmDelete(null) }}
-                  className="px-2 py-1 rounded bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
+                  className="px-3 py-1.5 rounded-xl border border-surface-700 bg-surface-800/60 text-surface-300 text-[10px] font-medium hover:bg-surface-700 hover:text-surface-100 transition-colors">Yes</button>
                 <button onClick={() => setConfirmDelete(null)}
-                  className="px-2 py-1 rounded bg-white/10 text-white text-[10px]">No</button>
+                  className="px-3 py-1.5 rounded-xl border border-surface-700 bg-surface-800/60 text-surface-300 text-[10px] font-medium hover:bg-surface-700 hover:text-surface-100 transition-colors">No</button>
               </div>
             ) : (
-              <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-400" onClick={() => setConfirmDelete(selectedAsset.id)}>
+              <button className={MODAL_ACTION_BTN} onClick={() => setConfirmDelete(selectedAsset.id)}>
                 <Trash2 size={12} /> Delete
               </button>
             )}

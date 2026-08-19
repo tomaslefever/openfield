@@ -84,6 +84,8 @@ export class ReplicateQueue extends EventEmitter {
 
   private buildInput(payload: any): Record<string, any> {
     const input: Record<string, any> = {}
+    const isPVideo = payload.model === 'prunaai/p-video'
+    const isAvatar = payload.model === 'prunaai/p-video-avatar'
     const imageBase64 = payload.imageBase64 || payload.imageRefs?.[0]?.base64
     if (imageBase64) {
       const mime = payload.imageMime || payload.imageRefs?.[0]?.mime || 'image/png'
@@ -94,12 +96,20 @@ export class ReplicateQueue extends EventEmitter {
       input.audio = `data:${audioRef.mime || 'audio/mpeg'};base64,${audioRef.base64}`
     }
     if (payload.prompt) {
-      if (payload.model === 'prunaai/p-video-avatar') input.video_prompt = payload.prompt
+      if (isPVideo) input.prompt = payload.prompt
+      else if (isAvatar) input.video_prompt = payload.prompt
       else input.voice_script = payload.prompt
     }
-    if (payload.voice) input.voice = payload.voice
-    if (payload.voiceLanguage) input.voice_language = payload.voiceLanguage
     if (payload.resolution) input.resolution = payload.resolution
+    if (isPVideo) {
+      if (payload.duration) input.duration = payload.duration
+      if (payload.aspectRatio && ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'].includes(payload.aspectRatio)) input.aspect_ratio = payload.aspectRatio
+      if (payload.fps === 24 || payload.fps === 48) input.fps = payload.fps
+      if (payload.draft) input.draft = payload.draft
+    } else {
+      if (payload.voice) input.voice = payload.voice
+      if (payload.voiceLanguage) input.voice_language = payload.voiceLanguage
+    }
     return input
   }
 
@@ -126,7 +136,8 @@ export class ReplicateQueue extends EventEmitter {
         const version = modelVersion(payload.model)
         if (!version) throw new Error(`Unknown Replicate model: ${payload.model}`)
         const input = this.buildInput(payload)
-        if (!input.image) throw new Error('A portrait image is required for this model.')
+        if (!input.image && payload.model === 'prunaai/p-video-avatar') throw new Error('A portrait image is required for this model.')
+        if (!input.prompt && !input.image && !input.audio && payload.model === 'prunaai/p-video') throw new Error('P-Video requires a prompt, image or audio.')
 
         logRun(raw, task.taskId, 'api-request', `Creating prediction: model=${modelName(payload.model)}, resolution=${payload.resolution || '720p'}, voice=${payload.voice || 'default'}`)
         prediction = await this.apiClient.createPrediction({ version, input })

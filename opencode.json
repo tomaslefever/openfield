@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "openfield-bridge": {
+      "type": "remote",
+      "url": "http://127.0.0.1:19877/mcp",
+      "enabled": true
+    },
+    "voicebox": {
+      "type": "remote",
+      "url": "http://127.0.0.1:17493/mcp",
+      "headers": { "X-Voicebox-Client-Id": "claude-code" },
+      "enabled": true
+    }
+  }
+}

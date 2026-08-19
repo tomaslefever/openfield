@@ -43,3 +43,19 @@ export interface PVideoAvatarInput {
   disable_safety_filter?: boolean
   disable_prompt_upsampling?: boolean
 }
+
+export interface PVideoInput {
+  prompt?: string
+  image?: string
+  audio?: string
+  last_frame_image?: string
+  duration?: number
+  aspect_ratio?: '16:9' | '9:16' | '4:3' | '3:4' | '3:2' | '2:3' | '1:1'
+  resolution?: '720p' | '1080p'
+  fps?: 24 | 48
+  draft?: boolean
+  prompt_upsampling?: boolean
+  save_audio?: boolean
+  seed?: number
+  disable_safety_filter?: boolean
+}

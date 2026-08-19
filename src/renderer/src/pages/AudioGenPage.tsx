@@ -544,7 +544,7 @@ export function AudioGenPage() {
 
       {/* Detail modal */}
       {selectedAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setSelectedAsset(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setSelectedAsset(null)}>
           <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex-1 bg-surface-900/40 flex items-center justify-center min-h-[400px] relative p-6">
               {musicAssets.findIndex((a: any) => a.id === selectedAsset.id) > 0 && (

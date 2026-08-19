@@ -22,3 +22,19 @@ export async function copyText(text: string): Promise<boolean> {
     }
   }
 }
+
+// Copy an image (given as base64 data) to the clipboard as a PNG blob.
+export async function copyImage(base64: string, mime: string): Promise<boolean> {
+  if (!base64) return false
+  try {
+    const byteChars = atob(base64)
+    const bytes = new Uint8Array(byteChars.length)
+    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+    const type = mime || 'image/png'
+    const blob = new Blob([bytes], { type })
+    await navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
+    return true
+  } catch {
+    return false
+  }
+}

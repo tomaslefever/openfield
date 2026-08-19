@@ -249,7 +249,7 @@ function PromptCard({
 
       {/* Modal */}
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setModal(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setModal(false)}>
           <div
             className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col m-4 overflow-hidden"
             onClick={e => e.stopPropagation()}

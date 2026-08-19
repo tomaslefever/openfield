@@ -29,6 +29,7 @@ const MODEL_NAMES: Record<string, string> = {
   'hailuo/02-text-to-video-pro': 'Hailuo 2 Pro',
   'gemini-omni-video': 'Gemini Omni',
   'prunaai/p-video-avatar': 'P-Video Avatar',
+  'prunaai/p-video': 'P-Video',
   'minimax-h3/text-to-video': 'MiniMax H3',
   'minimax-h3/image-to-video': 'MiniMax H3',
   'minimax-h3/reference-to-video': 'MiniMax H3',
@@ -403,7 +404,7 @@ export function VideoGenPage() {
 
       {/* Detail modal */}
       {selectedAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setSelectedAsset(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setSelectedAsset(null)}>
           <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Video */}
             <div className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative">
@@ -548,6 +549,7 @@ export function VideoGenPage() {
                       duration: p.duration ?? undefined,
                       fps: p.fps ?? undefined,
                       sound: p.sound ?? undefined,
+                      draft: p.draft ?? undefined,
                       imageBase64: await loadImg('imageBase64'),
                       imageMime: p.imageMime || 'image/png',
                       imageRefs: await loadRefs(p.imageRefs),

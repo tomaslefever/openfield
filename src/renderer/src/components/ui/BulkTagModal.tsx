@@ -36,7 +36,7 @@ export function BulkTagModal({ count, onApply, onClose }: BulkTagModalProps) {
  }
 
  return (
- <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={onClose}>
+ <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center" onClick={onClose}>
  <div className="bg-surface-900 border border-surface-800 rounded-2xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
  <div className="flex justify-between items-start mb-4">
  <h2 className="text-lg font-semibold text-surface-100">Add Tags to {count} Assets</h2>

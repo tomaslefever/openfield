@@ -51,7 +51,7 @@ export function StoryboardStyleModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
       <div
         className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden m-4"
         onClick={e => e.stopPropagation()}

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
-import { Sparkles, Settings2, X, Wand2, ChevronDown, ChevronUp, Coins, Upload, Video, Plus, Music, AlertCircle, AlertTriangle, ArrowLeftRight, Cpu, UserCircle, User, Mountain, Box, Check, Library } from 'lucide-react'
+import { Sparkles, Settings2, X, Wand2, ChevronDown, ChevronUp, Coins, Upload, Video, Plus, Music, AlertCircle, AlertTriangle, ArrowLeftRight, Cpu, UserCircle, User, Mountain, Box, Check, Camera, Library } from 'lucide-react'
 import { StreamDuration } from './StreamDuration'
 import { useElementsStore, type ElementKind, KIND_CONFIG } from '../stores/elements-store'
 import { RichPromptInput, type RichPromptInputHandle } from './RichPromptInput'
@@ -28,6 +28,7 @@ export interface PromptComposerHandle {
     provider?: 'kie' | 'replicate' | 'fal'
     voice?: string
     voiceLanguage?: string
+    draft?: boolean
   }): void
   addRefs(newRefs: { base64: string; mime: string; name?: string; refType?: string }[]): void
 }
@@ -58,6 +59,7 @@ interface PromptComposerProps {
     provider?: 'kie' | 'replicate' | 'fal'
     voice?: string
     voiceLanguage?: string
+    draft?: boolean
   }) => void
   mode?: 'image' | 'video' | 'audio'
   subMode?: 'voice' | 'music'
@@ -93,6 +95,153 @@ interface ModelPricing {
   replicateVoices?: string[]
   replicateLanguages?: string[]
   falAspectRatios?: string[]
+  pvAspectRatios?: string[]
+}
+
+const CAMERA_LENSES = [
+  '16mm fisheye lens',
+  '24mm wide-angle lens',
+  '35mm standard lens',
+  '50mm standard lens',
+  '85mm portrait lens',
+  '135mm telephoto lens',
+  '200mm telephoto lens',
+  'anamorphic lens',
+  'macro lens',
+]
+
+const CAMERA_SHOTS = [
+  'extreme close-up',
+  'close-up',
+  'medium close-up',
+  'medium shot',
+  'cowboy shot',
+  'full shot',
+  'wide shot',
+  'extreme wide shot',
+  'establishing shot',
+  'over-the-shoulder shot',
+  'point-of-view shot',
+]
+
+const CAMERA_LEVELS = [
+  'eye level',
+  'low angle',
+  'high angle',
+  'top-down view',
+  'ground level',
+  'dutch angle',
+]
+
+const CAMERA_MOVEMENTS = [
+  'static camera',
+  'slow pan',
+  'tilt movement',
+  'dolly in',
+  'dolly out',
+  'tracking shot',
+  'orbiting shot',
+  'handheld camera',
+  'crane shot',
+  'zoom in',
+  'zoom out',
+  'push-in shot',
+  'follow shot',
+]
+
+const CAMERA_LIGHTING = [
+  { value: '', label: 'Ninguna' },
+  { value: 'volumetric light', label: 'Luz volumétrica' },
+  { value: 'natural lighting', label: 'Natural Lightning' },
+  { value: 'studio lighting', label: 'Studio Lightning' },
+  { value: 'cinematic lighting', label: 'Iluminación cinematográfica' },
+]
+
+function CameraWheel({ label, options, value, onChange }: { label: string; options: string[]; value: string; onChange: (v: string) => void }) {
+  const [shift, setShift] = useState(0)
+  const [anim, setAnim] = useState(false)
+  const animRef = useRef(false)
+  const idx = options.indexOf(value)
+  const rows = [
+    options[(idx - 2 + options.length) % options.length],
+    options[(idx - 1 + options.length) % options.length],
+    options[idx],
+    options[(idx + 1) % options.length],
+    options[(idx + 2) % options.length],
+  ]
+
+  const select = (dir: 1 | -1) => {
+    if (animRef.current) return
+    animRef.current = true
+    const target = options[(idx + dir + options.length) % options.length]
+    onChange(target)
+    setShift(dir * 30)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setAnim(true)
+        setShift(0)
+        window.setTimeout(() => { setAnim(false); animRef.current = false }, 220)
+      })
+    })
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-1 flex-shrink-0">
+      <span className="text-[10px] uppercase tracking-wider text-surface-500">{label}</span>
+      <button
+        type="button"
+        onClick={() => select(-1)}
+        className="w-7 h-7 flex items-center justify-center rounded-full bg-surface-800/80 border border-surface-700/60 text-surface-400 hover:text-surface-100 hover:bg-surface-700 transition-colors"
+        title="Previous"
+      >
+        <ChevronUp size={14} />
+      </button>
+      <div className="relative h-[90px] w-[140px] overflow-hidden rounded-lg bg-surface-800/40 border border-surface-700/60 select-none">
+        <div className="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-[30px] rounded-md bg-accent-500/10 border-y border-accent-500/20" />
+        <div className="pointer-events-none absolute top-0 inset-x-0 h-[16px] z-30 bg-gradient-to-b from-surface-900 to-transparent" />
+        <div className="pointer-events-none absolute bottom-0 inset-x-0 h-[16px] z-30 bg-gradient-to-t from-surface-900 to-transparent" />
+        <div
+          className="absolute inset-x-0 will-change-transform"
+          style={{ transform: `translateY(${-30 + shift}px)`, transition: anim ? 'transform 180ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none' }}
+        >
+          {rows.map((opt, i) => {
+            if (i === 2) {
+              return (
+                <div key={i} className="flex items-center justify-center w-full h-[30px] px-2 text-center text-[11px] font-medium text-accent-400 leading-tight truncate">
+                  {opt}
+                </div>
+              )
+            }
+            if (i === 1 || i === 3) {
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => select(i === 1 ? -1 : 1)}
+                  className="flex items-center justify-center w-full h-[30px] px-2 text-center text-[11px] text-surface-500 opacity-60 hover:opacity-90 hover:text-surface-300 leading-tight truncate transition-opacity duration-150"
+                >
+                  {opt}
+                </button>
+              )
+            }
+            return (
+              <div key={i} className="flex items-center justify-center w-full h-[30px] px-2 text-center text-[11px] text-surface-600 opacity-40 leading-tight truncate">
+                {opt}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => select(1)}
+        className="w-7 h-7 flex items-center justify-center rounded-full bg-surface-800/80 border border-surface-700/60 text-surface-400 hover:text-surface-100 hover:bg-surface-700 transition-colors"
+        title="Next"
+      >
+        <ChevronDown size={14} />
+      </button>
+    </div>
+  )
 }
 
 const IMAGE_MODELS: ModelPricing[] = [
@@ -219,6 +368,12 @@ const VIDEO_MODELS: ModelPricing[] = [
       'English (US)', 'English (UK)', 'Spanish', 'French', 'German', 'Italian',
       'Portuguese (Brazil)', 'Japanese', 'Korean', 'Hindi',
     ] },
+  { name: 'P-Video', category: 'PrunaAI', unit: 's', provider: 'replicate',
+    t2vId: 'prunaai/p-video', i2vId: 'prunaai/p-video',
+    prices: [{ resolution: '720p', cost: 0.02 }, { resolution: '1080p', cost: 0.04 }],
+    durationMax: 20, durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20'], resolutions: ['720p', '1080p'],
+    supportsAudioRef: true,
+    pvAspectRatios: ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'] },
   { name: 'MiniMax H3', category: 'MiniMax', unit: 's',
     t2vId: 'minimax-h3/text-to-video', i2vId: 'minimax-h3/image-to-video', fflfId: 'minimax-h3/image-to-video', refId: 'minimax-h3/reference-to-video',
     prices: [{ resolution: '768P', cost: 0.08 }, { resolution: '2K', cost: 0.13 }],
@@ -318,12 +473,22 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const [showAttach, setShowAttach] = useState(false)
   const [showRes, setShowRes] = useState(false)
   const [showCostInfo, setShowCostInfo] = useState(false)
+  const [showCameraModal, setShowCameraModal] = useState(false)
+  const [cameraTip, setCameraTip] = useState(false)
+  const [cameraEnabled, setCameraEnabled] = useState(false)
+  const [cameraLens, setCameraLens] = useState(CAMERA_LENSES[2])
+  const [cameraShot, setCameraShot] = useState(CAMERA_SHOTS[3])
+  const [cameraLevel, setCameraLevel] = useState(CAMERA_LEVELS[0])
+  const [cameraMovement, setCameraMovement] = useState(CAMERA_MOVEMENTS[0])
+  const [lighting, setLighting] = useState('')
   const [multiShots, setMultiShots] = useState(false)
   const [multiPrompt, setMultiPrompt] = useState<{ prompt: string; duration: number }[]>([])
   const [soundEnabled, setSoundEnabled] = useState(false)
   const [imageRefEntries, setImageRefEntries] = useState<{ name: string; type: 'subject' | 'background'; base64?: string; mime?: string }[]>([])
   const [replicateVoice, setReplicateVoice] = useState('Zephyr (Female)')
   const [replicateLanguage, setReplicateLanguage] = useState('English (US)')
+  const [pVideoFps, setPVideoFps] = useState(24)
+  const [pVideoDraft, setPVideoDraft] = useState(false)
   const [showRefsModal, setShowRefsModal] = useState(false)
   const [showAtMenu, setShowAtMenu] = useState(false)
   const [atMenuFilter, setAtMenuFilter] = useState('')
@@ -648,6 +813,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isRefMode = (!!(currentModel.fflfId) && seedanceMode === 'ref') || currentModel.provider === 'fal'
   const isOmniHuman = currentModel.t2vId === 'omnihuman-1-5'
   const isReplicate = currentModel.provider === 'replicate'
+  const isPVideo = currentModel.t2vId === 'prunaai/p-video'
+  const isReplicateAvatar = currentModel.t2vId === 'prunaai/p-video-avatar'
   const hasReplicateAudio = isReplicate && refs.some(r => r.mime.startsWith('audio/'))
   const isFal = currentModel.provider === 'fal'
 
@@ -660,6 +827,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       setReplicateLanguage(currentModel.replicateLanguages[0])
     }
   }, [currentModel?.name, replicateVoice, replicateLanguage])
+
+  // Reset aspect ratio to a supported value when switching to P-Video
+  useEffect(() => {
+    if (isPVideo && currentModel.pvAspectRatios?.length && !currentModel.pvAspectRatios.includes(aspectRatio)) {
+      setAspectRatio('16:9')
+    }
+  }, [isPVideo, aspectRatio, currentModel?.name])
 
   // Persist seedanceMode to localStorage so FFLF toggle survives remounts
   useEffect(() => {
@@ -677,7 +851,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const replicateEstDuration = replicateAudioDuration > 0
     ? replicateAudioDuration
     : Math.max(1, Math.round((prompt.trim().split(/\s+/).filter(Boolean).length / 2.5) * 10) / 10)
-  const costDuration = isOmniHuman ? (omnihumanAudio?.duration || 0) : isReplicate ? replicateEstDuration : duration
+  const costDuration = isOmniHuman ? (omnihumanAudio?.duration || 0) : isPVideo ? duration : isReplicate ? replicateEstDuration : duration
   // PixVerse V6 routes to a single model: use the price table of the routed mode
   const activeModelId = getActiveModelId()
   const activePixversePrices = isPixverseV6 ? (activeModelId === 'pixverse-v6/reference-to-video' ? PIXVERSE_REF_PRICES : PIXVERSE_T2V_PRICES) : undefined
@@ -881,8 +1055,9 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (params.aspectRatio) setAspectRatio(params.aspectRatio)
       if (params.resolution) setResolution(params.resolution)
       if (params.duration != null) setDuration(params.duration)
-      if (params.fps != null) setFps(params.fps)
+      if (params.fps != null) { setFps(params.fps); if (params.fps === 24 || params.fps === 48) setPVideoFps(params.fps) }
       if (params.sound != null) setSoundEnabled(params.sound)
+      if (params.draft != null) setPVideoDraft(params.draft)
       if (params.voice) setReplicateVoice(params.voice)
       if (params.voiceLanguage) setReplicateLanguage(params.voiceLanguage)
       if (params.multiShots) {
@@ -1059,18 +1234,27 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
     persistEnv()
 
+    // Camera control: append composition/level/movement/lighting as a final prompt addition
+    const cameraSuffix = cameraEnabled
+      ? `Camera composition: ${cameraLens}, ${cameraShot}, ${cameraLevel}${mode === 'video' ? `, ${cameraMovement}` : ''}${lighting ? `, ${lighting}` : ''}.`
+      : ''
+    const finalPrompt = prompt.trim()
+      ? prompt.trim() + (cameraSuffix ? `\n\n${cameraSuffix}` : '')
+      : cameraSuffix
+
     onGenerate({
-      prompt: prompt.trim(),
+      prompt: finalPrompt,
       model: activeId,
       provider: isReplicate ? 'replicate' : isFal ? 'fal' : undefined,
-      voice: isReplicate ? replicateVoice : undefined,
-      voiceLanguage: isReplicate ? replicateLanguage : undefined,
+      voice: isReplicate && !isPVideo ? replicateVoice : undefined,
+      voiceLanguage: isReplicate && !isPVideo ? replicateLanguage : undefined,
       aspectRatio: aspectRatio,
       resolution: resolution,
       batchSize,
       // OmniHuman is audio-driven: the audio determines the length, no duration/FPS
-      duration: mode === 'video' && activeId !== 'omnihuman-1-5' && !isReplicate ? duration : undefined,
-      fps: mode === 'video' && activeId !== 'omnihuman-1-5' && !isReplicate ? fps : undefined,
+      duration: mode === 'video' && activeId !== 'omnihuman-1-5' && (!isReplicate || isPVideo) ? duration : undefined,
+      fps: mode === 'video' && activeId !== 'omnihuman-1-5' && (!isReplicate || isPVideo) ? (isPVideo ? pVideoFps : fps) : undefined,
+      draft: isPVideo ? pVideoDraft : undefined,
       sound: mode === 'video' && !isReplicate ? soundEnabled : undefined,
       // In image mode imageBase64 duplicates imageRefs[0] (same image by construction) and the
       // API only uses refs when present, so skip it to keep stored parameters clean.
@@ -1102,7 +1286,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     setSoundEnabled(false)
     setShowRefsModal(false)
     setImageRefEntries([])
-  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, lastFrameBase64, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, showRefsModal, imageRefEntries, elements, isReplicate, replicateVoice, replicateLanguage])
+  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, lastFrameBase64, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, showRefsModal, imageRefEntries, elements, isReplicate, isPVideo, pVideoFps, pVideoDraft, replicateVoice, replicateLanguage, cameraEnabled, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting])
   const hasMedia = refs.length > 0 || !!imageBase64 || !!firstFrameBase64 || !!lastFrameBase64
 
   return (
@@ -1544,6 +1728,38 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   })()}
               </div>
 
+              {/* Camera control */}
+              {mode !== 'audio' && (
+                <div
+                  className="relative"
+                  onMouseEnter={() => setCameraTip(true)}
+                  onMouseLeave={() => setCameraTip(false)}
+                >
+                  <button onClick={() => setShowCameraModal(true)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${cameraEnabled ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
+                    <Camera size={11} /> Camera
+                  </button>
+                  {cameraTip && (
+                    <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 shadow-xl min-w-[190px] pointer-events-none">
+                      <p className="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">Camera Control</p>
+                      {cameraEnabled ? (
+                        <div className="space-y-0.5">
+                          <p className="text-[11px] text-surface-300"><span className="text-surface-500">Lens:</span> {cameraLens}</p>
+                          <p className="text-[11px] text-surface-300"><span className="text-surface-500">Shot:</span> {cameraShot}</p>
+                          <p className="text-[11px] text-surface-300"><span className="text-surface-500">Level:</span> {cameraLevel}</p>
+                          {mode === 'video' && (
+                            <p className="text-[11px] text-surface-300"><span className="text-surface-500">Movement:</span> {cameraMovement}</p>
+                          )}
+                          <p className="text-[11px] text-surface-300"><span className="text-surface-500">Lighting:</span> {CAMERA_LIGHTING.find(l => l.value === lighting)?.label || '—'}</p>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-surface-500">Off</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Audio duration for music models */}
               {mode === 'audio' && currentModel.kind === 'music' && (
                 <StreamDuration
@@ -1626,11 +1842,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                 </>
               )}
 
-              {mode === 'video' && currentModel.t2vId !== 'omnihuman-1-5' && !isReplicate && (
+              {mode === 'video' && currentModel.t2vId !== 'omnihuman-1-5' && (!isReplicate || isPVideo) && (
                 <StreamDuration
                   value={duration}
                   options={currentModel.durationOptions}
-                  min={4}
+                  min={isPVideo ? 1 : 4}
                   max={currentModel.durationMax || 15}
                   onChange={setDuration}
                 />
@@ -1651,7 +1867,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   )}
                 </div>
               )}
-              {isReplicate && (
+              {isReplicateAvatar && (
                 <>
                   <select value={replicateVoice}
                     onChange={(e) => setReplicateVoice(e.target.value)}
@@ -1669,7 +1885,21 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   </select>
                 </>
               )}
-              {(currentModel.t2vId?.startsWith('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') || isMinimaxH3 || isFal) && (
+              {isPVideo && (
+                <>
+                  <select value={pVideoFps} onChange={(e) => setPVideoFps(Number(e.target.value))}
+                    title="FPS"
+                    className="bg-surface-800/80 border border-surface-700 rounded-lg px-1.5 py-1 text-[11px] text-surface-300 outline-none">
+                    <option value={24}>24 fps</option><option value={48}>48 fps</option>
+                  </select>
+                  <button onClick={() => setPVideoDraft(!pVideoDraft)}
+                    title="Draft mode: 4x faster, lower-quality preview"
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${pVideoDraft ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
+                    Draft
+                  </button>
+                </>
+              )}
+              {(currentModel.t2vId?.startsWith('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') || isMinimaxH3 || isFal || isPVideo) && (
                 <div className="relative" ref={ratiosRef}>
                   <button onClick={() => { if (!grokSingleI2v) setShowRatios(!showRatios) }}
                     disabled={grokSingleI2v}
@@ -1679,7 +1909,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   </button>
                   {showRatios && (
                     <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[100px] shadow-xl z-50">
-                      {(isFal ? (currentModel.falAspectRatios || ['adaptive', '16:9']) : currentModel.t2vId?.startsWith('bytedance/') ? ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive'] : currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') ? ['1:1', '16:9', '21:9', '2:3', '3:2', '3:4', '4:3', '9:16'] : currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') ? ['16:9', '9:16', '1:1', '2:3', '3:2'] : isMinimaxH3 ? ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] : ['16:9', '9:16']).map((r) => (
+                      {(isPVideo ? (currentModel.pvAspectRatios || ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1']) : isFal ? (currentModel.falAspectRatios || ['adaptive', '16:9']) : currentModel.t2vId?.startsWith('bytedance/') ? ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive'] : currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') ? ['1:1', '16:9', '21:9', '2:3', '3:2', '3:4', '4:3', '9:16'] : currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') ? ['16:9', '9:16', '1:1', '2:3', '3:2'] : isMinimaxH3 ? ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] : ['16:9', '9:16']).map((r) => (
                         <button key={r} onClick={() => { setAspectRatio(r); setShowRatios(false) }}
                           className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${aspectRatio === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
                       ))}
@@ -1699,7 +1929,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               <div className="flex-1" />
             </div>
               </div>
-              <button onClick={handleGenerate} disabled={disabled || (mode === 'audio' ? !prompt.trim() : (showRefsModal ? !prompt.trim() || (!imageRefEntries.some(e => e.base64) && !imageBase64 && refs.length === 0) : (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? !prompt.trim() && !firstFrameBase64 : (isReplicate ? !prompt.trim() && !imageBase64 && !refs.some(r => r.mime.startsWith('audio/')) : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0)))))}
+              <button onClick={handleGenerate} disabled={disabled || (mode === 'audio' ? !prompt.trim() : (showRefsModal ? !prompt.trim() || (!imageRefEntries.some(e => e.base64) && !imageBase64 && refs.length === 0) : (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? !prompt.trim() && !firstFrameBase64 : (isReplicate ? (isPVideo ? !prompt.trim() : (!prompt.trim() && !imageBase64 && !refs.some(r => r.mime.startsWith('audio/')))) : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0)))))}
                 className="flex-shrink-0 flex flex-col items-center justify-center gap-1.5 px-4 min-w-[56px] bg-accent-600 hover:bg-accent-500 disabled:bg-accent-600/50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all active:scale-[0.97]">
                 <span className="flex items-center gap-1">
                   <Sparkles size={12} />
@@ -1779,10 +2009,64 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           e.target.value = ''
         }} />
       </div>
+      {/* Camera Control Modal */}
+      {showCameraModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowCameraModal(false)}>
+          <div className="absolute inset-0 bg-black/80" />
+          <div
+            className="relative bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl w-[640px] max-w-[94vw] max-h-[85vh] flex flex-col z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-surface-800">
+              <h3 className="text-sm font-medium text-surface-200 flex items-center gap-2">
+                <Camera size={14} className="text-accent-400" /> Camera Control
+              </h3>
+              <div className="flex items-center gap-3">
+                <span className={`text-[10px] font-medium ${cameraEnabled ? 'text-accent-400' : 'text-surface-500'}`}>
+                  {cameraEnabled ? 'On' : 'Off'}
+                </span>
+                <button
+                  onClick={() => setCameraEnabled(v => !v)}
+                  className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${cameraEnabled ? 'bg-accent-500' : 'bg-surface-700'}`}
+                  aria-label="Toggle camera control"
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${cameraEnabled ? 'left-[22px]' : 'left-0.5'}`} />
+                </button>
+                <button onClick={() => setShowCameraModal(false)} className="text-surface-500 hover:text-surface-200">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <div className={`flex items-start justify-center gap-3 ${cameraEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
+                <CameraWheel label="Lens" options={CAMERA_LENSES} value={cameraLens} onChange={setCameraLens} />
+                <CameraWheel label="Shot" options={CAMERA_SHOTS} value={cameraShot} onChange={setCameraShot} />
+                <CameraWheel label="Level" options={CAMERA_LEVELS} value={cameraLevel} onChange={setCameraLevel} />
+                {mode === 'video' && (
+                  <CameraWheel label="Movement" options={CAMERA_MOVEMENTS} value={cameraMovement} onChange={setCameraMovement} />
+                )}
+              </div>
+              <div className={`mt-4 flex items-center justify-center gap-2 ${cameraEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
+                <span className="text-[10px] uppercase tracking-wider text-surface-500">Lighting</span>
+                <select
+                  value={lighting}
+                  onChange={(e) => setLighting(e.target.value)}
+                  className="bg-surface-800/80 border border-surface-700 rounded-lg px-2 py-1.5 text-[11px] text-surface-300 outline-none focus:border-accent-500/50"
+                >
+                  {CAMERA_LIGHTING.map(l => (
+                    <option key={l.value || 'none'} value={l.value}>{l.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Image References Modal */}
       {showRefsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowRefsModal(false)}>
-          <div className="absolute inset-0 bg-black/60" />
+          <div className="absolute inset-0 bg-black/80" />
           <div
             className="relative bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl w-[420px] max-h-[80vh] flex flex-col z-10"
             onClick={(e) => e.stopPropagation()}

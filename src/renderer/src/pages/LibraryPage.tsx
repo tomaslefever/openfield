@@ -46,6 +46,7 @@ const MODEL_NAMES: Record<string, string> = {
   'hailuo/02-text-to-video-pro': 'Hailuo 2 Pro',
   'gemini-omni-video': 'Gemini Omni',
   'prunaai/p-video-avatar': 'P-Video Avatar',
+  'prunaai/p-video': 'P-Video',
   'minimax-h3/text-to-video': 'MiniMax H3',
   'minimax-h3/image-to-video': 'MiniMax H3',
   'minimax-h3/reference-to-video': 'MiniMax H3',
@@ -800,7 +801,7 @@ function LibraryAssetModal({
   const isImage = asset.type === 'image'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
       <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
         {/* Media */}
         <div

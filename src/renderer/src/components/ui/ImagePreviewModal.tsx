@@ -1,14 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { X, ChevronLeft, ChevronRight, Star } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight, Star, Copy, Check } from 'lucide-react'
 
 interface ImagePreviewModalProps {
- src: string
- onClose: () => void
- onPrev?: () => void
- onNext?: () => void
- isFavorite?: boolean
- onToggleFavorite?: () => void
- children?: React.ReactNode
+  src: string
+  onClose: () => void
+  onPrev?: () => void
+  onNext?: () => void
+  isFavorite?: boolean
+  onToggleFavorite?: () => void
+  onCopyImage?: () => void
+  copiedImage?: boolean
+  children?: React.ReactNode
 }
 
 function clampPan(containerRef: React.RefObject<HTMLDivElement | null>, imgRef: React.RefObject<HTMLImageElement | null>, px: number, py: number, z: number) {
@@ -33,7 +35,7 @@ function clampPan(containerRef: React.RefObject<HTMLDivElement | null>, imgRef: 
  return { x: cx, y: cy }
 }
 
-export function ImagePreviewModal({ src, onClose, onPrev, onNext, isFavorite, onToggleFavorite, children }: ImagePreviewModalProps) {
+export function ImagePreviewModal({ src, onClose, onPrev, onNext, isFavorite, onToggleFavorite, onCopyImage, copiedImage, children }: ImagePreviewModalProps) {
  const hasSidebar = !!children
  const containerRef = useRef<HTMLDivElement>(null)
  const imgRef = useRef<HTMLImageElement>(null)
@@ -109,7 +111,7 @@ export function ImagePreviewModal({ src, onClose, onPrev, onNext, isFavorite, on
  }, [])
 
  return (
- <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+ <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
  <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
  <div
  ref={containerRef}
@@ -145,20 +147,29 @@ export function ImagePreviewModal({ src, onClose, onPrev, onNext, isFavorite, on
  cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
  }}
  />
- {onToggleFavorite && (
- <button
- onClick={(e) => { e.stopPropagation(); onToggleFavorite() }}
- title={isFavorite ? 'Remove favorite' : 'Add to favorites'}
- className={`absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10 transition-colors ${isFavorite ? 'text-amber-400' : 'text-white/60 hover:text-amber-400'}`}
- >
- <Star size={14} fill={isFavorite ? 'currentColor' : 'none'} />
- </button>
- )}
- {!hasSidebar && (
- <button onClick={(e) => { e.stopPropagation(); onClose() }} className="absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center text-white/60 hover:text-white z-10">
- <X size={16} />
- </button>
- )}
+  {onCopyImage && (
+  <button
+  onClick={(e) => { e.stopPropagation(); onCopyImage() }}
+  title="Copiar imagen"
+  className={`absolute top-3 right-12 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10 transition-colors ${copiedImage ? 'text-green-400' : 'text-white/60 hover:text-white'}`}
+  >
+  {copiedImage ? <Check size={14} /> : <Copy size={14} />}
+  </button>
+  )}
+  {onToggleFavorite && (
+  <button
+  onClick={(e) => { e.stopPropagation(); onToggleFavorite() }}
+  title={isFavorite ? 'Remove favorite' : 'Add to favorites'}
+  className={`absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10 transition-colors ${isFavorite ? 'text-amber-400' : 'text-white/60 hover:text-amber-400'}`}
+  >
+  <Star size={14} fill={isFavorite ? 'currentColor' : 'none'} />
+  </button>
+  )}
+  {!hasSidebar && (
+  <button onClick={(e) => { e.stopPropagation(); onClose() }} className="absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center text-white/60 hover:text-white z-10">
+  <X size={16} />
+  </button>
+  )}
  {zoom > 1 && (
  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 rounded-full px-3 py-1.5 z-10">
  <span className="text-white/80 text-xs font-medium">{Math.round(zoom * 100)}%</span>
