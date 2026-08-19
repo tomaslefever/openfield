@@ -14,6 +14,7 @@ dist-ssr
 release
 release2
 builder-release2.yml
+jack-landing
 
 # Editor directories and files
 .vscode/*
