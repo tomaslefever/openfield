@@ -50,6 +50,26 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
       } catch { /* key invalid or offline */ }
     }
 
+    const elevenLabsKey = readSetting('elevenlabsApiKey')
+    if (elevenLabsKey) {
+      try {
+        const res = await fetch('https://api.elevenlabs.io/v1/user', {
+          headers: { 'xi-api-key': elevenLabsKey },
+        })
+        if (res.ok) {
+          const user = await res.json()
+          const name = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.email || 'Connected'
+          balances.push({
+            provider: 'elevenlabs',
+            label: 'ElevenLabs',
+            kind: 'account',
+            value: name,
+            url: 'https://elevenlabs.io/app/settings/api-keys',
+          })
+        }
+      } catch { /* key invalid or offline */ }
+    }
+
     return balances
   })
 }

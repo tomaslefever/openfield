@@ -5,7 +5,7 @@ import { ElementsSection } from '../components/cinema/ElementsSection'
 import { StoryboardSection } from '../components/cinema/StoryboardSection'
 import { EditorSection } from '../components/cinema/EditorSection'
 import { ProjectWizard } from '../components/cinema/ProjectWizard'
-import { FileText, User, Film, Video, Plus, FolderOpen, ChevronDown, X, Edit3, Check, Trash2 } from 'lucide-react'
+import { FileText, User, Film, Video, Plus, FolderOpen, ChevronDown, X, Edit3, Check, Trash2, Search } from 'lucide-react'
 
 type CinemaTab = 'script' | 'elements' | 'storyboard' | 'editor'
 
@@ -45,11 +45,15 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
   const [showDropdown, setShowDropdown] = useState(false)
   const [showNewInput, setShowNewInput] = useState(false)
   const [newName, setNewName] = useState('')
+  const [filter, setFilter] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const current = projects.find(p => p.id === currentProjectId)
+  const filtered = filter.trim()
+    ? projects.filter(p => p.name.toLowerCase().includes(filter.trim().toLowerCase()))
+    : projects
 
   const handleCreate = () => {
     if (!newName.trim()) return
@@ -64,7 +68,7 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
 
       <div className="relative">
         <button
-          onClick={() => setShowDropdown(!showDropdown)}
+          onClick={() => { setShowDropdown(prev => { const next = !prev; if (!next) setFilter(''); return next }) }}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-800 hover:bg-surface-700 rounded-lg text-sm text-surface-300 transition-colors"
         >
           <FolderOpen size={13} className="text-accent-400" />
@@ -73,8 +77,26 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
         </button>
 
         {showDropdown && (
-          <div className="absolute top-full left-0 mt-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[240px] shadow-xl z-50 max-h-[280px] overflow-y-auto">
-            {projects.map(p => (
+          <div className="absolute top-full left-0 mt-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[240px] shadow-xl z-50 max-h-[280px] flex flex-col">
+            <div className="px-2 pb-1.5 border-b border-surface-700">
+              <div className="flex items-center gap-1.5 bg-surface-900 border border-surface-700 rounded-lg px-2 py-1">
+                <Search size={11} className="text-surface-500 flex-shrink-0" />
+                <input
+                  value={filter}
+                  onChange={e => setFilter(e.target.value)}
+                  placeholder="Filtrar proyectos..."
+                  className="flex-1 bg-transparent text-xs text-surface-100 outline-none placeholder:text-surface-600 min-w-0"
+                  autoFocus
+                />
+                {filter && (
+                  <button onClick={() => setFilter('')} className="text-surface-500 hover:text-surface-300 flex-shrink-0">
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="overflow-y-auto">
+            {filtered.map(p => (
               <div key={p.id} className="flex items-center group">
                 {editingId === p.id ? (
                   <div className="flex items-center gap-1 px-3 py-1.5 w-full">
@@ -94,7 +116,7 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
                 ) : (
                   <>
                     <button
-                      onClick={() => { setCurrentProject(p.id); setShowDropdown(false) }}
+                      onClick={() => { setCurrentProject(p.id); setShowDropdown(false); setFilter('') }}
                       className={`flex-1 text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
                         p.id === currentProjectId ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'
                       }`}
@@ -111,7 +133,7 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
                       </button>
                       {confirmDelete === p.id ? (
                         <div className="flex gap-0.5">
-                          <button onClick={() => { deleteProject(p.id); setConfirmDelete(null); setShowDropdown(false) }}
+                          <button onClick={() => { deleteProject(p.id); setConfirmDelete(null); setShowDropdown(false); setFilter('') }}
                             className="px-1.5 py-0.5 bg-red-500/80 rounded text-[9px] text-white">Sí</button>
                           <button onClick={() => setConfirmDelete(null)}
                             className="px-1.5 py-0.5 bg-white/10 rounded text-[9px] text-white">No</button>
@@ -126,6 +148,7 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
                 )}
               </div>
             ))}
+            </div>
           </div>
         )}
       </div>

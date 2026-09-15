@@ -118,19 +118,29 @@ function PromptCard({
     setModal(false)
   }
 
-  const handleLibrarySelect = async (asset: any) => {
+  const handleLibrarySelect = async (assetOrAssets: any | any[]) => {
     setShowPicker(false)
+    const assets = Array.isArray(assetOrAssets) ? assetOrAssets : [assetOrAssets]
+    if (assets.length === 0) return
     const api = (window as any).electronAPI
-    const res = await api?.assets.readBase64([asset.id])
-    const b64 = res?.[0]?.base64
-    if (!b64) return
-    setDraftRefs(prev => [...prev, {
-      id: crypto.randomUUID(),
-      base64: b64,
-      mime: res[0].mime || 'image/png',
-      type: 'image',
-      name: asset.file_name || asset.prompt || 'library asset',
-    }])
+    const res = await api?.assets.readBase64(assets.map((a: any) => a.id))
+    if (!Array.isArray(res)) return
+    const newRefs: PromptReference[] = []
+    for (let i = 0; i < res.length; i++) {
+      const r = res[i]
+      if (!r?.base64) continue
+      const a = assets[i]
+      newRefs.push({
+        id: crypto.randomUUID(),
+        base64: r.base64,
+        mime: r.mime || (a?.type === 'video' ? 'video/mp4' : 'image/png'),
+        type: (a?.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+        name: a?.fileName || a?.file_name || a?.prompt || 'library asset',
+      })
+    }
+    if (newRefs.length > 0) {
+      setDraftRefs(prev => [...prev, ...newRefs])
+    }
   }
 
   const draftFirstRef = draftRefs[0]

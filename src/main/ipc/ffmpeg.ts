@@ -13,4 +13,12 @@ export function registerFfmpegHandlers({ handle }: IpcContext) {
     await ffmpeg.cleanupTemp(thumbPath)
     return buffer.toString('base64')
   })
+
+  handle('ffmpeg:concat', async (_e, inputPaths: string[], outputPath: string) => {
+    return getFFmpeg().concatVideos(inputPaths, outputPath)
+  })
+
+  handle('ffmpeg:assembleDrama', async (_e, options: any) => {
+    return getFFmpeg().assembleDramaVideo(options)
+  })
 }

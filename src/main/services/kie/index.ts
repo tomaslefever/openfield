@@ -6,7 +6,7 @@ import { uploadFileBase64 } from './endpoints/upload'
 import { generateImage } from './endpoints/image'
 import { generateVideo } from './endpoints/video'
 import { generateAudio } from './endpoints/audio'
-import { getEstimatedCost } from './models'
+import { getEstimatedCost, type CostEstimateOptions } from './models'
 import type {
   GenerateImageParams,
   GenerateVideoParams,
@@ -54,10 +54,10 @@ export class OpenfieldApiClient extends BaseClient {
     return waitForCompletion(this, taskId, onProgress)
   }
 
-  getEstimatedCost(modelId: string, duration?: number): number {
-    return getEstimatedCost(modelId, duration)
+  getEstimatedCost(modelId: string, options?: CostEstimateOptions | number): number {
+    return getEstimatedCost(modelId, options)
   }
 }
 
-export { IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS } from './models'
+export { IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS, type CostEstimateOptions } from './models'
 export * from './types'

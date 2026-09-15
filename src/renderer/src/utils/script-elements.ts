@@ -1,4 +1,5 @@
 import type { StoryboardElementType } from '../stores/storyboard-store'
+import { extractDurationFromText } from '../stores/short-drama-store'
 
 export const ELEMENT_TYPE_CONFIG: Record<StoryboardElementType, {
   label: string
@@ -109,6 +110,7 @@ export interface ScriptScene {
   title: string
   shotCount: number
   description: string
+  duration?: number
 }
 
 export function parseScriptScenes(script: string): ScriptScene[] {
@@ -117,17 +119,28 @@ export function parseScriptScenes(script: string): ScriptScene[] {
 
   for (const line of script.split('\n')) {
     if (line.startsWith('## ')) {
-      current = { title: line.slice(3).trim() || `Escena ${scenes.length + 1}`, shotCount: 0, description: '' }
+      const raw = line.slice(3).trim()
+      const dur = extractDurationFromText(raw)
+      current = { title: raw || `Escena ${scenes.length + 1}`, shotCount: 0, description: '', duration: dur }
       scenes.push(current)
     } else if (line.startsWith('### ')) {
-      if (current) current.shotCount += 1
+      if (current) {
+        current.shotCount += 1
+        const shotDur = extractDurationFromText(line.slice(4).trim())
+        if (shotDur && !current.duration) current.duration = shotDur
+      }
     } else if (line.startsWith('#### ')) {
       // nested take — ignore
     } else if (line.startsWith('##')) {
-      current = { title: line.slice(2).trim() || `Escena ${scenes.length + 1}`, shotCount: 0, description: '' }
+      const raw = line.slice(2).trim()
+      const dur = extractDurationFromText(raw)
+      current = { title: raw || `Escena ${scenes.length + 1}`, shotCount: 0, description: '', duration: dur }
       scenes.push(current)
     } else if (current && line.trim() && !line.trimStart().startsWith('#') && !current.description) {
       current.description = line.trim().slice(0, 300)
+      if (!current.duration) {
+        current.duration = extractDurationFromText(line)
+      }
     }
   }
 

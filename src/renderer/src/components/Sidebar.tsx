@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppStore, type Page } from '../stores/app-store'
+import { useWorkspaceStore } from '../stores/workspace-store'
 import { WorkspaceSelector } from './WorkspaceSelector'
 import type { LucideIcon } from 'lucide-react'
 import {
-  Image,
-  Video,
-  Library,
+  Sparkles,
   Clapperboard,
   Shapes,
   Settings,
   Search,
+  AudioLines,
+  Mic,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -25,11 +26,11 @@ import {
 } from '@/components/ui/sidebar'
 
 const NAV_ITEMS: { page: Page; label: string; icon: LucideIcon }[] = [
-  { page: 'library', label: 'Assets', icon: Library },
-  { page: 'image', label: 'Image Generation', icon: Image },
-  { page: 'video', label: 'Video Generation', icon: Video },
-  { page: 'storyboard', label: 'Storyboard', icon: Clapperboard },
+  { page: 'library', label: 'Playground', icon: Sparkles },
+  { page: 'voice', label: 'Voice Generation', icon: Mic },
+  { page: 'music', label: 'Music Generation', icon: AudioLines },
   { page: 'elements', label: 'Elements', icon: Shapes },
+  { page: 'contentStudio', label: 'Content Studio', icon: Clapperboard },
 ]
 
 const FOOTER_ITEMS: { page: Page; label: string; icon: LucideIcon }[] = [
@@ -126,7 +127,7 @@ export function AppSidebar() {
   const setPage = useAppStore((s) => s.setPage)
   const assetSearch = useAppStore((s) => s.assetSearch)
   const setAssetSearch = useAppStore((s) => s.setAssetSearch)
-  const { state } = useSidebar()
+  const { state, setOpen } = useSidebar()
   const collapsed = state === 'collapsed'
   const [hovered, setHovered] = useState<string | null>(null)
   const [appVersion, setAppVersion] = useState('')
@@ -140,14 +141,23 @@ export function AppSidebar() {
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === '/' && !collapsed && document.activeElement !== searchRef.current) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault()
-        searchRef.current?.focus()
+        if (collapsed) {
+          setOpen(true)
+          setTimeout(() => {
+            searchRef.current?.focus()
+            searchRef.current?.select()
+          }, 50)
+        } else {
+          searchRef.current?.focus()
+          searchRef.current?.select()
+        }
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [collapsed])
+  }, [collapsed, setOpen])
 
   const handleSearch = (value: string) => {
     setAssetSearch({ query: value })
@@ -175,7 +185,7 @@ export function AppSidebar() {
                 placeholder="Quick search"
                 className="min-w-0 flex-1 bg-transparent text-[12.5px] text-sidebar-foreground outline-none placeholder:text-sidebar-foreground/40"
               />
-              <kbd className="flex size-4 items-center justify-center rounded-[5px] bg-sidebar text-[10px] text-sidebar-foreground/50">/</kbd>
+              <kbd className="flex h-4 items-center justify-center rounded-[5px] bg-sidebar px-1 text-[10px] text-sidebar-foreground/50">Ctrl+F</kbd>
             </label>
           </>
         )}

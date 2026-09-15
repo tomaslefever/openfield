@@ -353,31 +353,16 @@ function SceneCard({
   )
 }
 
-const IMAGE_MODELS: { name: string; t2iId: string; i2iId?: string; cost: number }[] = [
-  { name: 'GPT Image 2', t2iId: 'gpt-image-2-text-to-image', i2iId: 'gpt-image-2-image-to-image', cost: 6 },
-  { name: 'Nano Banana 2', t2iId: 'nano-banana-2', cost: 8 },
-  { name: 'Seedream 5 Pro', t2iId: 'seedream-5-pro-text-to-image', i2iId: 'seedream-5-pro-image-to-image', cost: 12 },
-  { name: 'Flux 2 Pro', t2iId: 'flux2-pro-text-to-image', i2iId: 'flux2-pro-image-to-image', cost: 10 },
-  { name: 'Grok Imagine', t2iId: 'grok-imagine/text-to-image', i2iId: 'grok-imagine/image-to-image', cost: 4 },
-  { name: 'Imagen 4 Fast', t2iId: 'imagen4-fast', cost: 8 },
-]
-const VIDEO_MODELS: { name: string; t2vId: string; i2vId?: string; fflfId?: string; cost: number }[] = [
-  { name: 'Kling 3.0', t2vId: 'kling-3.0/video', cost: 90 },
-  { name: 'Kling 2.5 Turbo', t2vId: 'kling/v25-turbo-text-to-video-pro', i2vId: 'kling/v25-turbo-image-to-video-pro', cost: 50 },
-  { name: 'Grok Imagine', t2vId: 'grok-imagine/text-to-video', i2vId: 'grok-imagine/image-to-video', cost: 3 },
-  { name: 'Seedance 2', t2vId: 'bytedance/seedance-2', i2vId: 'bytedance/seedance-2', fflfId: 'bytedance/seedance-2', cost: 41 },
-  { name: 'Seedance 2.5', t2vId: 'bytedance/seedance-2-5', i2vId: 'bytedance/seedance-2-5', fflfId: 'bytedance/seedance-2-5', cost: 63 },
-  { name: 'PixVerse V6', t2vId: 'pixverse-v6/text-to-video', i2vId: 'pixverse-v6/image-to-video', fflfId: 'pixverse-v6/image-to-video', cost: 14 },
-  { name: 'Wan 2.7', t2vId: 'wan-2-7-text-to-video', i2vId: 'wan-2-7-image-to-video', cost: 8 },
-  { name: 'Hailuo 2 Pro', t2vId: 'hailuo/02-text-to-video-pro', cost: 12 },
-  { name: 'MiniMax H3', t2vId: 'minimax-h3/text-to-video', i2vId: 'minimax-h3/image-to-video', fflfId: 'minimax-h3/image-to-video', cost: 80 },
-]
+import { IMAGE_MODELS, VIDEO_MODELS, calcCost, calcVideoCost, costCredits } from '../lib/models'
 
 function getImageModelCost(modelId: string): number {
-  return IMAGE_MODELS.find(m => m.t2iId === modelId || m.i2iId === modelId)?.cost || 0
+  const m = IMAGE_MODELS.find(m => m.t2iId === modelId || m.i2iId === modelId)
+  return m ? calcCost(m, '1K').totalCredits : 0
 }
-function getVideoModelCost(modelId: string): number {
-  return VIDEO_MODELS.find(m => m.t2vId === modelId || m.i2vId === modelId || m.fflfId === modelId)?.cost || 0
+function getVideoModelCost(modelId: string, resolution?: string, seconds?: number): number {
+  const m = VIDEO_MODELS.find(m => m.t2vId === modelId || m.i2vId === modelId || m.fflfId === modelId)
+  if (!m) return 0
+  return calcVideoCost(m, { resolution, requestedSeconds: seconds || 0 }).totalCredits
 }
 
 export function StoryboardPage() {
@@ -577,7 +562,7 @@ export function StoryboardPage() {
 
   // Total credit cost
   const totalCost = scenes.reduce((sum, s) => sum + (s.imageBase64 ? 0 : getImageModelCost(imageModelId)), 0)
-    + transitions.filter(t => !t.videoBase64).length * getVideoModelCost(transitionModelId)
+    + transitions.filter(t => !t.videoBase64).length * getVideoModelCost(transitionModelId, defaultResolution, defaultDuration)
 
   // Group shots into scene rows (from script ## Escena headers when counts match)
   const scriptScenes = useMemo(() => parseScriptScenes(store.script), [store.script])
@@ -818,10 +803,10 @@ export function StoryboardPage() {
               onMouseLeave={() => setShowVideoModels(false)}>
               {VIDEO_MODELS.map(m => (
                 <button key={m.t2vId}
-                  onClick={() => { store.setVideoModelId(m.t2vId); store.saveSettings(); setShowVideoModels(false) }}
+                  onClick={() => { store.setVideoModelId(m.t2vId!); store.saveSettings(); setShowVideoModels(false) }}
                   className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${(videoModelId === m.t2vId || videoModelId === m.i2vId) ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
                   <span>{m.name}</span>
-                  <span className="text-[10px] text-amber-400">{m.cost} cr</span>
+                  <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
                 </button>
               ))}
             </div>
@@ -843,7 +828,7 @@ export function StoryboardPage() {
                   onClick={() => { store.setTransitionModelId(m.fflfId!); store.saveSettings(); setShowTransitionModels(false) }}
                   className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${transitionModelId === m.fflfId ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
                   <span>{m.name}</span>
-                  <span className="text-[10px] text-amber-400">{m.cost} cr</span>
+                  <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
                 </button>
               ))}
             </div>
@@ -992,7 +977,7 @@ export function StoryboardPage() {
                                     }
                                     dragIndex.current = null
                                   }}
-                                  videoCost={getVideoModelCost(videoModelId)}
+                                  videoCost={getVideoModelCost(videoModelId, defaultResolution, defaultDuration)}
                                   defaultAspectRatio={defaultAspectRatio}
                                   styleSuffix={styleSuffix}
                                   onImageGenerated={(base64, prompt, assetId) => handleImageGenerated(scene.id, base64, prompt, assetId)}

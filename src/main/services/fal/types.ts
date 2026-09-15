@@ -27,8 +27,10 @@ export interface FalImageResult {
 export interface MiniMaxH3Input {
   prompt: string
   duration?: number
-  resolution?: '768P' | '2K' | '4K'
+  resolution?: '480P' | '768P' | '1080P' | '2K' | '4K'
   aspect_ratio?: string
+  prompt_expansion_mode?: 'balanced' | 'quality'
+  enable_safety_checker?: boolean
   reference_image_urls?: string[]
   reference_video_urls?: string[]
   reference_audio_urls?: string[]

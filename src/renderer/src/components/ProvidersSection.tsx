@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { KeyRound, Check, Loader, ExternalLink, Zap, User, DollarSign, Cloud } from 'lucide-react'
+import { KeyRound, Check, Loader, ExternalLink, Zap, User, DollarSign, Cloud, AudioLines } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 
 interface ProviderStatus {
-  provider: 'kie' | 'replicate' | 'fal' | 'hf'
+  provider: 'kie' | 'replicate' | 'fal' | 'hf' | 'elevenlabs'
   label: string
   kind: 'credits' | 'account' | 'dollars' | 'token'
   value?: number | string
@@ -58,6 +58,15 @@ const PROVIDERS: ProviderDef[] = [
     keyName: 'hfToken',
     keyPlaceholder: 'hf_... (HuggingFace token)',
     helperUrl: 'https://huggingface.co/settings/tokens',
+  },
+  {
+    id: 'elevenlabs',
+    label: 'ElevenLabs',
+    description: 'AI voice synthesis (TTS)',
+    icon: <AudioLines size={16} />,
+    keyName: 'elevenlabsApiKey',
+    keyPlaceholder: 'sk_... (ElevenLabs API key)',
+    helperUrl: 'https://elevenlabs.io/app/settings/api-keys',
   },
 ]
 

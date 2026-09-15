@@ -28,7 +28,9 @@ function ScriptEditorPlaceholder() {
   )
 }
 
-function PromptListPlaceholder({ aspectRatio, resolution }: { aspectRatio: string; resolution: string }) {
+function PromptListPlaceholder({ params }: { params?: Record<string, any> }) {
+  const aspectRatio = params?.aspectRatio || '16:9'
+  const resolution = params?.resolution || '1K'
   const [prompts, setPrompts] = useState<string[]>(['', '', '', ''])
   return (
     <div className="card p-4">

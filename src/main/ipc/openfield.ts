@@ -1,5 +1,5 @@
 import type { IpcContext } from './context'
-import { requireApiKey } from './helpers'
+import { requireApiKey, readSetting } from './helpers'
 import { OpenfieldApiClient, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS } from '../services/kie'
 import { getTaskQueue } from '../services/task-queue'
 
@@ -79,7 +79,42 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
   })
 
   handle('openfield:task:status', async (_e, taskId: string) => {
-    return raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(taskId)
+    if (!taskId) return null
+    const task = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(taskId) as any
+    if (!task) return null
+
+    let assetId = task.assetId || task.asset_id
+    let localPath = task.localPath || task.local_path
+    let outputUrl = task.outputUrl || task.output_url || task.resultUrl || task.result_url
+
+    if (task.status === 'completed') {
+      const asset = raw.prepare('SELECT * FROM assets WHERE task_id = ? ORDER BY created_at DESC LIMIT 1').get(taskId) as any
+      if (asset) {
+        assetId = asset.id
+        const aPath = asset.localPath || asset.local_path
+        if (aPath) {
+          localPath = aPath
+          outputUrl = `file://${aPath.replace(/\\/g, '/')}`
+        } else if (asset.filePath || asset.file_path) {
+          outputUrl = asset.filePath || asset.file_path
+        }
+      }
+
+      if (!outputUrl && (task.resultJson || task.result_json)) {
+        try {
+          const rawP = task.resultJson || task.result_json
+          const p = typeof rawP === 'string' ? JSON.parse(rawP) : rawP
+          outputUrl = p.url || p.resultUrls?.[0] || p.imageUrl || p.videoUrl || p.audioUrl
+        } catch {}
+      }
+    }
+
+    return {
+      ...task,
+      assetId,
+      localPath,
+      outputUrl,
+    }
   })
 
   handle('openfield:task:cancel', (_e, taskId: string) => {
@@ -109,10 +144,177 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
     } catch { return -1 }
   })
 
-  handle('openfield:cost:estimate', (_e, modelId: string, duration?: number) => {
+  handle('openfield:cost:estimate', (_e, modelId: string, opts?: any) => {
     try {
       const apiKey = requireApiKey()
-      return new OpenfieldApiClient(apiKey).getEstimatedCost(modelId, duration)
+      const options = typeof opts === 'number' ? { duration: opts } : (opts || {})
+      return new OpenfieldApiClient(apiKey).getEstimatedCost(modelId, options)
     } catch { return 0 }
+  })
+
+  handle('openfield:agent:chat', async (_e, params: any) => {
+    const kieApiKey = readSetting('openfieldApiKey') || readSetting('kieApiKey')
+    const openaiApiKey = readSetting('openaiApiKey')
+    const anthropicApiKey = readSetting('anthropicApiKey')
+    const openrouterApiKey = readSetting('openrouterApiKey')
+
+    const messages = params?.messages || []
+    const requestedModel = params?.model || 'claude-3-7-sonnet'
+
+    const formattedMessages = messages.map((m: any) => ({
+      role: m.role === 'tool' ? 'user' : m.role,
+      content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+    }))
+
+    // 1. Try KIE.ai Chat API with current KIE credentials
+    if (kieApiKey) {
+      const sanitizedModel = requestedModel.replace(/\./g, '-').replace(/\//g, '-')
+      
+      const endpoints = [
+        `https://api.kie.ai/${sanitizedModel}/v1/chat/completions`,
+        `https://api.kie.ai/v1/chat/completions`,
+        `https://api.kie.ai/${requestedModel}/v1/chat/completions`,
+        `https://api.kie.ai/gemini-2-5-pro/v1/chat/completions`,
+        `https://api.kie.ai/gpt-5-2/v1/chat/completions`,
+        `https://api.kie.ai/deepseek-r1/v1/chat/completions`,
+        `https://api.kie.ai/grok-4-5/v1/chat/completions`,
+      ]
+
+      let lastError = ''
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${kieApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: requestedModel,
+              messages: formattedMessages,
+              temperature: 0.7,
+              max_tokens: 4000,
+            }),
+          })
+
+          if (res.ok) {
+            const data = await res.json()
+            const text =
+              data.choices?.[0]?.message?.content ||
+              data.choices?.[0]?.text ||
+              data.content?.[0]?.text ||
+              data.text ||
+              ''
+            if (text) {
+              return {
+                content: text,
+                message: { role: 'assistant', content: text },
+              }
+            }
+          } else {
+            const errBody = await res.text()
+            lastError = `[HTTP ${res.status}] ${errBody.slice(0, 160)}`
+            console.warn(`[KIE Agent Chat] ${url} error (${res.status}):`, errBody)
+          }
+        } catch (err: any) {
+          lastError = err?.message || String(err)
+          console.warn(`[KIE Agent Chat] ${url} connection error:`, err)
+        }
+      }
+
+      // Try KIE Claude Messages endpoint if requested model is Claude
+      if (requestedModel.toLowerCase().includes('claude')) {
+        const claudeUrls = [
+          'https://api.kie.ai/claude/v1/messages',
+          'https://api.kie.ai/claude-3-7-sonnet/v1/messages',
+          'https://api.kie.ai/claude-3-5-sonnet/v1/messages',
+        ]
+        for (const cUrl of claudeUrls) {
+          try {
+            const sysMsg = formattedMessages.find((m: any) => m.role === 'system')?.content || ''
+            const userMsgs = formattedMessages.filter((m: any) => m.role !== 'system')
+            const res = await fetch(cUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${kieApiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: requestedModel,
+                system: sysMsg,
+                messages: userMsgs.length > 0 ? userMsgs : [{ role: 'user', content: 'Hola' }],
+                max_tokens: 4000,
+              }),
+            })
+            if (res.ok) {
+              const data = await res.json()
+              const text = data.content?.[0]?.text || ''
+              if (text) {
+                return {
+                  content: text,
+                  message: { role: 'assistant', content: text },
+                }
+              }
+            }
+          } catch (err) {
+            console.warn(`[KIE Agent Chat] ${cUrl} error:`, err)
+          }
+        }
+      }
+
+      if (lastError && !openrouterApiKey && !openaiApiKey && !anthropicApiKey) {
+        throw new Error(`KIE.ai Chat Error: ${lastError}`)
+      }
+    }
+
+    // 2. Try OpenRouter
+    if (openrouterApiKey) {
+      try {
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openrouterApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'anthropic/claude-3.5-sonnet',
+            messages: formattedMessages,
+          }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const text = data.choices?.[0]?.message?.content || ''
+          if (text) {
+            return { content: text, message: { role: 'assistant', content: text } }
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Try OpenAI
+    if (openaiApiKey) {
+      try {
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: formattedMessages,
+          }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const text = data.choices?.[0]?.message?.content || ''
+          if (text) {
+            return { content: text, message: { role: 'assistant', content: text } }
+          }
+        }
+      } catch {}
+    }
+
+    throw new Error('No se pudo conectar a ningún servicio de IA para el chat o desglose. Configura tus API Keys de KIE en Ajustes.')
   })
 }

@@ -14,6 +14,7 @@ export interface ReplicateModelCatalogEntry {
 
 export const P_VIDEO_AVATAR_VERSION = '8a54bb678ef43a7a40950731bad3f33f4ac904267fecebd2186c826a6da6f5a5'
 export const P_VIDEO_VERSION = '4420187a2059aa9ec6836c7da161eb11dce9afda5310e29e1d9f65efa9fd58ad'
+export const CRYSTAL_UPSCALER_VERSION = 'a1817a6d378e6734bbdf8a184a6eca7870401891550ef9064a902a695241ad67'
 
 export const P_VIDEO_AVATAR_VOICES = [
   'Zephyr (Female)', 'Puck (Male)', 'Charon (Male)', 'Kore (Female)', 'Fenrir (Male)',
@@ -50,6 +51,15 @@ export const REPLICATE_MODELS: ReplicateModelCatalogEntry[] = [
     type: 'video',
     costPerSecond: 0.02,
     resolutions: ['720p', '1080p'],
+  },
+  {
+    id: 'philz1337x/crystal-video-upscaler',
+    name: 'Crystal Video Upscaler',
+    category: 'Crystal',
+    version: CRYSTAL_UPSCALER_VERSION,
+    type: 'video',
+    costPerSecond: 0.1,
+    resolutions: [],
   },
 ]
 

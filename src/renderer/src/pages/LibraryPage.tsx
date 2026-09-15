@@ -1,23 +1,34 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
-import { Search, Download, Trash2, Star, Cloud, CheckSquare, Square, Loader, AlertCircle, X, ChevronLeft, ChevronRight, Copy, Check, RotateCcw, FolderOpen, Clock, Tag, RefreshCw, Inbox, Upload, AudioLines, Play, Pause } from 'lucide-react'
-import { srcUrl } from '../services/file-url'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { Search, Download, Trash2, Star, Cloud, CheckSquare, Square, Loader, AlertCircle, X, ChevronLeft, ChevronRight, Copy, Check, RotateCcw, FolderOpen, Clock, Tag, RefreshCw, Inbox, Upload, AudioLines, Play, Pause, Image as ImageIcon, Video, Eraser, Clapperboard, Box } from 'lucide-react'
+import { srcUrl, thumbUrl } from '../services/file-url'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { useGridFlip } from '../hooks/useGridFlip'
 import { useAppStore } from '../stores/app-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
+import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { TagEditor } from '../components/ui/TagEditor'
 import { AutoPlayVideo } from '../components/ui/AutoPlayVideo'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
-import { copyText } from '../lib/clipboard'
+import { ElementWizard } from '../components/ElementWizard'
+import { copyText, copyImage } from '../lib/clipboard'
+import { downscaleImage } from '../lib/image'
+import { getAudioKind } from '../lib/audio'
 
 const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-text-to-image': 'GPT Image 2',
   'gpt-image-2-image-to-image': 'GPT Image 2 I2I',
+  'gpt-image-2-5-flare-text-to-image': 'GPT Image 2.5 Flare',
+  'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5 Flare I2I',
+  'gpt-image-2-5-sunburst-text-to-image': 'GPT Image 2.5 Sunburst',
+  'gpt-image-2-5-sunburst-image-to-image': 'GPT Image 2.5 Sunburst I2I',
   'recraft/remove-background': 'Remove Background',
   'nano-banana-2': 'Nano Banana 2',
+  'seedream/5-pro-text-to-image': 'Seedream 5 Pro',
+  'seedream/5-pro-image-to-image': 'Seedream 5 Pro I2I',
   'seedream-5-pro-text-to-image': 'Seedream 5 Pro',
+  'seedream-5-pro-image-to-image': 'Seedream 5 Pro I2I',
   'flux2-pro-text-to-image': 'Flux 2 Pro',
   'grok-imagine/text-to-image': 'Grok Imagine',
   'imagen4-fast': 'Imagen 4 Fast',
@@ -43,18 +54,34 @@ const MODEL_NAMES: Record<string, string> = {
   'bytedance/seedance-2-mini': 'Seedance 2 Mini',
   'wan-2-7-text-to-video': 'Wan 2.7',
   'wan-2-7-image-to-video': 'Wan 2.7',
+  'wan/3-0-video': 'Wan 3.0',
+  'wan-3-0-video': 'Wan 3.0',
   'hailuo/02-text-to-video-pro': 'Hailuo 2 Pro',
-  'gemini-omni-video': 'Gemini Omni',
+  'google/gemini-omni-flash-1-1': 'Gemini Omni 1.1 Flash',
+  'gemini-omni-video': 'Gemini Omni 1.1 Flash',
   'prunaai/p-video-avatar': 'P-Video Avatar',
   'prunaai/p-video': 'P-Video',
   'minimax-h3/text-to-video': 'MiniMax H3',
   'minimax-h3/image-to-video': 'MiniMax H3',
   'minimax-h3/reference-to-video': 'MiniMax H3',
   'minimax/h3/reference-to-video': 'MiniMax H3 (Fal)',
+  'minimax/h3-max-turbo/text-to-video': 'MiniMax H3 Max Turbo (Fal)',
+  'minimax/h3-max/text-to-video': 'MiniMax H3 Max (Fal)',
+  'minimax/h3-max/reference-to-video': 'MiniMax H3 Max Ref (Fal)',
   'gpt-tts-1': 'GPT TTS',
   'minimax-text-to-speech': 'MiniMax TTS',
   'openaudio-text-to-music': 'OpenAudio Music',
   'mucat-text-to-music': 'MuCat Music',
+  'elevenlabs:sfx': 'ElevenLabs Music',
+}
+
+function modelLabel(model: string | undefined): string {
+  if (!model) return '—'
+  if (model.startsWith('piper:')) return `Piper · ${model.slice(6)}`
+  if (model.startsWith('kokoro:')) return `Kokoro · ${model.slice(7)}`
+  if (model.startsWith('elevenlabs:vc:')) return `ElevenLabs VC · ${model.slice(13)}`
+  if (model.startsWith('elevenlabs:') && model !== 'elevenlabs:sfx') return `ElevenLabs · ${model.slice(11)}`
+  return MODEL_NAMES[model] || model
 }
 
 function clampPan(containerRef: React.RefObject<HTMLDivElement | null>, imgRef: React.RefObject<HTMLImageElement | null>, px: number, py: number, z: number) {
@@ -80,14 +107,23 @@ function clampPan(containerRef: React.RefObject<HTMLDivElement | null>, imgRef: 
 }
 
 export function LibraryPage() {
+  const setPage = useAppStore((s) => s.setPage)
+  const composerPayload = useAppStore((s) => s.composerPayload)
+  const setComposerPayload = useAppStore((s) => s.setComposerPayload)
+  const composerRef = useRef<PromptComposerHandle>(null)
+
   const assetSearch = useAppStore((s) => s.assetSearch)
   const setAssetSearch = useAppStore((s) => s.setAssetSearch)
   const search = assetSearch.query
   const showFavorites = assetSearch.featured
 
-  const activeTypes = (['image', 'video', 'audio'] as const).filter((t) => assetSearch.types[t])
+  const activeTypes = useMemo(
+    () => (['image', 'video', 'audio'] as const).filter((t) => assetSearch.types[t]),
+    [assetSearch.types.image, assetSearch.types.video, assetSearch.types.audio]
+  )
   const typeFilter: 'all' | 'image' | 'video' | 'audio' =
     activeTypes.length === 1 ? activeTypes[0] : 'all'
+  const [composerMode, setComposerMode] = useState<'image' | 'video' | 'audio'>('image')
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
@@ -192,14 +228,41 @@ export function LibraryPage() {
     }
   }
 
-  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset, removeAssets } = usePagedAssets({
-    types: activeTypes.length === 3 ? undefined : activeTypes,
+  const pagedTypes = useMemo(
+    () => (activeTypes.length === 3 ? undefined : activeTypes),
+    [activeTypes]
+  )
+
+  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, loadMore, updateAsset, removeAssets } = usePagedAssets({
+    types: pagedTypes,
     search,
     isFavorite: showFavorites,
     aspectRatio: assetSearch.aspectRatio,
     pageSize: 20,
     excludeUploads: true,
   })
+
+  const pendingNextRef = useRef(false)
+
+  // Preload next batch when near the end of loaded assets
+  useEffect(() => {
+    if (!selectedAsset) return
+    const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+    if (idx >= 0 && idx >= assets.length - 2 && hasMore) {
+      loadMore()
+    }
+  }, [selectedAsset?.id, assets.length, hasMore, loadMore])
+
+  // Advance to next asset if pending from hitting next at the end of the previous batch
+  useEffect(() => {
+    if (pendingNextRef.current && selectedAsset) {
+      const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+      if (idx >= 0 && idx < assets.length - 1) {
+        setSelectedAsset(assets[idx + 1])
+        pendingNextRef.current = false
+      }
+    }
+  }, [assets, selectedAsset])
 
   const handleAssetsMoved = (ids: string[]) => {
     fadeOut(ids)
@@ -210,8 +273,6 @@ export function LibraryPage() {
     }, 180)
   }
 
-  const setComposerPayload = useAppStore(s => s.setComposerPayload)
-  const setPage = useAppStore(s => s.setPage)
 
   // Hover-play for videos (same behavior as VideoGen)
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map())
@@ -242,21 +303,42 @@ export function LibraryPage() {
     playAttemptsRef.current.delete(id)
   }
 
+  const resetRef = useRef(reset)
+  resetRef.current = reset
+
+  const refreshTags = useCallback(async () => {
+    try {
+      const tags = await (window as any).electronAPI?.assets?.tags?.()
+      if (Array.isArray(tags)) setAllTags(tags)
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    refreshTags()
+  }, [refreshTags, activeWorkspaceId])
+
   useEffect(() => {
     const api = (window as any).electronAPI
     if (!api) return
-    const unsubComplete = api.on('openfield:task:completed', () => reset())
-    const unsubFailed = api.on('openfield:task:failed', () => reset())
-    const unsubRpComplete = api.on('replicate:task:completed', () => reset())
-    const unsubRpFailed = api.on('replicate:task:failed', () => reset())
-    const unsubFalComplete = api.on('fal:task:completed', () => reset())
-    const unsubFalFailed = api.on('fal:task:failed', () => reset())
-    return () => { unsubComplete?.(); unsubFailed?.(); unsubRpComplete?.(); unsubRpFailed?.(); unsubFalComplete?.(); unsubFalFailed?.() }
-  }, [reset])
-
-  useEffect(() => {
-    (window as any).electronAPI?.assets?.tags?.().then(setAllTags).catch(() => {})
-  }, [reset, activeWorkspaceId])
+    const onDone = () => {
+      resetRef.current()
+      refreshTags()
+    }
+    const unsubComplete = api.on('openfield:task:completed', onDone)
+    const unsubFailed = api.on('openfield:task:failed', onDone)
+    const unsubRpComplete = api.on('replicate:task:completed', onDone)
+    const unsubRpFailed = api.on('replicate:task:failed', onDone)
+    const unsubFalComplete = api.on('fal:task:completed', onDone)
+    const unsubFalFailed = api.on('fal:task:failed', onDone)
+    return () => {
+      unsubComplete?.()
+      unsubFailed?.()
+      unsubRpComplete?.()
+      unsubRpFailed?.()
+      unsubFalComplete?.()
+      unsubFalFailed?.()
+    }
+  }, [refreshTags])
 
   useEffect(() => {
     if (!selectedAsset) return
@@ -316,21 +398,77 @@ export function LibraryPage() {
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
 
+  useEffect(() => {
+    if (composerPayload) {
+      setTimeout(() => {
+        composerRef.current?.loadFromParams(composerPayload)
+        setComposerPayload(null)
+      }, 100)
+    }
+  }, [composerPayload, setComposerPayload])
+
+  useEffect(() => {
+    setSelectedAsset((prev: any) => {
+      if (!prev || assets.length === 0) return prev
+      const updated = assets.find((a: any) => a.id === prev.id)
+      if (!updated) return prev
+      if (updated.localPath === prev.localPath && updated.filePath === prev.filePath && updated.status === prev.status) return prev
+      return updated
+    })
+  }, [assets])
+
+  const handleGenerate = useCallback(async (params: any) => {
+    try {
+      const api = (window as any).electronAPI
+      const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
+      const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
+      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/') || params?.model?.startsWith('bria/')
+
+      if (isVideo) {
+        if (!assetSearch.types.video) {
+          setAssetSearch({ types: { ...assetSearch.types, video: true } })
+        }
+        if (isFalModel) {
+          await api?.fal.generate(params)
+        } else if (isReplicateModel) {
+          await api?.replicate.generate(params)
+        } else {
+          await api?.openfield.generateVideo(params)
+        }
+      } else {
+        if (!assetSearch.types.image) {
+          setAssetSearch({ types: { ...assetSearch.types, image: true } })
+        }
+        if (isFalModel) {
+          await api?.fal.generate(params)
+        } else if (params.local && params.modelId) {
+          await api?.local.imageGenerate({
+            modelId: params.modelId,
+            prompt: params.prompt,
+            width: params.resolution === '2K' ? 2048 : params.resolution === '4K' ? 4096 : 1024,
+            height: params.resolution === '2K' ? 2048 : params.resolution === '4K' ? 4096 : 1024,
+            steps: 4,
+            guidance: 0,
+            seed: -1,
+          })
+        } else {
+          await api?.openfield.generateImage(params)
+        }
+      }
+      reset()
+    } catch (err) {
+      console.error('Generation failed:', err)
+    }
+  }, [reset, assetSearch.types, setAssetSearch])
+
   const handleBulkAddToComposer = useCallback(async () => {
     const api = (window as any).electronAPI
     const files = await api?.assets.readBase64(Array.from(selectedIds))
     if (files && files.length > 0) {
-      setComposerPayload({
-        mode: 'video',
-        prompt: '',
-        imageBase64: files[0].base64,
-        imageMime: files[0].mime,
-        imageRefs: files.map((f: any) => ({ base64: f.base64, mime: f.mime })),
-      })
-      setPage('video')
+      composerRef.current?.addRefs(files.map((f: any) => ({ base64: f.base64, mime: f.mime })))
     }
     clearSelection()
-  }, [selectedIds, clearSelection, setComposerPayload, setPage])
+  }, [selectedIds, clearSelection])
 
   const handleBulkDelete = useCallback(async () => {
     const api = (window as any).electronAPI
@@ -345,7 +483,8 @@ export function LibraryPage() {
     await api?.assets.addTagsMultiple(Array.from(selectedIds), tags)
     setShowBulkTag(false)
     reset()
-  }, [selectedIds, reset])
+    refreshTags()
+  }, [selectedIds, reset, refreshTags])
 
   const params = selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}
 
@@ -380,10 +519,14 @@ export function LibraryPage() {
       }
 
       if (selectedAsset.type === 'audio') {
-        setComposerPayload({ ...base, mode: 'audio', duration: p.duration ?? undefined })
-        setPage('audio')
+        if (getAudioKind(selectedAsset) === 'music') {
+          setComposerPayload({ ...base, mode: 'audio', duration: p.duration ?? undefined })
+          setPage('music')
+        } else {
+          setPage('voice')
+        }
       } else if (selectedAsset.type === 'image') {
-        setComposerPayload({
+        composerRef.current?.loadFromParams({
           ...base,
           mode: 'image',
           imageBase64: await loadImg('imageBase64'),
@@ -392,9 +535,8 @@ export function LibraryPage() {
           firstFrameBase64: await loadImg('firstFrameBase64'),
           lastFrameBase64: await loadImg('lastFrameBase64'),
         })
-        setPage('image')
       } else {
-        setComposerPayload({
+        composerRef.current?.loadFromParams({
           ...base,
           mode: 'video',
           duration: p.duration ?? undefined,
@@ -413,11 +555,117 @@ export function LibraryPage() {
           voiceLanguage: p.voiceLanguage,
           provider: p.provider,
         })
-        setPage('video')
       }
     } catch (err) { console.error('Recreate failed:', err) }
     setSelectedAsset(null)
   }
+
+  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string } | null>(null)
+  const [copiedAssetId, setCopiedAssetId] = useState<string | null>(null)
+
+  const handleCopyImage = useCallback(async (asset: any) => {
+    if (!asset) return
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([asset.id])
+      const b64 = results?.[0]?.base64 || ''
+      const mime = results?.[0]?.mime || 'image/png'
+      const ok = await copyImage(b64, mime)
+      if (ok) {
+        setCopiedAssetId(asset.id)
+        setTimeout(() => setCopiedAssetId(null), 1500)
+      }
+    } catch (err) {
+      console.error('Copy image failed:', err)
+    }
+  }, [])
+
+  const handleAddImageReference = useCallback(async (asset: any) => {
+    if (!asset) return
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([asset.id])
+      const b64 = results?.[0]?.base64 || ''
+      const mime = results?.[0]?.mime || 'image/png'
+      if (!b64) return
+      composerRef.current?.addRefs([{ base64: b64, mime }])
+      setSelectedAsset(null)
+    } catch (err) {
+      console.error('Image reference failed:', err)
+    }
+  }, [])
+
+  const handleAddVideoReference = useCallback(async (asset: any) => {
+    if (!asset) return
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([asset.id])
+      const b64 = results?.[0]?.base64 || ''
+      const mime = results?.[0]?.mime || 'video/mp4'
+      if (!b64) return
+      composerRef.current?.addRefs([{ base64: b64, mime }])
+      setSelectedAsset(null)
+    } catch (err) {
+      console.error('Video reference failed:', err)
+    }
+  }, [])
+
+  const handleRemoveBackground = useCallback(async (asset: any) => {
+    if (!asset) return
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([asset.id])
+      let b64 = results?.[0]?.base64 || ''
+      const mime = results?.[0]?.mime || 'image/png'
+      if (b64.length > 6990508) b64 = await downscaleImage(b64, mime)
+      setComposerMode('image')
+      setComposerPayload({
+        mode: 'image',
+        prompt: 'Remove background',
+        model: 'recraft/remove-background',
+        imageBase64: b64,
+        imageMime: 'image/jpeg',
+      })
+    } catch (err) {
+      console.error('Remove background failed:', err)
+    }
+    setSelectedAsset(null)
+  }, [setComposerPayload])
+
+  const handleAnimate = useCallback(async (asset: any) => {
+    if (!asset) return
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([asset.id])
+      const b64 = results?.[0]?.base64 || ''
+      const mime = results?.[0]?.mime || 'image/png'
+      setComposerMode('video')
+      setComposerPayload({
+        mode: 'video',
+        prompt: asset.prompt || '',
+        imageBase64: b64,
+        imageMime: mime,
+      })
+    } catch (err) {
+      console.error('Animate failed:', err)
+    }
+    setSelectedAsset(null)
+  }, [setComposerPayload])
+
+  const handleCreateElement = useCallback(async (asset: any) => {
+    if (!asset) return
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([asset.id])
+      const b64 = results?.[0]?.base64 || ''
+      setSelectedAsset(null)
+      setTimeout(() => {
+        setCreatingFromAsset({ base64: b64, prompt: asset.prompt || '' })
+      }, 100)
+    } catch (err) {
+      console.error('Failed to create element:', err)
+    }
+  }, [])
 
   const filteredTags = allTags.filter(t => t.toLowerCase().includes(search.trim().toLowerCase()))
 
@@ -444,10 +692,13 @@ export function LibraryPage() {
         handleDropFiles(e.dataTransfer.files)
       }}
     >
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 pb-28">
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-[10px] text-surface-600">{total} assets</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-surface-200">Playground</span>
+              <span className="text-[10px] text-surface-500">({total})</span>
+            </div>
             <div className="relative flex-1 max-w-xs ml-auto" ref={searchRef}>
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-500" />
               <input
@@ -492,23 +743,40 @@ export function LibraryPage() {
               <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
             </button>
             <div className="flex gap-1 bg-surface-900/40 rounded-lg p-1 border border-surface-800/60">
-              {(['all', 'image', 'video', 'audio'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => {
-                    setAssetSearch({
-                      types: {
-                        image: t === 'all' || t === 'image',
-                        video: t === 'all' || t === 'video',
-                        audio: t === 'all' || t === 'audio',
-                      },
-                    })
-                  }}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${typeFilter === t ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
-                >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </button>
-              ))}
+              <button
+                onClick={() => {
+                  setAssetSearch({
+                    types: { image: true, video: true, audio: true },
+                  })
+                }}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${typeFilter === 'all' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
+              >
+                Todos
+              </button>
+              <button
+                onClick={() => {
+                  setAssetSearch({
+                    types: { image: true, video: false, audio: false },
+                  })
+                  setComposerMode('image')
+                }}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${typeFilter === 'image' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
+              >
+                <ImageIcon size={13} />
+                <span>Imágenes</span>
+              </button>
+              <button
+                onClick={() => {
+                  setAssetSearch({
+                    types: { image: false, video: true, audio: false },
+                  })
+                  setComposerMode('video')
+                }}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${typeFilter === 'video' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
+              >
+                <Video size={13} />
+                <span>Videos</span>
+              </button>
             </div>
           </div>
 
@@ -576,7 +844,7 @@ export function LibraryPage() {
                           />
                         </div>
                       ) : (
-                        <img src={srcUrl(src)} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                        <img src={thumbUrl(src)} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                       )
                     ) : isError ? (
                       <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
@@ -584,8 +852,16 @@ export function LibraryPage() {
                         <span className="text-[10px] text-center text-red-400/80 line-clamp-3">{asset.filePath.replace('__error__:', '')}</span>
                       </div>
                     ) : isLoading ? (
-                      <div className="flex items-center justify-center text-accent-400">
+                      <div className="flex flex-col items-center justify-center gap-2 p-3 text-accent-400 w-full h-full text-center">
                         <Loader size={24} className="animate-spin" />
+                        <span className="text-[11px] text-surface-400 font-medium line-clamp-2 leading-tight px-1">
+                          {asset.prompt || (asset.type === 'video' ? 'Generando video...' : 'Generando imagen...')}
+                        </span>
+                        {asset.modelUsed && (
+                          <span className="text-[9px] text-surface-500 bg-surface-900/60 px-2 py-0.5 rounded-full border border-surface-700/40">
+                            {modelLabel(asset.modelUsed)}
+                          </span>
+                        )}
                       </div>
                     ) : (
                       <div className="text-surface-600 text-sm">No preview</div>
@@ -648,6 +924,21 @@ export function LibraryPage() {
         </div>
       </div>
 
+      <PromptComposer
+        ref={composerRef}
+        onGenerate={handleGenerate}
+        mode={composerMode}
+        onModeChange={(newMode) => {
+          setComposerMode(newMode)
+          if (newMode === 'video' && !assetSearch.types.video) {
+            setAssetSearch({ types: { ...assetSearch.types, video: true } })
+          } else if (newMode === 'image' && !assetSearch.types.image) {
+            setAssetSearch({ types: { ...assetSearch.types, image: true } })
+          }
+        }}
+        floating
+      />
+
       <BulkActionBar
         selectedCount={selectedIds.size}
         selectedIds={Array.from(selectedIds)}
@@ -685,14 +976,45 @@ export function LibraryPage() {
             const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
             setSelectedAsset(assets[idx - 1])
           } : undefined}
-          onNext={assets.findIndex((a: any) => a.id === selectedAsset.id) < assets.length - 1 ? () => {
+          onNext={(() => {
             const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
-            setSelectedAsset(assets[idx + 1])
-          } : undefined}
+            if (idx < 0) return undefined
+            if (idx < assets.length - 1) {
+              return () => {
+                setSelectedAsset(assets[idx + 1])
+                if (idx + 1 >= assets.length - 2 && hasMore) {
+                  loadMore()
+                }
+              }
+            }
+            if (hasMore) {
+              return () => {
+                pendingNextRef.current = true
+                loadMore()
+              }
+            }
+            return undefined
+          })()}
           onAssetChange={(updated) => setSelectedAsset(updated)}
           onToggleFavorite={() => handleToggleFavorite(selectedAsset.id)}
           onDelete={() => handleDelete(selectedAsset.id)}
           onRecreate={handleRecreate}
+          onCopyImage={() => handleCopyImage(selectedAsset)}
+          copiedImage={copiedAssetId === selectedAsset.id}
+          onAddReference={() => selectedAsset.type === 'video' ? handleAddVideoReference(selectedAsset) : handleAddImageReference(selectedAsset)}
+          onRemoveBackground={() => handleRemoveBackground(selectedAsset)}
+          onAnimate={() => handleAnimate(selectedAsset)}
+          onCreateElement={() => handleCreateElement(selectedAsset)}
+        />
+      )}
+
+      {creatingFromAsset && (
+        <ElementWizard
+          initialData={{
+            imageBase64: creatingFromAsset.base64,
+            prompt: creatingFromAsset.prompt,
+          }}
+          onClose={() => setCreatingFromAsset(null)}
         />
       )}
 
@@ -711,6 +1033,7 @@ export function LibraryPage() {
 
 function LibraryAssetModal({
   asset, src, params, onClose, onPrev, onNext, onAssetChange, onToggleFavorite, onDelete, onRecreate,
+  onCopyImage, copiedImage, onAddReference, onRemoveBackground, onAnimate, onCreateElement,
 }: {
   asset: any
   src: string
@@ -722,8 +1045,15 @@ function LibraryAssetModal({
   onToggleFavorite: () => void
   onDelete: () => void
   onRecreate: () => void
+  onCopyImage?: () => void
+  copiedImage?: boolean
+  onAddReference?: () => void
+  onRemoveBackground?: () => void
+  onAnimate?: () => void
+  onCreateElement?: () => void
 }) {
   const [copiedPrompt, setCopiedPrompt] = useState(false)
+  const [promptExpanded, setPromptExpanded] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'done'>('idle')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -735,7 +1065,7 @@ function LibraryAssetModal({
   const [isDragging, setIsDragging] = useState(false)
 
   useEffect(() => { zoomRef.current = zoom }, [zoom])
-  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }) }, [asset.id, src])
+  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); setPromptExpanded(false) }, [asset.id, src])
 
   const handleSaveAs = async () => {
     setSaveState('saving')
@@ -799,10 +1129,11 @@ function LibraryAssetModal({
   }, [])
 
   const isImage = asset.type === 'image'
+  const isVideo = asset.type === 'video'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
         {/* Media */}
         <div
           ref={containerRef}
@@ -830,7 +1161,7 @@ function LibraryAssetModal({
               ref={imgRef}
               src={srcUrl(src)}
               alt=""
-              className="max-w-full max-h-[80vh] object-contain select-none"
+              className="max-w-full max-h-[90vh] object-contain select-none"
               draggable={false}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -839,9 +1170,18 @@ function LibraryAssetModal({
               }}
             />
           ) : asset.type === 'video' ? (
-            <AutoPlayVideo key={asset.id} src={srcUrl(src)} className="max-w-full max-h-[80vh] object-contain" />
+            <AutoPlayVideo key={asset.id} src={srcUrl(src)} className="max-w-full max-h-[90vh] object-contain" />
           ) : (
             <audio controls src={srcUrl(src)} className="max-w-full px-4" autoPlay />
+          )}
+          {isImage && onCopyImage && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCopyImage() }}
+              title="Copiar imagen"
+              className={`absolute top-3 right-12 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10 transition-colors ${copiedImage ? 'text-green-400' : 'text-white/60 hover:text-white'}`}
+            >
+              {copiedImage ? <Check size={14} /> : <Copy size={14} />}
+            </button>
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onToggleFavorite() }}
@@ -858,7 +1198,7 @@ function LibraryAssetModal({
           )}
         </div>
         {/* Details */}
-        <div className="w-72 bg-surface-900/80 border-l border-surface-800 flex flex-col">
+        <div className="w-96 min-w-[380px] flex-shrink-0 bg-surface-900/80 border-l border-surface-800 flex flex-col">
           <div className="flex items-center justify-end px-3 py-2 border-b border-surface-800 flex-shrink-0">
             <button onClick={onClose} title="Close"
               className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
@@ -869,7 +1209,13 @@ function LibraryAssetModal({
           <div>
             <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
             <div className="flex items-start gap-1">
-              <p className="text-sm text-surface-200 leading-relaxed flex-1 line-clamp-4">{asset.prompt || params.prompt || '—'}</p>
+              <p
+                onClick={() => setPromptExpanded(!promptExpanded)}
+                className={`text-sm text-surface-200 leading-relaxed flex-1 cursor-pointer select-none ${promptExpanded ? '' : 'line-clamp-4'}`}
+                title={promptExpanded ? 'Click para contraer' : 'Click para expandir'}
+              >
+                {asset.prompt || params.prompt || '—'}
+              </p>
               <button onClick={() => { copyText(asset.prompt || params.prompt || ''); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
                 className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
                 {copiedPrompt ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
@@ -878,12 +1224,18 @@ function LibraryAssetModal({
           </div>
           <div>
             <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Model</p>
-            <p className="text-sm text-surface-200">{MODEL_NAMES[asset.modelUsed] || asset.modelUsed || '—'}</p>
+            <p className="text-sm text-surface-200">{modelLabel(asset.modelUsed)}</p>
           </div>
           {params.duration != null && (
             <div>
               <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Duration</p>
               <p className="text-sm text-surface-200 flex items-center gap-1"><Clock size={12} /> {params.duration}s</p>
+            </div>
+          )}
+          {params.fps != null && (
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">FPS</p>
+              <p className="text-sm text-surface-200">{params.fps}</p>
             </div>
           )}
           {params.resolution && (
@@ -926,7 +1278,7 @@ function LibraryAssetModal({
               }}
             />
           </div>
-          <div className="pt-2 border-t border-surface-800 space-y-1.5">
+          <div className="pt-2 border-t border-surface-800 grid grid-cols-2 gap-1.5">
             <button onClick={onRecreate} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
               <RotateCcw size={12} /> Recreate
             </button>
@@ -934,14 +1286,39 @@ function LibraryAssetModal({
               {saveState === 'done' ? <Check size={12} className="text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
               {saveState === 'done' ? 'Saved' : 'Save as'}
             </button>
+            {isImage && onAddReference && (
+              <button onClick={onAddReference} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
+                <ImageIcon size={12} /> Reference
+              </button>
+            )}
+            {isImage && onRemoveBackground && (
+              <button onClick={onRemoveBackground} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
+                <Eraser size={12} /> Quitar fondo
+              </button>
+            )}
+            {isImage && onAnimate && (
+              <button onClick={onAnimate} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
+                <Clapperboard size={12} /> Animar
+              </button>
+            )}
+            {isImage && onCreateElement && (
+              <button onClick={onCreateElement} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
+                <Box size={12} /> Crear elemento
+              </button>
+            )}
+            {isVideo && onAddReference && (
+              <button onClick={onAddReference} className="btn-ghost text-xs w-full col-span-2 justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
+                <Video size={12} /> Reference
+              </button>
+            )}
             {(asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') && !asset.filePath.startsWith('http'))) && (
               <button onClick={() => (window as any).electronAPI?.assets.showInFolder(asset.id)}
-                className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
+                className={`btn-ghost text-xs w-full justify-center flex items-center gap-1.5 ${isImage ? '' : 'col-span-2'}`}>
                 <FolderOpen size={12} /> Show in folder
               </button>
             )}
             {confirmDelete ? (
-              <div className="flex items-center gap-2 justify-center">
+              <div className="flex items-center gap-2 justify-center col-span-2">
                 <span className="text-[11px] text-surface-400">Confirm delete?</span>
                 <button onClick={() => { onDelete(); setConfirmDelete(false) }}
                   className="px-2 py-1 rounded bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
@@ -949,7 +1326,7 @@ function LibraryAssetModal({
                   className="px-2 py-1 rounded bg-white/10 text-white text-[10px]">No</button>
               </div>
             ) : (
-              <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-400" onClick={() => setConfirmDelete(true)}>
+              <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-400 col-span-2" onClick={() => setConfirmDelete(true)}>
                 <Trash2 size={12} /> Delete
               </button>
             )}

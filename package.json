@@ -1,12 +1,12 @@
 {
   "name": "openfield",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:5173 && npm run build:main && npm run build:preload && cross-env NODE_ENV=development electron .",
+    "dev:electron": "wait-on tcp:127.0.0.1:5173 && npm run build:main && npm run build:preload && cross-env NODE_ENV=development electron .",
     "dev:build": "npm run build:main && npm run build:renderer",
     "build": "npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
@@ -36,7 +36,9 @@
       "target": [
         "nsis"
       ],
-      "icon": "resources/icon.ico"
+      "icon": "resources/icon.ico",
+      "shortcutName": "Openfield",
+      "artifactName": "Openfield-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [
@@ -70,6 +72,7 @@
     "@tanstack/react-query": "^5.101.3",
     "@tanstack/react-virtual": "^3.14.7",
     "@xyflow/react": "^12.11.2",
+    "archiver": "^8.0.0",
     "axios": "^1.18.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -89,6 +92,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
+    "@types/archiver": "^8.0.0",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

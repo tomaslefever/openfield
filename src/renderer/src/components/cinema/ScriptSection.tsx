@@ -3,7 +3,7 @@ import { useCinemaStore, type CinemaElement, type ElementType, type ScriptType, 
 import { FileText, Save, History, RotateCcw, Trash2, X, Sparkles, Bot, Send, User, Loader, ChevronDown, Plus, Link, Check, Wrench, ArrowRight, Play, Square, Eye, Camera, PenTool, Clapperboard, Lightbulb, Image, Layout } from 'lucide-react'
 import { MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton } from '../ui/message-scroller'
 
-const TYPE_CONFIG: Record<ElementType, { icon: typeof User; color: string; bg: string; prefix: string; label: string }> = {
+const TYPE_CONFIG: Record<ElementType, { icon: React.ComponentType<{ size?: number; className?: string }>; color: string; bg: string; prefix: string; label: string }> = {
   character: { icon: User, color: 'text-blue-400', bg: 'bg-blue-500/10', prefix: 'char', label: 'Personaje' },
   object: { icon: Box, color: 'text-amber-400', bg: 'bg-amber-500/10', prefix: 'obj', label: 'Objeto' },
   scenario: { icon: Box, color: 'text-emerald-400', bg: 'bg-emerald-500/10', prefix: 'scn', label: 'Escenario' },

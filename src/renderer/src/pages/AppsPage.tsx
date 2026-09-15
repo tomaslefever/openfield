@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useAppsStore, BUILTIN_APPS, CATEGORY_LABELS, KIND_LABELS, type AppDefinition, type AppKind } from '../stores/apps-store'
 import { AppRunner } from '../components/apps/AppRunner'
+import { ShortDramaApp } from '../components/apps/short-drama/ShortDramaApp'
 
 const ICON_MAP: Record<string, React.FC<{ size?: number; className?: string }>> = {
   Clapperboard, Smartphone, Wand2, ArrowLeftRight, Film,
@@ -105,6 +106,9 @@ export function AppsPage() {
   }
 
   if (runningApp) {
+    if (runningApp.id === 'ai-short-drama') {
+      return <ShortDramaApp onClose={() => setRunningApp(null)} />
+    }
     return (
       <AppRunner
         app={runningApp}

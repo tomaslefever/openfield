@@ -1,4 +1,4 @@
-﻿import { createContext } from './context'
+import { createContext } from './context'
 import { registerSettingsHandlers } from './settings'
 import { registerAssetsHandlers } from './assets'
 import { registerOpenfieldHandlers } from './openfield'
@@ -18,9 +18,11 @@ import { registerBridgeHandlers } from './bridge'
 import { registerReplicateHandlers } from './replicate'
 import { registerFalHandlers } from './fal'
 import { registerBalancesHandlers } from './balances'
+import { registerElevenLabsHandlers } from './elevenlabs'
 import { registerUpdaterHandlers } from './updater'
 import { registerWorkspacesHandlers } from './workspaces'
 import { registerPromptsHandlers } from './prompts'
+import { registerDramaIpcHandlers } from './drama'
 
 export function registerIpcHandlers() {
   const ctx = createContext()
@@ -43,7 +45,9 @@ export function registerIpcHandlers() {
   registerReplicateHandlers(ctx)
   registerFalHandlers(ctx)
   registerBalancesHandlers(ctx)
+  registerElevenLabsHandlers(ctx)
   registerUpdaterHandlers(ctx)
   registerWorkspacesHandlers(ctx)
   registerPromptsHandlers(ctx)
+  registerDramaIpcHandlers()
 }

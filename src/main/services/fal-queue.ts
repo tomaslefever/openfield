@@ -80,27 +80,42 @@ export class FalQueue extends EventEmitter {
   }
 
   private buildVideoInput(payload: any): Record<string, any> {
+    const isTextToVideo = payload.model?.includes('text-to-video')
+
+    let aspectRatio = payload.aspectRatio || (isTextToVideo ? '16:9' : 'adaptive')
+    if (isTextToVideo && aspectRatio === 'adaptive') {
+      aspectRatio = '16:9'
+    }
+
     const input: Record<string, any> = {
       prompt: payload.prompt || '',
-      duration: payload.duration || 5,
-      resolution: payload.resolution || '2K',
-      aspect_ratio: payload.aspectRatio || 'adaptive',
+      duration: Number(payload.duration) || 5,
+      resolution: (payload.resolution || '768P').toUpperCase(),
+      aspect_ratio: aspectRatio,
     }
-    const toDataUri = (b64: string, mime: string) => `data:${mime};base64,${b64}`
+    if (payload.promptExpansionMode) {
+      input.prompt_expansion_mode = payload.promptExpansionMode
+    } else if (isTextToVideo) {
+      input.prompt_expansion_mode = 'balanced'
+    }
 
-    const imageRefs = (payload.imageRefs || []).filter((r: any) => r.base64)
-    if (imageRefs.length > 0) {
-      input.reference_image_urls = imageRefs.map((r: any) => toDataUri(r.base64, r.mime || 'image/png'))
-    } else if (payload.imageBase64) {
-      input.reference_image_urls = [toDataUri(payload.imageBase64, payload.imageMime || 'image/png')]
-    }
-    const videoRefs = (payload.videoRefs || []).filter((r: any) => r.base64)
-    if (videoRefs.length > 0) {
-      input.reference_video_urls = videoRefs.map((r: any) => toDataUri(r.base64, r.mime || 'video/mp4'))
-    }
-    const audioRefs = (payload.audioRefs || []).filter((r: any) => r.base64)
-    if (audioRefs.length > 0) {
-      input.reference_audio_urls = audioRefs.map((r: any) => toDataUri(r.base64, r.mime || 'audio/mpeg'))
+    if (!isTextToVideo) {
+      const toDataUri = (b64: string, mime: string) => `data:${mime};base64,${b64}`
+
+      const imageRefs = (payload.imageRefs || []).filter((r: any) => r.base64)
+      if (imageRefs.length > 0) {
+        input.reference_image_urls = imageRefs.map((r: any) => toDataUri(r.base64, r.mime || 'image/png'))
+      } else if (payload.imageBase64) {
+        input.reference_image_urls = [toDataUri(payload.imageBase64, payload.imageMime || 'image/png')]
+      }
+      const videoRefs = (payload.videoRefs || []).filter((r: any) => r.base64)
+      if (videoRefs.length > 0) {
+        input.reference_video_urls = videoRefs.map((r: any) => toDataUri(r.base64, r.mime || 'video/mp4'))
+      }
+      const audioRefs = (payload.audioRefs || []).filter((r: any) => r.base64)
+      if (audioRefs.length > 0) {
+        input.reference_audio_urls = audioRefs.map((r: any) => toDataUri(r.base64, r.mime || 'audio/mpeg'))
+      }
     }
     return input
   }
@@ -210,7 +225,7 @@ export class FalQueue extends EventEmitter {
     const remoteUrl = (result as FalVideoResult).video?.url || null
 
     const updatePlaceholder = (fields: Record<string, any>) => {
-      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? AND file_path = ? LIMIT 1').get(task.taskId, '') as any
+      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
       if (!placeholder) return null
       const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ')
       raw.prepare(`UPDATE assets SET ${sets}, updated_at = ? WHERE id = ?`)
@@ -298,7 +313,7 @@ export class FalQueue extends EventEmitter {
     const localPath = `${subDir}/${fileName}`
 
     const updatePlaceholder = (fields: Record<string, any>) => {
-      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? AND file_path = ? LIMIT 1').get(task.taskId, '') as any
+      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
       if (!placeholder) return null
       const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ')
       raw.prepare(`UPDATE assets SET ${sets}, updated_at = ? WHERE id = ?`)

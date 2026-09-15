@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs/promises';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
@@ -373,6 +373,168 @@ constructor(ffmpegPath?: string) {
 
       proc.on('error', reject);
     });
+  }
+
+  async assembleDramaVideo(options: {
+    videoPaths: string[];
+    outputPath: string;
+    width?: number;
+    height?: number;
+    fps?: number;
+    dialogueAudios?: Array<{ path: string; offsetSec?: number; volume?: number }>;
+    bgMusicPath?: string;
+    bgMusicVolume?: number;
+    subtitlesSrt?: string;
+  }): Promise<string> {
+    const {
+      videoPaths,
+      outputPath,
+      width = 1080,
+      height = 1920,
+      fps = 30,
+      subtitlesSrt,
+      bgMusicPath,
+      bgMusicVolume = 0.25,
+    } = options;
+
+    if (!videoPaths || videoPaths.length === 0) {
+      throw new Error('No video clips provided for assembly');
+    }
+
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openfield-drama-'));
+
+    try {
+      // 1. Normalize each video clip to consistent resolution, aspect ratio, fps & audio
+      const normalizedPaths: string[] = [];
+      for (let i = 0; i < videoPaths.length; i++) {
+        const inputClip = videoPaths[i];
+        const normalizedClip = path.join(tmpDir, `norm_${i}_${crypto.randomUUID().slice(0, 8)}.mp4`);
+        
+        await new Promise<void>((resolve, reject) => {
+          const vf = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}`;
+          const args = [
+            '-i', inputClip,
+            '-vf', vf,
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-pix_fmt', 'yuv420p',
+            '-an', // remove audio from individual silent clips for clean audio mixing
+            '-y', normalizedClip,
+          ];
+
+          const proc = spawn(this.ffmpegPath, args);
+          let stderr = '';
+          proc.stderr.on('data', (d) => { stderr += d.toString(); });
+          proc.on('close', (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`Normalization of clip ${i + 1} failed: ${stderr}`));
+          });
+          proc.on('error', reject);
+        });
+
+        normalizedPaths.push(normalizedClip);
+      }
+
+      // 2. Concat normalized video clips
+      const concatVideoPath = path.join(tmpDir, `concat_${crypto.randomUUID().slice(0, 8)}.mp4`);
+      const fileListPath = path.join(tmpDir, 'concat_list.txt');
+      const concatContent = normalizedPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+      await fs.writeFile(fileListPath, concatContent, 'utf-8');
+
+      await new Promise<void>((resolve, reject) => {
+        const args = [
+          '-f', 'concat',
+          '-safe', '0',
+          '-i', fileListPath,
+          '-c', 'copy',
+          '-y', concatVideoPath,
+        ];
+        const proc = spawn(this.ffmpegPath, args);
+        let stderr = '';
+        proc.stderr.on('data', (d) => { stderr += d.toString(); });
+        proc.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`Concat failed: ${stderr}`));
+        });
+        proc.on('error', reject);
+      });
+
+      // 3. Final pass: add background music or subtitles if provided, otherwise export
+      let currentVideo = concatVideoPath;
+
+      if (bgMusicPath) {
+        const audioMergedPath = path.join(tmpDir, `audio_${crypto.randomUUID().slice(0, 8)}.mp4`);
+        await new Promise<void>((resolve, reject) => {
+          const args = [
+            '-i', currentVideo,
+            '-stream_loop', '-1',
+            '-i', bgMusicPath,
+            '-filter_complex', `[1:a]volume=${bgMusicVolume}[bg]`,
+            '-map', '0:v',
+            '-map', '[bg]',
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-shortest',
+            '-y', audioMergedPath,
+          ];
+          const proc = spawn(this.ffmpegPath, args);
+          let stderr = '';
+          proc.stderr.on('data', (d) => { stderr += d.toString(); });
+          proc.on('close', (code) => {
+            if (code === 0) {
+              currentVideo = audioMergedPath;
+              resolve();
+            } else {
+              // Non-fatal: if bg audio fails, continue without music
+              console.warn('[FFmpeg] BG music merge warning:', stderr);
+              resolve();
+            }
+          });
+          proc.on('error', () => resolve());
+        });
+      }
+
+      // 4. Subtitles pass if provided
+      if (subtitlesSrt && subtitlesSrt.trim()) {
+        const srtPath = path.join(tmpDir, 'subtitles.srt');
+        await fs.writeFile(srtPath, subtitlesSrt, 'utf-8');
+        const subtitledPath = path.join(tmpDir, `subtitled_${crypto.randomUUID().slice(0, 8)}.mp4`);
+        
+        await new Promise<void>((resolve) => {
+          // Format escaped path for ffmpeg subtitles filter on windows
+          const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+          const vf = `subtitles='${escapedSrt}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=2,Shadow=1,MarginV=35'`;
+          const args = [
+            '-i', currentVideo,
+            '-vf', vf,
+            '-c:v', 'libx264',
+            '-preset', 'medium',
+            '-c:a', 'copy',
+            '-y', subtitledPath,
+          ];
+          const proc = spawn(this.ffmpegPath, args);
+          let stderr = '';
+          proc.stderr.on('data', (d) => { stderr += d.toString(); });
+          proc.on('close', (code) => {
+            if (code === 0) {
+              currentVideo = subtitledPath;
+            } else {
+              console.warn('[FFmpeg] Subtitles burn warning:', stderr);
+            }
+            resolve();
+          });
+          proc.on('error', () => resolve());
+        });
+      }
+
+      // 5. Copy to final output path
+      await fs.mkdir(path.dirname(outputPath), { recursive: true });
+      await fs.copyFile(currentVideo, outputPath);
+
+      return outputPath;
+    } finally {
+      this.cleanupTemp(tmpDir).catch(() => {});
+    }
   }
 
   async cleanupTemp(path: string) {

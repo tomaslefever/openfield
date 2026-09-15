@@ -13,7 +13,7 @@ import {
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { TagEditor } from '../components/ui/TagEditor'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
-import { fileUrl } from '../services/file-url'
+import { fileUrl, thumbUrl } from '../services/file-url'
 import { QuickPromptComposer } from '../components/QuickPromptComposer'
 import { ImagePreviewModal } from '../components/ui/ImagePreviewModal'
 import { ElementWizard } from '../components/ElementWizard'
@@ -128,7 +128,7 @@ function LibraryPickerModal({
             <div className="grid grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
               {filtered.map((asset) => {
                 const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
-                const resolvedSrc = src ? (src.startsWith('http') ? src : fileUrl(src)) : null
+                const resolvedSrc = src ? (src.startsWith('http') ? src : thumbUrl(src)) : null
                 return (
                   <button
                     key={asset.id}

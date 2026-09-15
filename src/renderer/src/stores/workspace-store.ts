@@ -1,5 +1,12 @@
 import { create } from 'zustand'
 
+export interface WorkspaceStats {
+  totalAssets: number
+  images: number
+  videos: number
+  audio: number
+}
+
 export interface Workspace {
   id: string
   name: string
@@ -8,11 +15,14 @@ export interface Workspace {
   isArchived: boolean
   createdAt: number
   updatedAt: number
+  stats?: WorkspaceStats
+  lastImageUrl?: string
 }
 
 interface WorkspaceState {
   workspaces: Workspace[]
   activeId: string | null
+  inWorkspace: boolean
   loaded: boolean
 
   load: () => Promise<void>
@@ -21,6 +31,8 @@ interface WorkspaceState {
   remove: (id: string) => Promise<{ ok: boolean; error?: string }>
   duplicate: (id: string) => Promise<void>
   setActive: (id: string) => Promise<void>
+  enterWorkspace: (id: string) => Promise<void>
+  exitWorkspace: () => void
   updateConfig: (id: string, config: Record<string, any>) => Promise<void>
 }
 
@@ -31,6 +43,7 @@ function api() {
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
   activeId: null,
+  inWorkspace: false,
   loaded: false,
 
   load: async () => {
@@ -108,6 +121,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (!a) return
     await a.setActive(id)
     set({ activeId: id })
+  },
+
+  enterWorkspace: async (id) => {
+    await get().setActive(id)
+    set({ inWorkspace: true })
+  },
+
+  exitWorkspace: () => {
+    set({ inWorkspace: false })
   },
 
   updateConfig: async (id, config) => {

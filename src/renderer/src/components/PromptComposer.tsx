@@ -1,14 +1,37 @@
-import { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
-import { Sparkles, Settings2, X, Wand2, ChevronDown, ChevronUp, Coins, Upload, Video, Plus, Music, AlertCircle, AlertTriangle, ArrowLeftRight, Cpu, UserCircle, User, Mountain, Box, Check, Camera, Library } from 'lucide-react'
+import { useState, useCallback, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react'
+import { createPortal } from 'react-dom'
+import { Sparkles, Settings2, X, Wand2, ChevronDown, ChevronUp, Coins, Upload, Video, Image as ImageIcon, Plus, Music, AlertCircle, AlertTriangle, ArrowLeftRight, Cpu, UserCircle, User, Mountain, Box, Check, Camera, Library, Maximize2, Minimize2, Shapes } from 'lucide-react'
 import { StreamDuration } from './StreamDuration'
-import { useElementsStore, type ElementKind, KIND_CONFIG } from '../stores/elements-store'
+import { useElementsStore, type ElementKind, type StudioElement, KIND_CONFIG } from '../stores/elements-store'
+import { useShortDramaStore } from '../stores/short-drama-store'
 import { RichPromptInput, type RichPromptInputHandle } from './RichPromptInput'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { AspectRatio, ASPECT_RATIOS } from './aspect-ratios'
 import { ImageLibraryPicker } from './ImageLibraryPicker'
+import {
+  IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS, PIXVERSE_T2V_PRICES, PIXVERSE_REF_PRICES,
+  calcCost, calcVideoCost, type ModelPricing,
+} from '../lib/models'
+import { srcUrl } from '../services/file-url'
+import {
+  CameraControl,
+  CAMERA_LENSES,
+  CAMERA_SHOTS,
+  CAMERA_LEVELS,
+  CAMERA_MOVEMENTS,
+  CAMERA_LIGHTING,
+  CAMERA_FILM_LOOKS,
+  CAMERA_SPEEDS,
+  stripCameraBlock,
+  parseCameraBlock,
+  formatCameraBlock,
+} from './CameraControl'
+
+const EMPTY_MODEL: ModelPricing = { name: '', category: '', unit: 'img', prices: [] }
 
 export interface PromptComposerHandle {
   loadFromParams(params: {
+    mode?: 'image' | 'video' | 'audio'
     prompt?: string
     model?: string
     aspectRatio?: string
@@ -30,11 +53,12 @@ export interface PromptComposerHandle {
     voiceLanguage?: string
     draft?: boolean
   }): void
-  addRefs(newRefs: { base64: string; mime: string; name?: string; refType?: string }[]): void
+  addRefs(newRefs: { base64: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }[]): void
 }
 
 interface PromptComposerProps {
   onGenerate: (params: {
+    mode?: 'image' | 'video' | 'audio'
     prompt: string
     model: string
     aspectRatio?: string
@@ -50,380 +74,173 @@ interface PromptComposerProps {
     audioRefs?: { base64: string; mime: string }[]
     firstFrameBase64?: string
     lastFrameBase64?: string
+    firstFrameUrl?: string
+    lastFrameUrl?: string
     multiShots?: boolean
     multiPrompt?: { prompt: string; duration: number }[]
     local?: boolean
     modelId?: string
     voiceId?: string
     engine?: string
+    kind?: 'voice' | 'music'
     provider?: 'kie' | 'replicate' | 'fal'
     voice?: string
     voiceLanguage?: string
     draft?: boolean
   }) => void
   mode?: 'image' | 'video' | 'audio'
+  onModeChange?: (mode: 'image' | 'video') => void
   subMode?: 'voice' | 'music'
   disabled?: boolean
   floating?: boolean
+  embedded?: boolean
+  iconOnlyGenerate?: boolean
+  initialPrompt?: string
+  onPromptChange?: (prompt: string) => void
+  initialDuration?: number
+  onDurationChange?: (duration: number) => void
+  initialRefs?: Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>
+  initialResolution?: string
+  onResolutionChange?: (resolution: string) => void
+  initialModel?: string
+  onModelChange?: (model: string) => void
+  initialAspectRatio?: string
+  onAspectRatioChange?: (aspectRatio: string) => void
+  initialFirstFrameBase64?: string
+  initialFirstFrameUrl?: string
+  initialLastFrameBase64?: string
+  initialLastFrameUrl?: string
+  initialSeedanceMode?: 'fflf' | 'ref'
+  onMediaStateChange?: (state: {
+    isFFLF: boolean
+    firstFrameBase64: string | null
+    firstFrameUrl?: string | null
+    lastFrameBase64: string | null
+    lastFrameUrl?: string | null
+    refCount: number
+    refs: Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>
+  }) => void
+  className?: string
 }
 
-interface ModelPricing {
-  name: string
-  category: string
-  unit: 'img' | 's' | 'video'
-  prices: { resolution: string; cost: number }[]
-  durationMax?: number
-  durationOptions?: string[]
-  resolutions?: string[]
-  supportsVideoRef?: boolean
-  supportsAudioRef?: boolean
-  t2iId?: string
-  i2iId?: string
-  editId?: string
-  t2vId?: string
-  i2vId?: string
-  fflfId?: string
-  refId?: string
-  extendId?: string
-  t2aId?: string
-  kind?: 'voice' | 'music'
-  voiceId?: string
-  local?: boolean
-  modelId?: string
-  engine?: string
-  provider?: 'kie' | 'replicate' | 'fal' | 'fal'
-  replicateVoices?: string[]
-  replicateLanguages?: string[]
-  falAspectRatios?: string[]
-  pvAspectRatios?: string[]
-}
+export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(function PromptComposer({
+  onGenerate,
+  mode: propMode = 'image',
+  onModeChange,
+  subMode,
+  disabled,
+  floating,
+  embedded,
+  iconOnlyGenerate,
+  initialPrompt,
+  onPromptChange,
+  initialDuration,
+  onDurationChange,
+  initialRefs,
+  initialResolution,
+  onResolutionChange,
+  initialModel,
+  onModelChange,
+  initialAspectRatio,
+  onAspectRatioChange,
+  initialFirstFrameBase64,
+  initialFirstFrameUrl,
+  initialLastFrameBase64,
+  initialLastFrameUrl,
+  initialSeedanceMode,
+  onMediaStateChange,
+  className,
+}, ref) {
+  const instanceId = useRef(Math.random().toString(36).slice(2)).current
+  const [internalMode, setInternalMode] = useState<'image' | 'video' | 'audio'>(propMode)
 
-const CAMERA_LENSES = [
-  '16mm fisheye lens',
-  '24mm wide-angle lens',
-  '35mm standard lens',
-  '50mm standard lens',
-  '85mm portrait lens',
-  '135mm telephoto lens',
-  '200mm telephoto lens',
-  'anamorphic lens',
-  'macro lens',
-]
+  useEffect(() => {
+    setInternalMode(propMode)
+  }, [propMode])
 
-const CAMERA_SHOTS = [
-  'extreme close-up',
-  'close-up',
-  'medium close-up',
-  'medium shot',
-  'cowboy shot',
-  'full shot',
-  'wide shot',
-  'extreme wide shot',
-  'establishing shot',
-  'over-the-shoulder shot',
-  'point-of-view shot',
-]
-
-const CAMERA_LEVELS = [
-  'eye level',
-  'low angle',
-  'high angle',
-  'top-down view',
-  'ground level',
-  'dutch angle',
-]
-
-const CAMERA_MOVEMENTS = [
-  'static camera',
-  'slow pan',
-  'tilt movement',
-  'dolly in',
-  'dolly out',
-  'tracking shot',
-  'orbiting shot',
-  'handheld camera',
-  'crane shot',
-  'zoom in',
-  'zoom out',
-  'push-in shot',
-  'follow shot',
-]
-
-const CAMERA_LIGHTING = [
-  { value: '', label: 'Ninguna' },
-  { value: 'volumetric light', label: 'Luz volumétrica' },
-  { value: 'natural lighting', label: 'Natural Lightning' },
-  { value: 'studio lighting', label: 'Studio Lightning' },
-  { value: 'cinematic lighting', label: 'Iluminación cinematográfica' },
-]
-
-function CameraWheel({ label, options, value, onChange }: { label: string; options: string[]; value: string; onChange: (v: string) => void }) {
-  const [shift, setShift] = useState(0)
-  const [anim, setAnim] = useState(false)
-  const animRef = useRef(false)
-  const idx = options.indexOf(value)
-  const rows = [
-    options[(idx - 2 + options.length) % options.length],
-    options[(idx - 1 + options.length) % options.length],
-    options[idx],
-    options[(idx + 1) % options.length],
-    options[(idx + 2) % options.length],
-  ]
-
-  const select = (dir: 1 | -1) => {
-    if (animRef.current) return
-    animRef.current = true
-    const target = options[(idx + dir + options.length) % options.length]
-    onChange(target)
-    setShift(dir * 30)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        setAnim(true)
-        setShift(0)
-        window.setTimeout(() => { setAnim(false); animRef.current = false }, 220)
-      })
-    })
-  }
-
-  return (
-    <div className="flex flex-col items-center gap-1 flex-shrink-0">
-      <span className="text-[10px] uppercase tracking-wider text-surface-500">{label}</span>
-      <button
-        type="button"
-        onClick={() => select(-1)}
-        className="w-7 h-7 flex items-center justify-center rounded-full bg-surface-800/80 border border-surface-700/60 text-surface-400 hover:text-surface-100 hover:bg-surface-700 transition-colors"
-        title="Previous"
-      >
-        <ChevronUp size={14} />
-      </button>
-      <div className="relative h-[90px] w-[140px] overflow-hidden rounded-lg bg-surface-800/40 border border-surface-700/60 select-none">
-        <div className="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-[30px] rounded-md bg-accent-500/10 border-y border-accent-500/20" />
-        <div className="pointer-events-none absolute top-0 inset-x-0 h-[16px] z-30 bg-gradient-to-b from-surface-900 to-transparent" />
-        <div className="pointer-events-none absolute bottom-0 inset-x-0 h-[16px] z-30 bg-gradient-to-t from-surface-900 to-transparent" />
-        <div
-          className="absolute inset-x-0 will-change-transform"
-          style={{ transform: `translateY(${-30 + shift}px)`, transition: anim ? 'transform 180ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none' }}
-        >
-          {rows.map((opt, i) => {
-            if (i === 2) {
-              return (
-                <div key={i} className="flex items-center justify-center w-full h-[30px] px-2 text-center text-[11px] font-medium text-accent-400 leading-tight truncate">
-                  {opt}
-                </div>
-              )
-            }
-            if (i === 1 || i === 3) {
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => select(i === 1 ? -1 : 1)}
-                  className="flex items-center justify-center w-full h-[30px] px-2 text-center text-[11px] text-surface-500 opacity-60 hover:opacity-90 hover:text-surface-300 leading-tight truncate transition-opacity duration-150"
-                >
-                  {opt}
-                </button>
-              )
-            }
-            return (
-              <div key={i} className="flex items-center justify-center w-full h-[30px] px-2 text-center text-[11px] text-surface-600 opacity-40 leading-tight truncate">
-                {opt}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => select(1)}
-        className="w-7 h-7 flex items-center justify-center rounded-full bg-surface-800/80 border border-surface-700/60 text-surface-400 hover:text-surface-100 hover:bg-surface-700 transition-colors"
-        title="Next"
-      >
-        <ChevronDown size={14} />
-      </button>
-    </div>
-  )
-}
-
-const IMAGE_MODELS: ModelPricing[] = [
-  { name: 'GPT Image 2', category: 'OpenAI', unit: 'img', t2iId: 'gpt-image-2-text-to-image', i2iId: 'gpt-image-2-image-to-image',
-    prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.05 }, { resolution: '4K', cost: 0.08 }] },
-  { name: 'Nano Banana 2', category: 'Google', unit: 'img', t2iId: 'nano-banana-2',
-    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.06 }, { resolution: '4K', cost: 0.09 }] },
-  { name: 'Nano Banana 2 Lite', category: 'Google', unit: 'img', t2iId: 'nano-banana-2-lite',
-    prices: [{ resolution: '1K', cost: 0.02 }] },
-  { name: 'Seedream 5 Pro', category: 'Seedream', unit: 'img', t2iId: 'seedream-5-pro-text-to-image', i2iId: 'seedream-5-pro-image-to-image', editId: 'seedream-v4-edit',
-    prices: [{ resolution: '1K', cost: 0.06 }, { resolution: '2K', cost: 0.09 }, { resolution: '4K', cost: 0.15 }] },
-  { name: 'Flux 2 Pro', category: 'Flux', unit: 'img', t2iId: 'flux2-pro-text-to-image', i2iId: 'flux2-pro-image-to-image',
-    prices: [{ resolution: '1K', cost: 0.05 }, { resolution: '2K', cost: 0.08 }] },
-  { name: 'Grok Imagine', category: 'Grok', unit: 'img', t2iId: 'grok-imagine/text-to-image', i2iId: 'grok-imagine/image-to-image',
-    prices: [{ resolution: '1K', cost: 0.02 }, { resolution: '2K', cost: 0.03 }] },
-  { name: 'Imagen 4 Fast', category: 'Google', unit: 'img', t2iId: 'imagen4-fast',
-    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.06 }] },
-  { name: 'Remove Background', category: 'Recraft', unit: 'img', t2iId: 'recraft/remove-background',
-    prices: [{ resolution: '1K', cost: 0.02 }] },
-  // fal.ai image models (https://fal.ai/explore/best-image-models)
-  { name: 'GPT Image 2 (Fal)', category: 'OpenAI', unit: 'img', provider: 'fal',
-    t2iId: 'openai/gpt-image-2', i2iId: 'openai/gpt-image-2/edit',
-    prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.10 }, { resolution: '4K', cost: 0.30 }],
-    falAspectRatios: ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'] },
-  { name: 'Nano Banana Pro', category: 'Google', unit: 'img', provider: 'fal',
-    t2iId: 'fal-ai/nano-banana-pro', editId: 'fal-ai/nano-banana-pro/edit',
-    prices: [{ resolution: '1K', cost: 0.15 }, { resolution: '2K', cost: 0.15 }, { resolution: '4K', cost: 0.30 }],
-    falAspectRatios: ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'] },
-  { name: 'Recraft V4', category: 'Recraft', unit: 'img', provider: 'fal',
-    t2iId: 'fal-ai/recraft/v4/text-to-image',
-    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.08 }],
-    falAspectRatios: ['1:1', '16:9', '4:3', '3:4', '9:16'] },
-  { name: 'Recraft V4 Pro', category: 'Recraft', unit: 'img', provider: 'fal',
-    t2iId: 'fal-ai/recraft/v4/pro/text-to-image',
-    prices: [{ resolution: '1K', cost: 0.25 }, { resolution: '2K', cost: 0.30 }],
-    falAspectRatios: ['1:1', '16:9', '4:3', '3:4', '9:16'] },
-  { name: 'Recraft V3', category: 'Recraft', unit: 'img', provider: 'fal',
-    t2iId: 'fal-ai/recraft/v3/text-to-image',
-    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.08 }],
-    falAspectRatios: ['1:1', '16:9', '4:3', '3:4', '9:16'] },
-  { name: 'ImagineArt 2.0', category: 'ImagineArt', unit: 'img', provider: 'fal',
-    t2iId: 'imagineart/imagineart-2.0-preview/text-to-image',
-    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.08 }],
-    falAspectRatios: ['1:1', '16:9', '4:3', '3:4', '9:16'] },
-  { name: 'FLUX.1 Kontext [pro]', category: 'Flux', unit: 'img', provider: 'fal',
-    t2iId: 'fal-ai/flux-pro/kontext', editId: 'fal-ai/flux-pro/kontext',
-    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.08 }],
-    falAspectRatios: ['1:1', '16:9', '3:2', '4:3', '3:4', '2:3', '9:16'] },
-  { name: 'FLUX Krea LoRA stream', category: 'Flux', unit: 'img', provider: 'fal',
-    t2iId: 'fal-ai/flux-krea-lora/stream',
-    prices: [{ resolution: '1K', cost: 0.035 }, { resolution: '2K', cost: 0.07 }],
-    falAspectRatios: ['1:1', '16:9', '3:2', '4:3', '3:4', '2:3', '9:16'] },
-  { name: 'Bria FIBO', category: 'Bria', unit: 'img', provider: 'fal',
-    t2iId: 'bria/fibo/generate',
-    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.08 }],
-    falAspectRatios: ['1:1', '16:9', '4:3', '3:4', '9:16'] },
-]
-
-// PixVerse V6 routes to a single model; the price table depends on the routed mode
-const PIXVERSE_T2V_PRICES = [
-  { resolution: '360p', cost: 0.020 }, { resolution: '360p-audio', cost: 0.028 },
-  { resolution: '540p', cost: 0.028 }, { resolution: '540p-audio', cost: 0.036 },
-  { resolution: '720p', cost: 0.036 }, { resolution: '720p-audio', cost: 0.048 },
-  { resolution: '1080p', cost: 0.072 }, { resolution: '1080p-audio', cost: 0.092 },
-]
-const PIXVERSE_REF_PRICES = [
-  { resolution: '360p', cost: 0.0225 }, { resolution: '360p-audio', cost: 0.0315 },
-  { resolution: '540p', cost: 0.0315 }, { resolution: '540p-audio', cost: 0.0405 },
-  { resolution: '720p', cost: 0.0405 }, { resolution: '720p-audio', cost: 0.054 },
-  { resolution: '1080p', cost: 0.081 }, { resolution: '1080p-audio', cost: 0.1035 },
-]
-
-const VIDEO_MODELS: ModelPricing[] = [
-  { name: 'Kling 3.0', category: 'Kling', unit: 's', t2vId: 'kling-3.0/video', i2vId: 'kling-3.0/video',
-    prices: [{ resolution: 'std', cost: 0.07 }, { resolution: 'std-audio', cost: 0.10 }, { resolution: 'pro', cost: 0.09 }, { resolution: 'pro-audio', cost: 0.135 }, { resolution: '4k', cost: 0.335 }],
-    durationMax: 15, resolutions: ['std', 'pro', '4k'] },
-  { name: 'Kling 2.5 Turbo', category: 'Kling', unit: 's', t2vId: 'kling/v25-turbo-text-to-video-pro', i2vId: 'kling/v25-turbo-image-to-video-pro',
-    prices: [{ resolution: 's', cost: 0.05 }], durationMax: 10 },
-  { name: 'Grok Imagine', category: 'Grok', unit: 's',
-    t2vId: 'grok-imagine/text-to-video', i2vId: 'grok-imagine/image-to-video', extendId: 'grok-imagine/extend',
-    prices: [{ resolution: '480p', cost: 0.012 }, { resolution: '720p', cost: 0.0225 }, { resolution: '1080p', cost: 0.04 }],
-    durationMax: 30, resolutions: ['480p', '720p', '1080p'], supportsVideoRef: true },
-  { name: 'Seedance 2', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2', i2vId: 'bytedance/seedance-2', fflfId: 'bytedance/seedance-2',
-    prices: [{ resolution: '480p', cost: 0.095 }, { resolution: '720p', cost: 0.205 }, { resolution: '1080p', cost: 0.51 }, { resolution: '4k', cost: 1.04 }], durationMax: 15,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['480p', '720p', '1080p', '4k'], supportsVideoRef: true, supportsAudioRef: true },
-  { name: 'Seedance 2.5', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-5', i2vId: 'bytedance/seedance-2-5', fflfId: 'bytedance/seedance-2-5',
-    prices: [{ resolution: '480p', cost: 0.14 }, { resolution: '720p', cost: 0.315 }], durationMax: 30,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20', '30'], resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true },
-  { name: 'Seedance 2 Fast', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-fast', i2vId: 'bytedance/seedance-2-fast', fflfId: 'bytedance/seedance-2-fast',
-    prices: [{ resolution: '480p', cost: 0.059 }, { resolution: '720p', cost: 0.124 }], durationMax: 15,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true },
-  { name: 'Seedance 2 Mini', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-mini', i2vId: 'bytedance/seedance-2-mini', fflfId: 'bytedance/seedance-2-mini',
-    prices: [{ resolution: '480p', cost: 0.019 }, { resolution: '720p', cost: 0.041 }], durationMax: 15,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true },
-  { name: 'Wan 2.7', category: 'Wan', unit: 's', t2vId: 'wan-2-7-text-to-video', i2vId: 'wan-2-7-image-to-video',
-    prices: [{ resolution: 's', cost: 0.04 }], durationMax: 10 },
-  { name: 'Hailuo 2 Pro', category: 'Hailuo', unit: 's', t2vId: 'hailuo/02-text-to-video-pro',
-    prices: [{ resolution: 's', cost: 0.06 }], durationMax: 10 },
-  { name: 'Gemini Omni', category: 'Google', unit: 'video', t2vId: 'gemini-omni-video', i2vId: 'gemini-omni-video',
-    prices: [{ resolution: '720p', cost: 0.30 }, { resolution: '1080p', cost: 0.50 }, { resolution: '4k', cost: 0.80 }],
-    durationOptions: ['4', '6', '8', '10'], resolutions: ['720p', '1080p', '4k'] },
-  { name: 'PixVerse V6', category: 'PixVerse', unit: 's',
-    t2vId: 'pixverse-v6/text-to-video', i2vId: 'pixverse-v6/image-to-video', fflfId: 'pixverse-v6/image-to-video', refId: 'pixverse-v6/reference-to-video',
-    prices: PIXVERSE_T2V_PRICES,
-    durationMax: 15, resolutions: ['360p', '540p', '720p', '1080p'] },
-  { name: 'OmniHuman 1.5', category: 'OmniHuman', unit: 's', t2vId: 'omnihuman-1-5',
-    prices: [{ resolution: '1080', cost: 0.135 }],
-    durationMax: 15, durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['1080', '720'],
-    supportsAudioRef: true },
-  { name: 'P-Video Avatar', category: 'Replicate', unit: 's', provider: 'replicate',
-    t2vId: 'prunaai/p-video-avatar', i2vId: 'prunaai/p-video-avatar',
-    prices: [{ resolution: '720p', cost: 0.025 }, { resolution: '1080p', cost: 0.045 }],
-    durationMax: 15, resolutions: ['720p', '1080p'], supportsAudioRef: true,
-    replicateVoices: [
-      'Zephyr (Female)', 'Puck (Male)', 'Charon (Male)', 'Kore (Female)', 'Fenrir (Male)',
-      'Leda (Female)', 'Orus (Male)', 'Aoede (Female)', 'Callirrhoe (Female)', 'Autonoe (Female)',
-      'Enceladus (Male)', 'Iapetus (Male)', 'Umbriel (Male)', 'Algenib (Male)', 'Despina (Female)',
-      'Erinome (Female)', 'Laomedeia (Female)', 'Achernar (Female)', 'Algieba (Male)', 'Schedar (Male)',
-      'Gacrux (Female)', 'Pulcherrima (Female)', 'Achird (Male)', 'Zubenelgenubi (Male)',
-      'Vindemiatrix (Female)', 'Sadachbia (Male)', 'Sadaltager (Male)', 'Sulafat (Female)',
-      'Alnilam (Male)', 'Rasalgethi (Male)',
-    ],
-    replicateLanguages: [
-      'English (US)', 'English (UK)', 'Spanish', 'French', 'German', 'Italian',
-      'Portuguese (Brazil)', 'Japanese', 'Korean', 'Hindi',
-    ] },
-  { name: 'P-Video', category: 'PrunaAI', unit: 's', provider: 'replicate',
-    t2vId: 'prunaai/p-video', i2vId: 'prunaai/p-video',
-    prices: [{ resolution: '720p', cost: 0.02 }, { resolution: '1080p', cost: 0.04 }],
-    durationMax: 20, durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20'], resolutions: ['720p', '1080p'],
-    supportsAudioRef: true,
-    pvAspectRatios: ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'] },
-  { name: 'MiniMax H3', category: 'MiniMax', unit: 's',
-    t2vId: 'minimax-h3/text-to-video', i2vId: 'minimax-h3/image-to-video', fflfId: 'minimax-h3/image-to-video', refId: 'minimax-h3/reference-to-video',
-    prices: [{ resolution: '768P', cost: 0.08 }, { resolution: '2K', cost: 0.13 }],
-    durationMax: 15, durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['768P', '2K'],
-    supportsVideoRef: true, supportsAudioRef: true },
-  { name: 'MiniMax H3 (Fal)', category: 'MiniMax', unit: 's', provider: 'fal',
-    t2vId: 'minimax/h3/reference-to-video', i2vId: 'minimax/h3/reference-to-video',
-    prices: [{ resolution: '768P', cost: 0.08 }, { resolution: '2K', cost: 0.13 }, { resolution: '4K', cost: 0.16 }],
-    durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['768P', '2K', '4K'],
-    supportsVideoRef: true, supportsAudioRef: true,
-    falAspectRatios: ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] },
-]
-
-const AUDIO_MODELS: ModelPricing[] = [
-  { name: 'GPT TTS', category: 'OpenAI', unit: 'img', t2aId: 'gpt-tts-1', kind: 'voice',
-    prices: [{ resolution: 'clip', cost: 0.004 }] },
-  { name: 'MiniMax TTS', category: 'MiniMax', unit: 'img', t2aId: 'minimax-text-to-speech', kind: 'voice',
-    prices: [{ resolution: 'clip', cost: 0.003 }] },
-  { name: 'OpenAudio Music', category: 'OpenAudio', unit: 's', t2aId: 'openaudio-text-to-music', kind: 'music',
-    prices: [{ resolution: 'std', cost: 0.004 }],
-    durationMax: 30, durationOptions: ['10', '15', '20', '30'] },
-  { name: 'MuCat Music', category: 'MuCat', unit: 's', t2aId: 'mucat-text-to-music', kind: 'music',
-    prices: [{ resolution: 'std', cost: 0.006 }],
-    durationMax: 30, durationOptions: ['10', '15', '20', '30'] },
-]
-
-function calcCost(model: ModelPricing, resolution?: string, duration?: number, batchSize = 1) {
-  let perUnit = model.prices[0]?.cost || 0
-  if (resolution) {
-    const entry = model.prices.find(p => p.resolution === resolution)
-    if (entry) perUnit = entry.cost
-  }
-  if (model.unit === 's' && duration) perUnit *= duration
-  const totalDollars = perUnit * batchSize
-  return { perUnitCredits: Math.round(perUnit * 200), totalCredits: Math.round(totalDollars * 200), perUnitDollars: perUnit, totalDollars }
-}
-
-export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(function PromptComposer({ onGenerate, mode = 'image', subMode, disabled, floating }, ref) {
+  const mode = internalMode
   const elements = useElementsStore((s) => s.elements)
   const loadElements = useElementsStore((s) => s.loadElements)
   useEffect(() => { loadElements() }, [loadElements])
-  const [prompt, setPrompt] = useState('')
+
+  const dramaCharacters = useShortDramaStore((s) => s.characters)
+  const dramaProps = useShortDramaStore((s) => s.props)
+  const dramaScenarios = useShortDramaStore((s) => s.scenarios)
+
+  const allElements = useMemo<StudioElement[]>(() => {
+    const dramaList: StudioElement[] = [
+      ...dramaCharacters.map((c) => ({
+        id: `drama-char-${c.id}`,
+        name: c.name,
+        kind: 'character' as const,
+        description: c.role || c.visualPrompt || 'Personaje de la serie',
+        tags: ['character', 'personaje', 'drama'],
+        imageBase64: c.imageBase64,
+        imageUrl: c.imageUrl,
+        imageAssetId: c.imageAssetId,
+        visualPrompt: c.visualPrompt,
+        createdAt: 0,
+        updatedAt: 0,
+      } as any)),
+      ...dramaProps.map((p) => ({
+        id: `drama-prop-${p.id}`,
+        name: p.name,
+        kind: 'object' as const,
+        description: p.visualPrompt || 'Prop / Objeto clave',
+        tags: ['prop', 'objeto', 'drama'],
+        imageUrl: p.imageUrl,
+        imageAssetId: p.imageAssetId,
+        visualPrompt: p.visualPrompt,
+        createdAt: 0,
+        updatedAt: 0,
+      } as any)),
+      ...dramaScenarios.map((sc) => ({
+        id: `drama-scn-${sc.id}`,
+        name: sc.name,
+        kind: 'environment' as const,
+        description: sc.visualPrompt || 'Escenario / Locación',
+        tags: ['scenario', 'escenario', 'locación', 'drama'],
+        imageUrl: sc.imageUrl,
+        imageAssetId: sc.imageAssetId,
+        visualPrompt: sc.visualPrompt,
+        createdAt: 0,
+        updatedAt: 0,
+      } as any)),
+    ]
+
+    const existingNames = new Set(elements.map((e) => e.name.toLowerCase().trim()))
+    const uniqueDrama = dramaList.filter((e) => e.name && !existingNames.has(e.name.toLowerCase().trim()))
+    return [...uniqueDrama, ...elements]
+  }, [elements, dramaCharacters, dramaProps, dramaScenarios])
+  const [prompt, setPrompt] = useState(initialPrompt || '')
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    if (initialPrompt !== undefined && initialPrompt !== prompt) {
+      setPrompt(initialPrompt)
+      richInputRef.current?.setText(initialPrompt)
+    }
+  }, [initialPrompt])
+
   const [modelName, setModelName] = useState(() => {
+    if (initialModel) return initialModel
     const storageKey = `openfield-model-${mode}`
-    const def = mode === 'video' ? 'Kling 3.0' : mode === 'audio' ? 'GPT TTS' : 'GPT Image 2'
-    try { return localStorage.getItem(storageKey) || def } catch { return def }
+    const def = mode === 'video' ? 'Seedance 2 Fast' : mode === 'audio' ? 'GPT TTS' : 'GPT Image 2'
+    try {
+      const local = localStorage.getItem(storageKey)
+      if (mode === 'video' && (!local || local === 'Kling 3.0')) return def
+      return local || def
+    } catch { return def }
   })
   useEffect(() => {
     try { localStorage.setItem(`openfield-model-${mode}`, modelName) } catch {}
   }, [modelName, mode])
+
+  useEffect(() => {
+    if (initialModel !== undefined && initialModel !== modelName) {
+      setModelName(initialModel)
+    }
+  }, [initialModel])
 
   useEffect(() => {
     if (mode === 'audio' && subMode) {
@@ -433,7 +250,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       }
     }
   }, [subMode, mode, modelName])
-  const [aspectRatio, setAspectRatio] = useState(mode === 'image' ? '1:1' : '16:9')
+  const [aspectRatio, setAspectRatio] = useState(initialAspectRatio || (mode === 'image' ? '1:1' : '16:9'))
+
+  useEffect(() => {
+    if (initialAspectRatio !== undefined && initialAspectRatio !== aspectRatio) {
+      setAspectRatio(initialAspectRatio)
+    }
+  }, [initialAspectRatio])
 
   // Apply the active workspace's remembered environment (model / aspect ratio / resolution)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
@@ -444,28 +267,123 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     const savedModel = cfg[`${mode}:model`]
     const savedAr = cfg[`${mode}:aspectRatio`]
     const savedRes = cfg[`${mode}:resolution`]
-    if (savedModel && models.some((m) => m.name === savedModel)) setModelName(savedModel)
-    if (savedAr) setAspectRatio(savedAr)
-    if (savedRes) setResolution(savedRes)
-  }, [activeWorkspaceId, mode])
+    if (!initialModel && savedModel && models.some((m) => m.name === savedModel)) setModelName(savedModel)
+    if (!initialAspectRatio && savedAr) setAspectRatio(savedAr)
+    if (!initialResolution && savedRes) setResolution(savedRes)
+  }, [activeWorkspaceId, mode, initialModel, initialAspectRatio, initialResolution])
   const defaultModel = (mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS).find(m => {
-    const def = mode === 'video' ? 'Kling 3.0' : mode === 'audio' ? 'GPT TTS' : 'GPT Image 2'
+    const def = mode === 'video' ? 'Seedance 2 Fast' : mode === 'audio' ? 'GPT TTS' : 'GPT Image 2'
     return m.name === (modelName || def)
   })
-  const [resolution, setResolution] = useState(defaultModel?.prices[0]?.resolution || '1K')
-  const [duration, setDuration] = useState(5)
+  const [resolution, setResolution] = useState(initialResolution || defaultModel?.prices[0]?.resolution || '1K')
+  const [duration, setDuration] = useState(initialDuration || 5)
+
+  useEffect(() => {
+    if (initialResolution !== undefined && initialResolution !== resolution) {
+      setResolution(initialResolution)
+    }
+  }, [initialResolution])
+
+  useEffect(() => {
+    if (initialDuration !== undefined && initialDuration !== duration) {
+      setDuration(initialDuration)
+    }
+  }, [initialDuration])
+
+  const handleDurationChange = (d: number) => {
+    setDuration(d)
+    onDurationChange?.(d)
+  }
+
+  const switchMode = (newMode: 'image' | 'video') => {
+    if (newMode === internalMode) return
+    setInternalMode(newMode)
+    onModeChange?.(newMode)
+
+    const ws = useWorkspaceStore.getState().workspaces.find((w) => w.id === activeWorkspaceId)
+    const cfg = ws?.config || {}
+    const savedModel = cfg[`${newMode}:model`]
+    const models = newMode === 'video' ? VIDEO_MODELS : IMAGE_MODELS
+    const storageKey = `openfield-model-${newMode}`
+    const def = newMode === 'video' ? 'Seedance 2 Fast' : 'GPT Image 2'
+    let nextModel = def
+    if (savedModel && models.some((m) => m.name === savedModel)) {
+      nextModel = savedModel
+    } else {
+      try {
+        const local = localStorage.getItem(storageKey)
+        if (local && local !== 'Kling 3.0' && models.some((m) => m.name === local)) nextModel = local
+      } catch {}
+    }
+    setModelName(nextModel)
+    onModelChange?.(nextModel)
+
+    const savedAr = cfg[`${newMode}:aspectRatio`]
+    if (savedAr) {
+      setAspectRatio(savedAr)
+      onAspectRatioChange?.(savedAr)
+    } else if (newMode === 'video' && aspectRatio === '1:1') {
+      setAspectRatio('16:9')
+      onAspectRatioChange?.('16:9')
+    } else if (newMode === 'image' && aspectRatio === '16:9') {
+      setAspectRatio('1:1')
+      onAspectRatioChange?.('1:1')
+    }
+
+    const chosenModel = models.find((m) => m.name === nextModel)
+    const savedRes = cfg[`${newMode}:resolution`]
+    if (savedRes) {
+      setResolution(savedRes)
+      onResolutionChange?.(savedRes)
+    } else if (chosenModel) {
+      const validRes = chosenModel.resolutions || chosenModel.prices.map((p) => p.resolution)
+      if (validRes.length > 0 && !validRes.includes(resolution)) {
+        const defaultRes = validRes.includes('720p') ? '720p' : validRes[0]
+        setResolution(defaultRes)
+        onResolutionChange?.(defaultRes)
+      }
+    }
+  }
+
   const [fps, setFps] = useState(30)
   const [batchSize, setBatchSize] = useState(1)
   const [imageBase64, setImageBase64] = useState<string | null>(null)
   const [imageMime, setImageMime] = useState<string>('image/png')
-  const [refs, setRefs] = useState<{ base64: string; mime: string; duration?: number }[]>([])
-  const [firstFrameBase64, setFirstFrameBase64] = useState<string | null>(null)
-  const [lastFrameBase64, setLastFrameBase64] = useState<string | null>(null)
-  const firstFrameRef = useRef<string | null>(null)
-  const lastFrameRef = useRef<string | null>(null)
+  const [refs, setRefs] = useState<Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>>(() => initialRefs ? [...initialRefs] : [])
+
+  const [firstFrameBase64, setFirstFrameBase64] = useState<string | null>(initialFirstFrameBase64 || null)
+  const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(initialFirstFrameUrl || null)
+  const [lastFrameBase64, setLastFrameBase64] = useState<string | null>(initialLastFrameBase64 || null)
+  const [lastFrameUrl, setLastFrameUrl] = useState<string | null>(initialLastFrameUrl || null)
+  const firstFrameRef = useRef<string | null>(initialFirstFrameBase64 || null)
+  const lastFrameRef = useRef<string | null>(initialLastFrameBase64 || null)
   const [seedanceMode, setSeedanceMode] = useState<'fflf' | 'ref'>(() => {
-    try { return (localStorage.getItem('openfield-seedance-mode') as 'fflf' | 'ref') || 'ref' } catch { return 'ref' }
+    if (initialSeedanceMode) return initialSeedanceMode
+    try {
+      const saved = localStorage.getItem('openfield-seedance-mode')
+      if (saved === 'fflf' || saved === 'ref') return saved
+      return 'fflf'
+    } catch {
+      return 'fflf'
+    }
   })
+
+  // Sync external URLs only when the parent deliberately changes them
+  const prevFirstFrameUrlRef = useRef(initialFirstFrameUrl)
+  useEffect(() => {
+    if (initialFirstFrameUrl !== undefined && initialFirstFrameUrl !== prevFirstFrameUrlRef.current) {
+      prevFirstFrameUrlRef.current = initialFirstFrameUrl
+      setFirstFrameUrl(initialFirstFrameUrl || null)
+    }
+  }, [initialFirstFrameUrl])
+
+  const prevLastFrameUrlRef = useRef(initialLastFrameUrl)
+  useEffect(() => {
+    if (initialLastFrameUrl !== undefined && initialLastFrameUrl !== prevLastFrameUrlRef.current) {
+      prevLastFrameUrlRef.current = initialLastFrameUrl
+      setLastFrameUrl(initialLastFrameUrl || null)
+    }
+  }, [initialLastFrameUrl])
   const [dragOver, setDragOver] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showModels, setShowModels] = useState(false)
@@ -473,15 +391,33 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const [showAttach, setShowAttach] = useState(false)
   const [showRes, setShowRes] = useState(false)
   const [showCostInfo, setShowCostInfo] = useState(false)
-  const [showCameraModal, setShowCameraModal] = useState(false)
-  const [cameraTip, setCameraTip] = useState(false)
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [cameraLens, setCameraLens] = useState(CAMERA_LENSES[2])
   const [cameraShot, setCameraShot] = useState(CAMERA_SHOTS[3])
   const [cameraLevel, setCameraLevel] = useState(CAMERA_LEVELS[0])
   const [cameraMovement, setCameraMovement] = useState(CAMERA_MOVEMENTS[0])
   const [lighting, setLighting] = useState('')
+  const [filmLook, setFilmLook] = useState('')
+  const [cameraSpeed, setCameraSpeed] = useState('')
   const [multiShots, setMultiShots] = useState(false)
+
+  // A [camera_control] block typed or pasted into the textarea is parsed into the camera state
+  // and removed from the visible prompt — the block only lives in the stored prompt.
+  useEffect(() => {
+    if (!prompt.includes('[camera_control]')) return
+    const parsed = parseCameraBlock(prompt)
+    if (parsed.lens || parsed.shot || parsed.level || parsed.movement || parsed.lighting || parsed.filmLook || parsed.speed) {
+      setCameraEnabled(true)
+      if (parsed.lens) setCameraLens(parsed.lens)
+      if (parsed.shot) setCameraShot(parsed.shot)
+      if (parsed.level) setCameraLevel(parsed.level)
+      if (parsed.movement) setCameraMovement(parsed.movement)
+      if (parsed.lighting) setLighting(parsed.lighting)
+      if (parsed.filmLook) setFilmLook(parsed.filmLook)
+      if (parsed.speed) setCameraSpeed(parsed.speed)
+    }
+    setPrompt(stripCameraBlock(prompt))
+  }, [prompt])
   const [multiPrompt, setMultiPrompt] = useState<{ prompt: string; duration: number }[]>([])
   const [soundEnabled, setSoundEnabled] = useState(false)
   const [imageRefEntries, setImageRefEntries] = useState<{ name: string; type: 'subject' | 'background'; base64?: string; mime?: string }[]>([])
@@ -493,6 +429,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const [showAtMenu, setShowAtMenu] = useState(false)
   const [atMenuFilter, setAtMenuFilter] = useState('')
   const [atMenuIndex, setAtMenuIndex] = useState(0)
+  const [atMenuFromElements, setAtMenuFromElements] = useState(false)
   const [showInsertMenu, setShowInsertMenu] = useState(false)
   const [showInsertLibrary, setShowInsertLibrary] = useState(false)
   const insertRef = useRef<HTMLDivElement>(null)
@@ -504,6 +441,18 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   localModelsRef.current = localModels
   const [serverStatus, setServerStatus] = useState<string>('stopped')
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [activatedProviders, setActivatedProviders] = useState<{ kie: boolean; elevenlabs: boolean; local: boolean }>({ kie: false, elevenlabs: false, local: false })
+
+  useEffect(() => {
+    const api = (window as any).electronAPI
+    api?.settings?.getAll?.().then((s: any) => {
+      setActivatedProviders({
+        kie: !!(s?.openfieldApiKey),
+        elevenlabs: !!(s?.elevenlabsApiKey),
+        local: s?.enableLocalModels === true || s?.enableLocalModels === 'true',
+      })
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => { firstFrameRef.current = firstFrameBase64 }, [firstFrameBase64])
   useEffect(() => { lastFrameRef.current = lastFrameBase64 }, [lastFrameBase64])
@@ -522,44 +471,71 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   // Sync element images into refs when @element badges are in the prompt
   useEffect(() => {
     const tags = [...new Set(prompt.match(/@element:([^\u200B]+)\u200B/g) || [])]
-    const wanted: { base64: string; name: string; refType: string }[] = []
+    const wanted: { base64?: string; url?: string; assetId?: string; name: string; refType: string }[] = []
     for (const tag of tags) {
       const elName = tag.replace('@element:', '').replace('\u200B', '').trim()
-      const el = elements.find(e => e.name === elName)
+      const el = allElements.find(e => e.name.toLowerCase() === elName.toLowerCase())
       if (!el) continue
+      const elAny = el as any
+      const refType = el.kind === 'character' ? 'character' : el.kind === 'object' ? 'prop' : el.kind === 'environment' ? 'scenario' : 'Primary'
       if (el.imageBase64 && !removedElementRefs.current.has(el.imageBase64)) {
-        wanted.push({ base64: el.imageBase64, name: el.name, refType: 'Primary' })
+        wanted.push({ base64: el.imageBase64, name: el.name, refType })
+      }
+      if (elAny.imageUrl && !removedElementRefs.current.has(elAny.imageUrl)) {
+        wanted.push({ url: elAny.imageUrl, assetId: elAny.imageAssetId, name: el.name, refType })
       }
       if (el.poseRef && !removedElementRefs.current.has(el.poseRef)) {
         wanted.push({ base64: el.poseRef, name: el.name, refType: 'Pose' })
       }
+      for (let i = 0; i < (el.referenceImages || []).length; i++) {
+        const refImg = el.referenceImages[i]
+        if (refImg && !removedElementRefs.current.has(refImg)) {
+          wanted.push({ base64: refImg, name: el.name, refType: `Mood ${i + 1}` })
+        }
+      }
     }
 
     // Clean up removedElementRefs for elements no longer in prompt
-    const activeBase64s = new Set(wanted.map(w => w.base64))
-    for (const b64 of removedElementRefs.current) {
-      if (!activeBase64s.has(b64)) removedElementRefs.current.delete(b64)
+    const activeKeys = new Set(wanted.map(w => w.base64 || w.url || w.assetId).filter(Boolean))
+    for (const key of removedElementRefs.current) {
+      if (!activeKeys.has(key)) removedElementRefs.current.delete(key)
     }
+
+    const badgedNames = new Set(tags.map(t => t.replace('@element:', '').replace('\u200B', '').trim().toLowerCase()))
 
     setRefs(prev => {
       const nonElement = prev.filter(r => !(r as any).elementName)
       const existing = prev.filter(r => (r as any).elementName)
-      const existingBase64s = new Set(existing.map(r => r.base64))
+      const existingKeys = new Set(existing.map(r => r.base64 || r.url || (r as any).assetId).filter(Boolean))
 
       for (const w of wanted) {
-        if (!existingBase64s.has(w.base64)) {
-          nonElement.push({ base64: w.base64, mime: 'image/png', elementName: w.name, refType: w.refType } as any)
+        const key = w.base64 || w.url || w.assetId
+        if (key && !existingKeys.has(key)) {
+          existing.push({
+            base64: w.base64 || '',
+            url: w.url,
+            assetId: w.assetId,
+            mime: 'image/png',
+            name: w.name,
+            elementName: w.name,
+            refType: w.refType,
+          } as any)
+          existingKeys.add(key)
         }
       }
-      // Keep existing element refs that are still wanted
-      for (const e of existing) {
-        if (activeBase64s.has(e.base64) && !nonElement.some(r => r.base64 === e.base64)) {
-          nonElement.push(e)
-        }
-      }
-      return nonElement
+
+      const keptElements = existing.filter(e => {
+        const key = e.base64 || e.url || (e as any).assetId
+        const elNameLower = ((e as any).elementName || '').toLowerCase()
+        const keep = (key && activeKeys.has(key))
+          || !badgedNames.has(elNameLower)
+          || String((e as any).refType || '').startsWith('Mood')
+        return keep && (!key || !removedElementRefs.current.has(key))
+      })
+
+      return [...nonElement, ...keptElements]
     })
-  }, [prompt, elements])
+  }, [prompt, allElements])
   const modelsRef = useRef<HTMLDivElement>(null)
   const ratiosRef = useRef<HTMLDivElement>(null)
   const resRef = useRef<HTMLDivElement>(null)
@@ -584,6 +560,12 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const loadLocalModels = useCallback(() => {
     const api = (window as any).electronAPI
     if (mode === 'audio') {
+      // Music mode never uses local TTS voices; listing Kokoro voices would boot the
+      // local Python server (and the GPU) just to populate models that get filtered out.
+      if (subMode === 'music') {
+        setLocalModels([])
+        return
+      }
       // Piper TTS voices (local)
       api?.local?.piperGetVoices?.().then(async (voices: any[]) => {
         if (!voices || voices.length === 0) { setLocalModels([]); return }
@@ -651,7 +633,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       console.error('[PromptComposer] loadLocalModels failed:', err)
       setLocalModels([])
     })
-  }, [mode])
+  }, [mode, subMode])
 
   useEffect(() => {
     loadLocalModels()
@@ -764,16 +746,106 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
   const models = [...(mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS), ...localModels]
     .filter(m => mode === 'audio' && subMode ? m.kind === subMode : true)
-  const currentModel = models.find(m => m.name === modelName) || models[0]
+    .filter(m => mode === 'audio' ? (
+      m.local ? activatedProviders.local
+        : m.provider === 'elevenlabs' ? activatedProviders.elevenlabs
+        : activatedProviders.kie
+    ) : true)
+  // Before the activated providers resolve (or when none are configured) the filtered
+  // list is empty. Fall back to an empty model so every derived value stays null-safe;
+  // the UI shows the "no provider" notice via `hasModel`.
+  const hasModel = models.length > 0
+  const currentModel = hasModel ? (models.find(m => m.name === modelName) || models[0]!) : EMPTY_MODEL
+  const currentModelRef = useRef(currentModel)
+  currentModelRef.current = currentModel
+
+  useEffect(() => {
+    if (mode === 'audio' && currentModel?.durationOptions && !currentModel.durationOptions.includes(String(duration))) {
+      setDuration(Number(currentModel.durationOptions[0]))
+    }
+  }, [currentModel?.name, mode, currentModel?.durationOptions])
 
   const hasImageRef = refs.some(r => r.mime.startsWith('image/'))
   const hasVideoRef = refs.some(r => r.mime.startsWith('video/'))
   const hasImageSupport = !!(currentModel.i2iId || currentModel.editId || currentModel.i2vId || currentModel.fflfId)
   const isKling = !!(currentModel.t2vId?.startsWith('kling') || currentModel.i2vId?.startsWith('kling'))
+  const isKling30 = !!(currentModel.t2vId?.startsWith('kling-3') || currentModel.i2vId?.startsWith('kling-3'))
   const isSeedance = !!(currentModel.t2vId?.startsWith('bytedance/') || currentModel.i2vId?.startsWith('bytedance/'))
   const isPixverseV6 = !!(currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.fflfId?.startsWith('pixverse-v6/'))
-  const isGrok = !!(currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') || currentModel.extendId?.startsWith('grok-imagine/'))
+  const isGrok = !!(currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/')) || currentModel.extendId?.startsWith('grok-imagine/')
   const isMinimaxH3 = !!(currentModel.t2vId?.startsWith('minimax-h3/') || currentModel.i2vId?.startsWith('minimax-h3/'))
+  const isWan3 = !!(currentModel.t2vId?.startsWith('wan/3-0') || currentModel.i2vId?.startsWith('wan/3-0'))
+
+  // Models with refTags support prompt tags that reference attached files. The tag is always
+  // rendered as a chip in the textarea, but the payload receives the plain token text
+  // (e.g. Seedance @image_1, GPT Image 2 "Image 1").
+  const refTagCfg = currentModel.refTags
+  const isTagModel = !!refTagCfg
+
+  const tagTemplates = useMemo(() => {
+    if (!refTagCfg) return []
+    return [refTagCfg.image, refTagCfg.video, refTagCfg.audio].filter(Boolean) as string[]
+  }, [refTagCfg])
+
+  // Ordered tags for every attached ref: @image_1, @image_2, @video_1, @audio_1, ...
+  const tagRefItems = useMemo(() => {
+    if (!refTagCfg) return []
+    let img = 0
+    let vid = 0
+    let aud = 0
+    return refs.map(r => {
+      let tag: string | null = null
+      if (r.mime.startsWith('image/') && refTagCfg.image) { img++; tag = refTagCfg.image.replace('%d', String(img)) }
+      else if (r.mime.startsWith('video/') && refTagCfg.video) { vid++; tag = refTagCfg.video.replace('%d', String(vid)) }
+      else if (r.mime.startsWith('audio/') && refTagCfg.audio) { aud++; tag = refTagCfg.audio.replace('%d', String(aud)) }
+      return { ref: r, tag }
+    })
+  }, [refs, refTagCfg])
+
+  const refMenuItems = useMemo(() => {
+    if (!isTagModel) return []
+    const q = atMenuFilter.toLowerCase()
+    return tagRefItems.filter(it => it.tag && (q === '' || it.tag.toLowerCase().includes(q)))
+  }, [isTagModel, tagRefItems, atMenuFilter])
+
+  const elMenuItems = useMemo(() => {
+    const q = atMenuFilter.toLowerCase().trim()
+    return allElements.filter(el =>
+      el.name.toLowerCase().includes(q) ||
+      el.tags.some(t => t.toLowerCase().includes(q)) ||
+      (el.description && el.description.toLowerCase().includes(q))
+    ).slice(0, 10)
+  }, [allElements, atMenuFilter])
+
+  const attachElementImages = useCallback((el: StudioElement) => {
+    const elAny = el as any
+    const imgs: { base64?: string; url?: string; assetId?: string; label: string }[] = []
+    if (el.imageBase64) imgs.push({ base64: el.imageBase64, label: 'Primary' })
+    if (elAny.imageUrl) imgs.push({ url: elAny.imageUrl, assetId: elAny.imageAssetId, label: 'Primary' })
+    if (el.poseRef) imgs.push({ base64: el.poseRef, label: 'Pose' })
+    for (let i = 0; i < (el.referenceImages || []).length; i++) {
+      if (el.referenceImages[i]) imgs.push({ base64: el.referenceImages[i], label: `Mood ${i + 1}` })
+    }
+    setRefs(prev => {
+      const existing = new Set(prev.map(r => r.base64 || r.url || r.assetId))
+      const added: any[] = []
+      for (const img of imgs) {
+        const key = img.base64 || img.url || img.assetId
+        if (!key || existing.has(key)) continue
+        existing.add(key)
+        added.push({
+          base64: img.base64 || '',
+          url: img.url,
+          assetId: img.assetId,
+          mime: 'image/png',
+          name: el.name,
+          elementName: el.name,
+          refType: img.label === 'Primary' ? (el.kind === 'character' ? 'character' : el.kind === 'object' ? 'prop' : 'scenario') : img.label,
+        })
+      }
+      return added.length > 0 ? [...prev, ...added] : prev
+    })
+  }, [])
 
   function getActiveModelId(): string {
     if (mode === 'audio') return currentModel.t2aId || currentModel.modelId || ''
@@ -807,9 +879,22 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     if ((firstFrameBase64 || lastFrameBase64) && (currentModel.fflfId || isKling)) return currentModel.fflfId || (imageBase64 ? (currentModel.i2vId || '') : (currentModel.t2vId || ''))
     return currentModel.t2vId || ''
   }
-  const isFFLF = (!!(currentModel.fflfId) && seedanceMode === 'fflf') || isKling
+  const isFFLF = Boolean((currentModel.fflfId || isKling || mode === 'video') && seedanceMode === 'fflf')
   const isFFLFRef = useRef(isFFLF)
   isFFLFRef.current = isFFLF
+
+  useEffect(() => {
+    onMediaStateChange?.({
+      isFFLF,
+      firstFrameBase64,
+      firstFrameUrl,
+      lastFrameBase64,
+      lastFrameUrl,
+      refCount: refs.length,
+      refs,
+    })
+  }, [isFFLF, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, refs, onMediaStateChange])
+
   const isRefMode = (!!(currentModel.fflfId) && seedanceMode === 'ref') || currentModel.provider === 'fal'
   const isOmniHuman = currentModel.t2vId === 'omnihuman-1-5'
   const isReplicate = currentModel.provider === 'replicate'
@@ -835,6 +920,14 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     }
   }, [isPVideo, aspectRatio, currentModel?.name])
 
+  // Multi-shot is only supported by Kling 3.0: disable it on any other model
+  useEffect(() => {
+    if (!isKling30) {
+      setMultiShots(false)
+      setMultiPrompt([])
+    }
+  }, [isKling30])
+
   // Persist seedanceMode to localStorage so FFLF toggle survives remounts
   useEffect(() => {
     try { localStorage.setItem('openfield-seedance-mode', seedanceMode) } catch {}
@@ -842,27 +935,22 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
   useEffect(() => { lastFrameRef.current = lastFrameBase64 }, [lastFrameBase64])
   const effectiveResolution = (soundEnabled && isKling && resolution !== '4k') ? resolution + '-audio' : (soundEnabled && isPixverseV6) ? resolution + '-audio' : resolution
-  // OmniHuman: the audio determines the generation length, so the cost is based on it
-  const omnihumanAudio = isOmniHuman ? refs.find(r => r.mime.startsWith('audio/')) : undefined
-  // Replicate (P-Video Avatar): billed per second of output. The output length is driven by the
-  // attached audio; without audio, estimate speech length from the script (~2.5 words/sec).
-  const replicateAudio = isReplicate ? refs.find(r => r.mime.startsWith('audio/')) : undefined
-  const replicateAudioDuration = replicateAudio?.duration || 0
-  const replicateEstDuration = replicateAudioDuration > 0
-    ? replicateAudioDuration
-    : Math.max(1, Math.round((prompt.trim().split(/\s+/).filter(Boolean).length / 2.5) * 10) / 10)
-  const costDuration = isOmniHuman ? (omnihumanAudio?.duration || 0) : isPVideo ? duration : isReplicate ? replicateEstDuration : duration
   // PixVerse V6 routes to a single model: use the price table of the routed mode
   const activeModelId = getActiveModelId()
   const activePixversePrices = isPixverseV6 ? (activeModelId === 'pixverse-v6/reference-to-video' ? PIXVERSE_REF_PRICES : PIXVERSE_T2V_PRICES) : undefined
   const costModel = activePixversePrices ? { ...currentModel, prices: activePixversePrices } : currentModel
-  const { perUnitCredits, totalCredits, perUnitDollars, totalDollars: baseDollars } = calcCost(costModel, effectiveResolution, costDuration, batchSize)
-  // fal.ai (MiniMax H3): first 5 reference images free, +$0.08 per extra image
-  const falRefSurcharge = isFal && currentModel.t2vId ? Math.max(0, refs.filter(r => r.mime.startsWith('image/')).length - 5) * 0.08 : 0
-  // KIE MiniMax H3: video input billed at the selected resolution rate; first 5 images free, +$0.04 per extra image
-  const h3InputVideoSeconds = isMinimaxH3 ? refs.filter(r => r.mime.startsWith('video/')).reduce((s, r) => s + (r.duration || 0), 0) : 0
-  const kieH3ImageSurcharge = isMinimaxH3 ? Math.max(0, refs.filter(r => r.mime.startsWith('image/')).length - 5) * 0.04 : 0
-  const totalDollars = baseDollars + falRefSurcharge + kieH3ImageSurcharge + (isMinimaxH3 ? h3InputVideoSeconds * perUnitDollars : 0)
+  // Single source of truth for cost (models + formulas live in lib/models):
+  // unit price × resolved duration + model-specific surcharges (MiniMax H3 video input / images, etc.)
+  const { perUnitCredits, totalCredits, perUnitDollars, totalDollars } = calcVideoCost(costModel, {
+    resolution: effectiveResolution,
+    requestedSeconds: duration,
+    audioRefSeconds: refs.find(r => r.mime.startsWith('audio/'))?.duration || 0,
+    wordCount: prompt.trim().split(/\s+/).filter(Boolean).length,
+    multiSceneSeconds: multiShots && isKling30 ? multiPrompt.map(x => x.duration) : undefined,
+    imageCount: refs.filter(r => r.mime.startsWith('image/')).length,
+    inputVideoSeconds: refs.filter(r => r.mime.startsWith('video/')).reduce((s, r) => s + (r.duration || 0), 0),
+    batchSize,
+  })
 
   // Grok Imagine i2v with a single image: the output ratio follows the image (API behavior),
   // so the aspect ratio selector is disabled.
@@ -902,6 +990,21 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     })
   }
 
+  const getDataVideoDuration = (base64: string, mime: string): Promise<number> => {
+    return new Promise((resolve) => {
+      const url = `data:${mime};base64,${base64}`
+      const video = document.createElement('video')
+      video.preload = 'metadata'
+      const done = new Promise<number>((res) => {
+        video.onloadedmetadata = () => res(isFinite(video.duration) ? video.duration : 0)
+        video.onerror = () => res(0)
+      })
+      const timeout = new Promise<number>((res) => setTimeout(() => res(0), 10000))
+      Promise.race([done, timeout]).then(resolve)
+      video.src = url
+    })
+  }
+
   const getAudioDuration = (file: File): Promise<number> => {
     return new Promise((resolve) => {
       const url = URL.createObjectURL(file)
@@ -923,19 +1026,23 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     })
   }
 
+  const addVideoRefData = (base64: string, mime: string, duration?: number) => {
+    const videoRefs = refs.filter(r => r.mime.startsWith('video/'))
+    const isSeedanceModel = currentModel.t2vId?.startsWith('bytedance/') || currentModel.i2vId?.startsWith('bytedance/')
+    if (isSeedanceModel && videoRefs.length >= 3) { showError('Seedance supports up to 3 video references'); return }
+    if (isSeedanceModel) {
+      const totalDur = videoRefs.reduce((s, r) => s + (r.duration || 0), 0)
+      if (duration && duration > 0 && totalDur + duration > 15) { showError('Total video reference duration exceeds 15 seconds'); return }
+    }
+    setRefs(prev => [...prev, { base64, mime, duration }])
+  }
+
   const handleVideoRef = async (file: File) => {
     const MAX_VIDEO_SIZE = 50 * 1024 * 1024
     if (file.size > MAX_VIDEO_SIZE) { showError(`Video "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(0)}MB). Max 50MB.`); return }
-    const videoRefs = refs.filter(r => r.mime.startsWith('video/'))
-    const isSeedanceModel = currentModel.t2vId?.startsWith('bytedance/') || currentModel.i2vId?.startsWith('bytedance/')
-    if (isSeedanceModel && videoRefs.length >= 3) return
     const { base64, mime } = await readFileAsBase64(file)
     const duration = await getVideoDuration(file)
-    if (isSeedanceModel) {
-      const totalDur = videoRefs.reduce((s, r) => s + (r.duration || 0), 0)
-      if (duration > 0 && totalDur + duration > 15) return
-    }
-    setRefs(prev => [...prev, { base64, mime, duration }])
+    addVideoRefData(base64, mime, duration)
   }
 
   processDropRef.current = async (file: File) => {
@@ -980,24 +1087,43 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     if (!file) return
     const { base64, mime } = await readFileAsBase64(file)
     if (slot === 'main') { setRefs(prev => [...prev, { base64, mime }]) }
-    else if (slot === 'first') { setFirstFrameBase64(base64); firstFrameRef.current = base64 }
-    else if (slot === 'last') { setLastFrameBase64(base64); lastFrameRef.current = base64 }
+    else if (slot === 'first') { setFirstFrameBase64(base64); setFirstFrameUrl(null); firstFrameRef.current = base64 }
+    else if (slot === 'last') { setLastFrameBase64(base64); setLastFrameUrl(null); lastFrameRef.current = base64 }
     e.target.value = ''
   }
 
   const removeImage = (slot: 'main' | 'first' | 'last') => {
     if (slot === 'main') setImageBase64(null)
-    else if (slot === 'first') { setFirstFrameBase64(null); firstFrameRef.current = null }
-    else { setLastFrameBase64(null); lastFrameRef.current = null }
+    else if (slot === 'first') { setFirstFrameBase64(null); setFirstFrameUrl(null); firstFrameRef.current = null }
+    else { setLastFrameBase64(null); setLastFrameUrl(null); lastFrameRef.current = null }
+  }
+
+  const insertImageRef = (item: { base64?: string; url?: string; mime: string; assetId?: string; name?: string; refType?: string }) => {
+    if (isFFLF) {
+      if (!firstFrameRef.current && !firstFrameUrl && !firstFrameBase64) {
+        if (item.base64) {
+          setFirstFrameBase64(item.base64)
+          firstFrameRef.current = item.base64
+        } else if (item.url) {
+          setFirstFrameUrl(item.url)
+        }
+      } else if (!lastFrameRef.current && !lastFrameUrl && !lastFrameBase64) {
+        if (item.base64) {
+          setLastFrameBase64(item.base64)
+          lastFrameRef.current = item.base64
+        } else if (item.url) {
+          setLastFrameUrl(item.url)
+        }
+      } else {
+        setRefs(prev => [...prev, item])
+      }
+    } else {
+      setRefs(prev => [...prev, item])
+    }
   }
 
   const insertImage = (base64: string, mime: string) => {
-    if (isFFLF) {
-      if (!firstFrameRef.current) { setFirstFrameBase64(base64); firstFrameRef.current = base64 }
-      else if (!lastFrameRef.current) { setLastFrameBase64(base64); lastFrameRef.current = base64 }
-    } else {
-      setRefs(prev => [...prev, { base64, mime }])
-    }
+    insertImageRef({ base64, mime })
   }
 
   const handleInsertUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1021,23 +1147,82 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     setShowInsertLibrary(true)
   }
 
-  const handleInsertLibrarySelect = async (asset: any) => {
+  const handleInsertLibrarySelect = async (assetOrAssets: any | any[]) => {
+    const assets = Array.isArray(assetOrAssets) ? assetOrAssets : [assetOrAssets]
+    if (assets.length === 0) return
     try {
       const api = (window as any).electronAPI
-      const results = await api?.assets.readBase64([asset.id])
-      const b64 = results?.[0]?.base64
-      const mime = results?.[0]?.mime || 'image/png'
-      if (b64) insertImage(b64, mime)
+      const assetIds = assets.map((a: any) => a.id).filter(Boolean)
+      const b64Map = new Map<string, { base64: string; mime: string }>()
+      if (assetIds.length > 0 && api?.assets?.readBase64) {
+        try {
+          const results = await api.assets.readBase64(assetIds)
+          if (Array.isArray(results)) {
+            for (const r of results) {
+              if (r?.id && r?.base64) {
+                b64Map.set(r.id, r)
+              }
+            }
+          }
+        } catch (readErr) {
+          console.warn('[PromptComposer] readBase64 warning:', readErr)
+        }
+      }
+
+      for (const asset of assets) {
+        const res = b64Map.get(asset.id)
+        const b64 = res?.base64
+        const mime = res?.mime || asset?.mimeType || (asset?.type === 'video' ? 'video/mp4' : asset?.type === 'audio' ? 'audio/mpeg' : 'image/png')
+        const url = asset.url || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : undefined)
+
+        if (mime.startsWith('video/')) {
+          if (!currentModel.supportsVideoRef) { showError('This model does not support video references'); continue }
+          if (b64) {
+            const duration = await getDataVideoDuration(b64, mime)
+            addVideoRefData(b64, mime, duration)
+          } else if (url) {
+            setRefs(prev => [...prev, { url, mime, assetId: asset.id, name: asset.name, refType: 'video' }])
+          }
+        } else if (mime.startsWith('audio/')) {
+          if (!currentModel.supportsAudioRef) { showError('This model does not support audio references'); continue }
+          setRefs(prev => [...prev, { base64: b64, url, mime, assetId: asset.id, name: asset.name, refType: 'audio' }])
+        } else {
+          insertImageRef({
+            base64: b64,
+            url,
+            mime,
+            assetId: asset.id,
+            name: asset.name,
+            refType: asset.refType || 'image',
+          })
+        }
+      }
     } catch (err: any) {
-      showError(`Cannot load "${asset.fileName || asset.file_name || 'asset'}": ${err?.message || err}`)
+      showError(`Cannot load assets: ${err?.message || err}`)
     }
     setShowInsertLibrary(false)
   }
 
   useImperativeHandle(ref, () => ({
     loadFromParams(params) {
+      if (params.mode && (params.mode === 'image' || params.mode === 'video')) {
+        setInternalMode(params.mode)
+      }
       if (params.prompt) {
-        setPrompt(params.prompt)
+        // Restore camera control from the stored [camera_control] block and keep it out of
+        // the textarea (it only persists in the stored prompt).
+        const parsedCamera = parseCameraBlock(params.prompt)
+        if (parsedCamera.lens || parsedCamera.shot || parsedCamera.level || parsedCamera.movement || parsedCamera.lighting || parsedCamera.filmLook || parsedCamera.speed) {
+          setCameraEnabled(true)
+          if (parsedCamera.lens) setCameraLens(parsedCamera.lens)
+          if (parsedCamera.shot) setCameraShot(parsedCamera.shot)
+          if (parsedCamera.level) setCameraLevel(parsedCamera.level)
+          if (parsedCamera.movement) setCameraMovement(parsedCamera.movement)
+          if (parsedCamera.lighting) setLighting(parsedCamera.lighting)
+          if (parsedCamera.filmLook) setFilmLook(parsedCamera.filmLook)
+          if (parsedCamera.speed) setCameraSpeed(parsedCamera.speed)
+        }
+        setPrompt(stripCameraBlock(params.prompt))
       }
       if (params.model) {
   const cloudModels = mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS
@@ -1125,8 +1310,23 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       }
     },
     addRefs(newRefs) {
+      const model = currentModelRef.current
       const imageRefs = newRefs.filter(r => r.mime.startsWith('image/'))
-      const otherRefs = newRefs.filter(r => !r.mime.startsWith('image/'))
+      const videoRefs = newRefs.filter(r => r.mime.startsWith('video/'))
+      const audioRefs = newRefs.filter(r => r.mime.startsWith('audio/'))
+
+      if (videoRefs.length > 0 && !model?.supportsVideoRef) {
+        showError('This model does not support video references')
+      }
+      if (audioRefs.length > 0 && !model?.supportsAudioRef) {
+        showError('This model does not support audio references')
+      }
+
+      const allowedOther = [
+        ...(model?.supportsVideoRef ? videoRefs : []),
+        ...(model?.supportsAudioRef ? audioRefs : []),
+      ]
+
       if (isFFLFRef.current && imageRefs.length > 0) {
         let ffAssigned = !!firstFrameRef.current
         let lfAssigned = !!lastFrameRef.current
@@ -1136,11 +1336,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           else if (!lfAssigned) { setLastFrameBase64(ref.base64); lastFrameRef.current = ref.base64; lfAssigned = true }
           else { remaining.push(ref) }
         }
-        if (remaining.length > 0 || otherRefs.length > 0) {
-          setRefs(prev => [...prev, ...remaining, ...otherRefs])
+        if (remaining.length > 0 || allowedOther.length > 0) {
+          setRefs(prev => [...prev, ...remaining, ...allowedOther])
         }
       } else {
-        setRefs(prev => [...prev, ...newRefs])
+        setRefs(prev => [...prev, ...imageRefs, ...allowedOther])
       }
     },
   }), [mode])
@@ -1167,6 +1367,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         modelId: currentModel.modelId,
         voiceId: currentModel.voiceId,
         engine: currentModel.engine,
+        kind: currentModel.kind,
       })
       richInputRef.current?.setText('')
       setPrompt('')
@@ -1197,12 +1398,14 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
     // Extract element references from prompt and collect their images
     const elementTags = [...new Set(prompt.match(/@element:([^\u200B]+)\u200B/g) || [])]
-    const elementImages: { base64: string; mime: string; name?: string; refType?: string }[] = []
+    const elementImages: { base64: string; mime: string; name?: string; refType?: string; url?: string; assetId?: string }[] = []
     for (const tag of elementTags) {
       const elName = tag.replace('@element:', '').replace('\u200B', '').trim()
-      const el = elements.find(e => e.name === elName)
+      const el = allElements.find(e => e.name.toLowerCase() === elName.toLowerCase())
       if (!el) continue
+      const elAny = el as any
       if (el.imageBase64) elementImages.push({ base64: el.imageBase64, mime: 'image/png', name: el.name, refType: 'element_primary' })
+      if (elAny.imageUrl) elementImages.push({ base64: '', url: elAny.imageUrl, assetId: elAny.imageAssetId, mime: 'image/png', name: el.name, refType: el.kind === 'character' ? 'character' : el.kind === 'object' ? 'prop' : 'scenario' })
       if (el.poseRef) elementImages.push({ base64: el.poseRef, mime: 'image/png', name: el.name, refType: 'element_pose' })
       for (const refImg of (el.referenceImages || [])) {
         elementImages.push({ base64: refImg, mime: 'image/png', name: el.name, refType: 'element_ref' })
@@ -1210,9 +1413,9 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     }
 
     // Build final imageRefs: named refs first, then element images, then dropped refs
-    let finalImageRefs = showRefsModal && imageRefEntries.length > 0
+    let finalImageRefs: Array<{ base64: string; mime: string; name?: string; refType?: string; url?: string; assetId?: string }> = showRefsModal && imageRefEntries.length > 0
       ? imageRefEntries.filter(e => e.base64).map(e => ({ base64: e.base64!, mime: e.mime || 'image/png', name: e.name, refType: e.type }))
-      : imageRefItems.map(r => ({ base64: r.base64, mime: r.mime }))
+      : imageRefItems.map(r => ({ base64: r.base64 || '', mime: r.mime, name: r.name, refType: r.refType, url: r.url, assetId: r.assetId }))
 
     if (elementImages.length > 0) {
       finalImageRefs = [...finalImageRefs, ...elementImages]
@@ -1221,8 +1424,9 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     // Deduplicate by base64 (element images may already be in refs from the UI sync)
     const seen = new Set<string>()
     finalImageRefs = finalImageRefs.filter(r => {
-      if (seen.has(r.base64)) return false
-      seen.add(r.base64)
+      const key = r.base64 || r.url || r.assetId || ''
+      if (key && seen.has(key)) return false
+      if (key) seen.add(key)
       return true
     })
 
@@ -1232,17 +1436,50 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       return
     }
 
+    // Tag models: every tag in the prompt must match an attached ref. Skipped for plain-text
+    // tags ("Image 1") which are too generic to validate reliably.
+    if (isTagModel && !refTagCfg.skipTagValidation) {
+      const kinds: { template: string; label: string; count: number }[] = [
+        { template: refTagCfg.image || '', label: 'imagen', count: refs.filter(r => r.mime.startsWith('image/')).length },
+        { template: refTagCfg.video || '', label: 'video', count: refs.filter(r => r.mime.startsWith('video/')).length },
+        { template: refTagCfg.audio || '', label: 'audio', count: refs.filter(r => r.mime.startsWith('audio/')).length },
+      ]
+      for (const k of kinds) {
+        if (!k.template) continue
+        const re = new RegExp(k.template.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%d/g, '(\\d+)'), 'g')
+        for (const m of prompt.matchAll(re)) {
+          const n = Number(m[1])
+          if (n < 1 || n > k.count) {
+            showError(`${m[0]} no coincide con ninguna referencia de ${k.label} adjunta`)
+            return
+          }
+        }
+      }
+    }
+
     persistEnv()
 
-    // Camera control: append composition/level/movement/lighting as a final prompt addition
-    const cameraSuffix = cameraEnabled
-      ? `Camera composition: ${cameraLens}, ${cameraShot}, ${cameraLevel}${mode === 'video' ? `, ${cameraMovement}` : ''}${lighting ? `, ${lighting}` : ''}.`
-      : ''
-    const finalPrompt = prompt.trim()
-      ? prompt.trim() + (cameraSuffix ? `\n\n${cameraSuffix}` : '')
-      : cameraSuffix
+    // Camera control: persisted inside [camera_control] tags — any previous block is replaced
+    // (no duplication) and the block is only appended when the camera toggle is on.
+    const basePrompt = stripCameraBlock(prompt)
+    const cameraBlock = formatCameraBlock({
+      enabled: cameraEnabled,
+      lens: cameraLens,
+      shot: cameraShot,
+      level: cameraLevel,
+      movement: cameraMovement,
+      lighting,
+      filmLook,
+      speed: cameraSpeed,
+    }, mode)
+    const finalPrompt = (basePrompt
+      ? basePrompt + (cameraBlock ? `\n\n${cameraBlock}` : '')
+      : cameraBlock)
+      // Normalize badge terminators (zero-width space, nbsp) so API tags like @image_1 parse cleanly
+      .replace(/\u200B/g, '').replace(/\u00A0/g, ' ')
 
     onGenerate({
+      mode,
       prompt: finalPrompt,
       model: activeId,
       provider: isReplicate ? 'replicate' : isFal ? 'fal' : undefined,
@@ -1262,32 +1499,64 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       imageBase64: isReplicate ? (imageBase64 || finalImageRefs[0]?.base64 || undefined) : (mode === 'image' && finalImageRefs.length > 0) ? undefined : (namedRefItems.length > 0 ? namedRefItems[0].base64 : (imageRefItems.length > 0) ? imageRefItems[0].base64 : ((activeId !== currentModel.t2iId && activeId !== currentModel.t2vId) ? (imageBase64 || undefined) : undefined)),
       imageMime: isReplicate ? (imageMime || finalImageRefs[0]?.mime || 'image/png') : (namedRefItems[0]?.mime || imageRefItems[0]?.mime || imageMime),
       imageRefs: isReplicate ? undefined : (finalImageRefs.length > 0 ? finalImageRefs : undefined),
-      videoRefs: videoRefItems.length > 0 ? videoRefItems : undefined,
-      audioRefs: audioRefItems.length > 0 ? audioRefItems : undefined,
+      videoRefs: videoRefItems.length > 0 ? videoRefItems.map(r => ({ base64: r.base64 || '', mime: r.mime, duration: r.duration })) : undefined,
+      audioRefs: audioRefItems.length > 0 ? audioRefItems.map(r => ({ base64: r.base64 || '', mime: r.mime, duration: r.duration })) : undefined,
       firstFrameBase64: isFFLF ? (firstFrameBase64 || undefined) : undefined,
+      firstFrameUrl: isFFLF ? (firstFrameUrl || undefined) : undefined,
       lastFrameBase64: isFFLF ? (lastFrameBase64 || undefined) : undefined,
+      lastFrameUrl: isFFLF ? (lastFrameUrl || undefined) : undefined,
       multiShots: !isReplicate && multiShots ? multiShots : undefined,
       multiPrompt: !isReplicate && multiShots && multiPrompt.length > 0 ? multiPrompt : undefined,
       local: currentModel.local,
       modelId: currentModel.modelId,
     })
-    // Clear via ref first to avoid race with internalChangeRef in RichPromptInput
-    richInputRef.current?.setText('')
-    setPrompt('')
-    setImageBase64(null)
-    setRefs([])
-    removedElementRefs.current.clear()
-    setFirstFrameBase64(null)
-    setLastFrameBase64(null)
-    firstFrameRef.current = null
-    lastFrameRef.current = null
-    setMultiShots(false)
-    setMultiPrompt([])
-    setSoundEnabled(false)
-    setShowRefsModal(false)
-    setImageRefEntries([])
-  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, lastFrameBase64, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, showRefsModal, imageRefEntries, elements, isReplicate, isPVideo, pVideoFps, pVideoDraft, replicateVoice, replicateLanguage, cameraEnabled, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting])
-  const hasMedia = refs.length > 0 || !!imageBase64 || !!firstFrameBase64 || !!lastFrameBase64
+    if (!embedded) {
+      // Clear via ref first to avoid race with internalChangeRef in RichPromptInput
+      richInputRef.current?.setText('')
+      setPrompt('')
+      setImageBase64(null)
+      setRefs([])
+      removedElementRefs.current.clear()
+      setFirstFrameBase64(null)
+      setLastFrameBase64(null)
+      firstFrameRef.current = null
+      lastFrameRef.current = null
+      setMultiShots(false)
+      setMultiPrompt([])
+      setSoundEnabled(false)
+      setShowRefsModal(false)
+      setImageRefEntries([])
+    }
+  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, showRefsModal, imageRefEntries, elements, isReplicate, isPVideo, pVideoFps, pVideoDraft, replicateVoice, replicateLanguage, cameraEnabled, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting, filmLook, cameraSpeed, embedded])
+
+  const ffImageSrc = firstFrameUrl
+    ? srcUrl(firstFrameUrl)
+    : firstFrameBase64
+    ? (firstFrameBase64.startsWith('data:') || firstFrameBase64.startsWith('http') || firstFrameBase64.startsWith('file:') || firstFrameBase64.startsWith('/')
+      ? srcUrl(firstFrameBase64)
+      : `data:image/png;base64,${firstFrameBase64}`)
+    : null
+
+  const lfImageSrc = lastFrameUrl
+    ? srcUrl(lastFrameUrl)
+    : lastFrameBase64
+    ? (lastFrameBase64.startsWith('data:') || lastFrameBase64.startsWith('http') || lastFrameBase64.startsWith('file:') || lastFrameBase64.startsWith('/')
+      ? srcUrl(lastFrameBase64)
+      : `data:image/png;base64,${lastFrameBase64}`)
+    : null
+
+  const hasMedia = refs.length > 0 || !!imageBase64 || !!firstFrameBase64 || !!firstFrameUrl || !!lastFrameBase64 || !!lastFrameUrl
+
+  if (!hasModel) {
+    return (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,420px)] bg-surface-900 border border-surface-700 rounded-xl px-4 py-3 shadow-xl shadow-black/40 flex items-center gap-2.5">
+        <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
+        <p className="text-[11px] text-surface-300">
+          No provider activated for this section. Add an API key in Settings → Providers to generate.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -1308,24 +1577,37 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           </button>
         </div>
       )}
-      <div ref={composerRootRef} className={`${floating ? 'absolute inset-x-0 bottom-0' : 'sticky bottom-0'} z-40 px-4 pb-4 pt-2 pointer-events-none`}>
-        <div className="max-w-5xl mx-auto pointer-events-auto">
+      <div ref={composerRootRef} className={embedded ? `w-full relative ${className || ''}` : `${floating ? 'absolute inset-x-0 bottom-0' : 'sticky bottom-0'} z-40 px-4 pb-4 pt-2 pointer-events-none`}>
+        <div className={embedded ? 'w-full' : 'max-w-5xl mx-auto pointer-events-auto'}>
           <div
             ref={cardRef}
-            className="relative bg-sidebar/90 border border-white/20 rounded-2xl shadow-2xl shadow-black/40 backdrop-blur-xl backdrop-saturate-150 transition-all duration-200"
+            className={`relative ${embedded ? 'bg-black/60 border border-white/10 rounded-xl shadow-lg' : 'bg-sidebar/90 border border-white/20 rounded-2xl shadow-2xl shadow-black/40'} backdrop-blur-xl backdrop-saturate-150 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}
           >
-            {/* Image chips at top (default for all references). In FF/LF mode image refs live in the FF/LF dropzones, so only video/audio refs are shown */}
-            {hasMedia && (!isFFLF || refs.some(r => !r.mime.startsWith('image/'))) && (
-              <div className="flex gap-2 px-3 pt-2.5">
+            {/* Maximize/Minimize toggle button anchored to the top-right corner of PromptComposer */}
+            <button
+              onClick={() => setExpanded(e => !e)}
+              title={expanded ? 'Shrink composer' : 'Expand composer'}
+              className="absolute right-3 top-3 z-20 text-surface-400 hover:text-surface-100 p-1 rounded-md hover:bg-surface-800/60 transition-all duration-200 active:scale-90"
+            >
+              {expanded ? <Minimize2 size={14} className="transition-transform duration-200" /> : <Maximize2 size={14} className="transition-transform duration-200" />}
+            </button>
+            {/* Image chips at top */}
+            {hasMedia && (
+              <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
                 {refs.map((ref, i) => {
-                  if (isFFLF && ref.mime.startsWith('image/')) return null
+                  if (isFFLF && ref.mime.startsWith('image/') && !(ref as any).elementName && !(ref as any).name) return null
                   const elRef = ref as any
                   const isElementRef = !!elRef.elementName
                   const imgIdx = refs.filter((r, j) => r.mime.startsWith('image/') && j <= i).length
                   const vidIdx = refs.filter((r, j) => r.mime.startsWith('video/') && j <= i).length
                   const audIdx = refs.filter((r, j) => r.mime.startsWith('audio/') && j <= i).length
+                  const tagLabel = isTagModel ? (tagRefItems[i]?.tag || '') : ''
                   let chipLabel: string
-                  if (isElementRef) {
+                  if (elRef.name) {
+                    chipLabel = elRef.name
+                  } else if (tagLabel) {
+                    chipLabel = tagLabel
+                  } else if (isElementRef) {
                     chipLabel = `${elRef.elementName} · ${elRef.refType}`
                   } else if (ref.mime.startsWith('image/')) {
                     chipLabel = `Image ${imgIdx}`
@@ -1337,12 +1619,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                     chipLabel = 'File'
                   }
                   const handleRemove = () => {
-                    if (isElementRef) {
-                      removedElementRefs.current.add(ref.base64)
+                    const key = ref.base64 || elRef.url || elRef.assetId
+                    if (isElementRef && key) {
+                      removedElementRefs.current.add(key)
                     }
                     setRefs(prev => prev.filter((_, j) => j !== i))
                   }
-                  return <ChipRef key={i} mime={ref.mime} base64={ref.base64} label={chipLabel} onRemove={handleRemove} />
+                  return <ChipRef key={i} mime={ref.mime} base64={ref.base64} url={elRef.url} label={chipLabel} onRemove={handleRemove} />
                 })}
                 {isOmniHuman && ((refs.find(r => r.mime.startsWith('audio/'))?.duration || 0) > 15) && (
                   <OmniAudioWarn />
@@ -1351,78 +1634,85 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               </div>
             )}
 
-            {/* Main row */}
-            <div className="flex items-stretch gap-2 p-2">
-              <div className="flex-1 min-w-0 flex flex-col gap-2">
-                <div className="flex items-stretch gap-2">
-              {/* Dropzones next to textarea (only in FF/LF mode) */}
-              {isFFLF && (
-                  <div className="flex gap-1 flex-shrink-0">
+          {/* Main row */}
+          <div className="flex items-stretch gap-2 p-2">
+            <div className="flex-1 min-w-0 flex flex-col gap-2">
+              <div className="flex items-stretch gap-2">
+            {/* Dropzones next to textarea (only in FF/LF mode) */}
+            {isFFLF && (
+                <div className="flex gap-1 flex-shrink-0">
+                  <div className="relative group">
+                    <label htmlFor={`file-first-${instanceId}`} className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors gap-0.5 overflow-hidden">
+                      {ffImageSrc ? (
+                        <img src={ffImageSrc} className="w-full h-full object-cover" alt="FF" />
+                      ) : (
+                        <>
+                          <Upload size={10} className="text-surface-500" />
+                          <span className="text-[8px] text-surface-500">FF</span>
+                        </>
+                      )}
+                    </label>
+                    {ffImageSrc && (
+                      <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeImage('first') }}
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <X size={10} />
+                      </button>
+                    )}
+                  </div>
+                  <input id={`file-first-${instanceId}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'first')} />
+                  {ffImageSrc && lfImageSrc && !(multiShots && isKling30) && (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault(); e.stopPropagation()
+                        const ffB = lastFrameBase64
+                        const lfB = firstFrameBase64
+                        const ffU = lastFrameUrl
+                        const lfU = firstFrameUrl
+                        setFirstFrameBase64(ffB)
+                        setLastFrameBase64(lfB)
+                        setFirstFrameUrl(ffU)
+                        setLastFrameUrl(lfU)
+                        firstFrameRef.current = ffB
+                        lastFrameRef.current = lfB
+                      }}
+                      className="w-6 h-6 flex items-center justify-center rounded-full bg-surface-800 hover:bg-surface-700 text-surface-400 hover:text-surface-200 transition-colors flex-shrink-0"
+                      title="Swap FF/LF"
+                    >
+                      <ArrowLeftRight size={12} />
+                    </button>
+                  )}
+                  {!(multiShots && isKling30) && (
                     <div className="relative group">
-                      <label htmlFor="file-first" className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors gap-0.5 overflow-hidden">
-                        {firstFrameBase64 ? (
-                          <img src={`data:image/png;base64,${firstFrameBase64}`} className="w-full h-full object-cover" alt="FF" />
+                      <label htmlFor={`file-last-${instanceId}`} className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors gap-0.5 overflow-hidden">
+                        {lfImageSrc ? (
+                          <img src={lfImageSrc} className="w-full h-full object-cover" alt="LF" />
                         ) : (
                           <>
                             <Upload size={10} className="text-surface-500" />
-                            <span className="text-[8px] text-surface-500">FF</span>
+                            <span className="text-[8px] text-surface-500">LF</span>
                           </>
                         )}
                       </label>
-                      {firstFrameBase64 && (
-                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeImage('first') }}
+                      {lfImageSrc && (
+                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeImage('last') }}
                           className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                           <X size={10} />
                         </button>
                       )}
                     </div>
-                    <input id="file-first" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'first')} />
-                    {firstFrameBase64 && lastFrameBase64 && !(multiShots && isKling) && (
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault(); e.stopPropagation()
-                          const ff = lastFrameBase64
-                          const lf = firstFrameBase64
-                          setFirstFrameBase64(ff)
-                          setLastFrameBase64(lf)
-                          firstFrameRef.current = ff
-                          lastFrameRef.current = lf
-                        }}
-                        className="w-6 h-6 flex items-center justify-center rounded-full bg-surface-800 hover:bg-surface-700 text-surface-400 hover:text-surface-200 transition-colors flex-shrink-0"
-                        title="Swap FF/LF"
-                      >
-                        <ArrowLeftRight size={12} />
-                      </button>
-                    )}
-                    {!(multiShots && isKling) && (
-                      <div className="relative group">
-                        <label htmlFor="file-last" className="aspect-square h-[52px] border border-dashed border-surface-700 hover:border-accent-500/50 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors gap-0.5 overflow-hidden">
-                          {lastFrameBase64 ? (
-                            <img src={`data:image/png;base64,${lastFrameBase64}`} className="w-full h-full object-cover" alt="LF" />
-                          ) : (
-                            <>
-                              <Upload size={10} className="text-surface-500" />
-                              <span className="text-[8px] text-surface-500">LF</span>
-                            </>
-                          )}
-                        </label>
-                        {lastFrameBase64 && (
-                          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeImage('last') }}
-                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-surface-950 border border-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <X size={10} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {!(multiShots && isKling) && <input id="file-last" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'last')} />}
-                  </div>
-              )}
+                  )}
+                  {!(multiShots && isKling30) && <input id={`file-last-${instanceId}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'last')} />}
+                </div>
+            )}
 
-              <div className="flex-1 relative">
-                <RichPromptInput
-                  ref={richInputRef}
-                  value={prompt}
-                  onChange={(text) => { setPrompt(text) }}
+            <div className="flex-1 relative">
+              <RichPromptInput
+                ref={richInputRef}
+                value={prompt}
+                onChange={(text) => {
+                    setPrompt(text)
+                    onPromptChange?.(text)
+                  }}
                   onAtState={(active, query) => {
                     if (active) {
                       setAtMenuFilter(query)
@@ -1430,19 +1720,18 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                       setShowAtMenu(true)
                     } else {
                       setShowAtMenu(false)
+                      setAtMenuFromElements(false)
                     }
                   }}
                   onKeyDown={(e) => {
                     if (showAtMenu) {
-                      const refEntries = (showRefsModal ? imageRefEntries.filter(re => re.name && re.name.toLowerCase().startsWith(atMenuFilter.toLowerCase())) : [])
-                      const elMatches = elements.filter(el =>
-                        el.name.toLowerCase().includes(atMenuFilter.toLowerCase()) ||
-                        el.tags.some(t => t.toLowerCase().includes(atMenuFilter.toLowerCase()))
-                      ).slice(0, 5)
-                      const totalItems = refEntries.length + elMatches.length
+                      const refEntries = isTagModel ? [] : (showRefsModal ? imageRefEntries.filter(re => re.name && re.name.toLowerCase().startsWith(atMenuFilter.toLowerCase())) : [])
+                      const navRefs: any[] = isTagModel ? refMenuItems : refEntries
+                      const navEls: any[] = isTagModel ? (atMenuFromElements ? elMenuItems : []) : elMenuItems
+                      const totalItems = navRefs.length + navEls.length
                       if (e.key === 'ArrowDown') {
                         e.preventDefault()
-                        setAtMenuIndex(prev => Math.min(prev + 1, totalItems - 1))
+                        setAtMenuIndex(prev => Math.min(prev + 1, Math.max(0, totalItems - 1)))
                         return
                       }
                       if (e.key === 'ArrowUp') {
@@ -1452,12 +1741,23 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                       }
                       if (e.key === 'Enter') {
                         e.preventDefault()
-                        if (atMenuIndex < refEntries.length) {
-                          const re = refEntries[atMenuIndex]
-                          setPrompt(prev => (prev + ' @' + re.name).trim() + ' ')
+                        if (atMenuIndex < navRefs.length) {
+                          const item = navRefs[atMenuIndex]
+                          if (isTagModel) {
+                            if (item?.tag) richInputRef.current?.insertText(item.tag)
+                          } else if (item) {
+                            setPrompt(prev => (prev + ' @' + item.name).trim() + ' ')
+                          }
                         } else {
-                          const el = elMatches[atMenuIndex - refEntries.length]
-                          if (el) richInputRef.current?.insertBadge(el)
+                          const el = navEls[atMenuIndex - navRefs.length]
+                          if (el) {
+                            if (isTagModel) {
+                              attachElementImages(el)
+                            } else {
+                              richInputRef.current?.insertBadge(el)
+                              attachElementImages(el)
+                            }
+                          }
                         }
                         setShowAtMenu(false)
                         return
@@ -1474,85 +1774,158 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                       handleGenerate()
                     }
                   }}
-                  elements={elements}
+                  elements={allElements}
                   onBadgeClick={(name, rect) => setBadgePopover({ elementName: name, rect })}
+                  expanded={expanded}
+                  tagPatterns={tagTemplates}
                   placeholder={mode === 'image' ? 'Describe what you want to generate...' : mode === 'audio' ? 'Describe the voice line or music track...' : isReplicate ? 'Type what the avatar should say...' : 'Describe the video you want to create...'}
                 />
                 {/* @ autocomplete dropdown */}
                 {showAtMenu && (() => {
                   const refEntries = (showRefsModal ? imageRefEntries.filter(re => re.name && re.name.toLowerCase().startsWith(atMenuFilter.toLowerCase())) : [])
-                  const elMatches = elements.filter(el =>
-                    el.name.toLowerCase().includes(atMenuFilter.toLowerCase()) ||
-                    el.tags.some(t => t.toLowerCase().includes(atMenuFilter.toLowerCase()))
-                  ).slice(0, 5)
                   const KIND_ICON_MAP: Record<ElementKind, typeof User> = {
                     avatar: UserCircle,
                     character: User,
                     environment: Mountain,
                     object: Box,
                   }
+                  const mimeLabel = (mime: string) => mime.startsWith('image/') ? 'Image' : mime.startsWith('video/') ? 'Video' : mime.startsWith('audio/') ? 'Audio' : 'File'
+                  const syntaxHint = refTagCfg ? [refTagCfg.image, refTagCfg.video, refTagCfg.audio].filter(Boolean).map(t => (t as string).replace('%d', '1')).join(' · ') : ''
+                  const elRow = (el: StudioElement, i: number, attach: boolean) => {
+                    const elAny = el as any
+                    const Icon = KIND_ICON_MAP[el.kind] || User
+                    const cfg = KIND_CONFIG[el.kind] || KIND_CONFIG.character
+                    const imgSrc = elAny.imageUrl
+                      ? srcUrl(elAny.imageUrl)
+                      : el.imageBase64
+                      ? `data:image/png;base64,${el.imageBase64}`
+                      : null
+                    return (
+                      <button
+                        key={(attach ? 'att-' : 'el-') + el.id}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          if (attach) {
+                            attachElementImages(el)
+                          } else {
+                            richInputRef.current?.insertBadge(el)
+                            attachElementImages(el)
+                          }
+                          setShowAtMenu(false)
+                        }}
+                        className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${atMenuIndex === i ? 'bg-surface-700/60 text-surface-100' : 'text-surface-300 hover:bg-surface-700/50 hover:text-surface-100'}`}
+                      >
+                        {imgSrc ? (
+                          <img src={imgSrc} className="w-5 h-5 rounded-full object-cover shrink-0 border border-white/10" alt="" />
+                        ) : (
+                          <div className={`w-5 h-5 rounded-full shrink-0 ${cfg.color === 'text-violet-400' ? 'bg-violet-500/20' : cfg.color === 'text-blue-400' ? 'bg-blue-500/20' : cfg.color === 'text-emerald-400' ? 'bg-emerald-500/20' : 'bg-amber-500/20'} flex items-center justify-center`}>
+                            <Icon size={11} className={cfg.color} />
+                          </div>
+                        )}
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <span className={`font-medium truncate ${cfg.color}`}>@{el.name}</span>
+                          {el.description && <span className="text-[9px] text-surface-500 truncate leading-tight">{el.description}</span>}
+                        </div>
+                        <span className="text-[10px] text-surface-500 ml-auto shrink-0">
+                          {el.kind === 'character' ? 'Personaje' : el.kind === 'object' ? 'Prop' : el.kind === 'environment' ? 'Escenario' : (attach ? 'Adjuntar' : cfg.label)}
+                        </span>
+                      </button>
+                    )
+                  }
                   return (
                     <div ref={atMenuRef} className="absolute left-3 bottom-full mb-1 bg-surface-800 border border-surface-700 rounded-lg py-1 min-w-[180px] shadow-xl z-50 max-h-48 overflow-y-auto">
-                      {refEntries.length === 0 && elMatches.length === 0 && (
-                        <div className="px-3 py-2 text-xs text-surface-500">
-                          {elements.length === 0
-                            ? 'No hay elementos. Crea uno primero en la pestaña Elements.'
-                            : 'Sin coincidencias'}
-                        </div>
-                      )}
-                      {refEntries.map((re, i) => (
-                        <button
-                          key={'ref-' + i}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            setPrompt(prev => (prev + ' @' + re.name).trim() + ' ')
-                            setShowAtMenu(false)
-                          }}
-                          className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${atMenuIndex === i ? 'bg-surface-700/60 text-surface-100' : 'text-surface-300 hover:bg-surface-700/50 hover:text-surface-100'}`}
-                        >
-                          {re.base64 ? (
-                            <img src={`data:${re.mime};base64,${re.base64}`} className="w-5 h-5 rounded object-cover" alt="" />
-                          ) : (
-                            <div className="w-5 h-5 rounded bg-surface-700" />
+                      {isTagModel ? (
+                        <>
+                          <div className="px-3 pt-1.5 pb-0.5 text-[9px] uppercase tracking-wider text-surface-600">Referencias</div>
+                          {refMenuItems.length === 0 && (
+                            <div className="px-3 py-1.5 text-[11px] text-surface-500">
+                              {tagRefItems.length === 0
+                                ? 'No hay referencias adjuntas. Arrastra archivos o usa "From elements".'
+                                : 'Sin coincidencias'}
+                            </div>
                           )}
-                          <span className="text-accent-400">@{re.name}</span>
-                          <span className="text-[10px] text-surface-500 ml-auto">{re.type}</span>
-                        </button>
-                      ))}
-                      {elMatches.map((el, idx) => {
-                        const i = refEntries.length + idx
-                        const Icon = KIND_ICON_MAP[el.kind]
-                        const cfg = KIND_CONFIG[el.kind]
-                        return (
+                          {refMenuItems.map((item, i) => (
+                            <button
+                              key={'tagref-' + i}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                if (item.tag) richInputRef.current?.insertText(item.tag)
+                                setShowAtMenu(false)
+                              }}
+                              className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${atMenuIndex === i ? 'bg-surface-700/60 text-surface-100' : 'text-surface-300 hover:bg-surface-700/50 hover:text-surface-100'}`}
+                            >
+                              {item.ref.mime.startsWith('image/') ? (
+                                <img src={`data:${item.ref.mime};base64,${item.ref.base64}`} className="w-5 h-5 rounded object-cover" alt="" />
+                              ) : (
+                                <div className="w-5 h-5 rounded bg-surface-700 flex items-center justify-center">
+                                  {item.ref.mime.startsWith('video/') ? <Video size={10} className="text-surface-400" /> : <Music size={10} className="text-surface-400" />}
+                                </div>
+                              )}
+                              <span className="text-cyan-400">{item.tag}</span>
+                              <span className="text-[10px] text-surface-500 ml-auto">{mimeLabel(item.ref.mime)}</span>
+                            </button>
+                          ))}
+                          <div className="h-px bg-surface-700/60 my-1" />
                           <button
-                            key={'el-' + el.id}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              richInputRef.current?.insertBadge(el)
-                              setShowAtMenu(false)
-                            }}
-                            className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${atMenuIndex === i ? 'bg-surface-700/60 text-surface-100' : 'text-surface-300 hover:bg-surface-700/50 hover:text-surface-100'}`}
+                            onClick={() => setAtMenuFromElements(v => !v)}
+                            className="w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 text-surface-300 hover:bg-surface-700/50 hover:text-surface-100"
                           >
-                            {el.imageBase64 ? (
-                              <img src={`data:image/png;base64,${el.imageBase64}`} className="w-5 h-5 rounded object-cover" alt="" />
-                            ) : (
-                              <div className={`w-5 h-5 rounded ${cfg.color === 'text-violet-400' ? 'bg-violet-500/20' : cfg.color === 'text-blue-400' ? 'bg-blue-500/20' : cfg.color === 'text-emerald-400' ? 'bg-emerald-500/20' : 'bg-amber-500/20'} flex items-center justify-center`}>
-                                <Icon size={11} className={cfg.color} />
-                              </div>
-                            )}
-                            <span className={cfg.color}>@{el.name}</span>
-                            <span className="text-[10px] text-surface-500 ml-auto">{cfg.label}</span>
+                            <Shapes size={12} className="text-accent-400" /> From elements
+                            {atMenuFromElements ? <ChevronUp size={12} className="ml-auto text-surface-500" /> : <ChevronDown size={12} className="ml-auto text-surface-500" />}
                           </button>
-                        )
-                      })}
+                          {atMenuFromElements && (
+                            <>
+                              {elMenuItems.length === 0 && (
+                                <div className="px-3 py-1.5 text-[11px] text-surface-500">
+                                  {elements.length === 0
+                                    ? 'No hay elementos. Crea uno primero en la pestaña Elements.'
+                                    : 'Sin coincidencias'}
+                                </div>
+                              )}
+                              {elMenuItems.map((el, idx) => elRow(el, refMenuItems.length + idx, true))}
+                            </>
+                          )}
+                          {syntaxHint && (
+                            <div className="px-3 py-1.5 text-[10px] text-surface-600 border-t border-surface-700/60">
+                              Tags: <span className="text-cyan-400/80">{syntaxHint}</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {refEntries.length === 0 && elMenuItems.length === 0 && (
+                            <div className="px-3 py-2 text-xs text-surface-500">
+                              {elements.length === 0
+                                ? 'No hay elementos. Crea uno primero en la pestaña Elements.'
+                                : 'Sin coincidencias'}
+                            </div>
+                          )}
+                          {refEntries.map((re, i) => (
+                            <button
+                              key={'ref-' + i}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setPrompt(prev => (prev + ' @' + re.name).trim() + ' ')
+                                setShowAtMenu(false)
+                              }}
+                              className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${atMenuIndex === i ? 'bg-surface-700/60 text-surface-100' : 'text-surface-300 hover:bg-surface-700/50 hover:text-surface-100'}`}
+                            >
+                              {re.base64 ? (
+                                <img src={`data:${re.mime};base64,${re.base64}`} className="w-5 h-5 rounded object-cover" alt="" />
+                              ) : (
+                                <div className="w-5 h-5 rounded bg-surface-700" />
+                              )}
+                              <span className="text-accent-400">@{re.name}</span>
+                              <span className="text-[10px] text-surface-500 ml-auto">{re.type}</span>
+                            </button>
+                          ))}
+                          {elMenuItems.map((el, idx) => elRow(el, refEntries.length + idx, false))}
+                        </>
+                      )}
                     </div>
                   )
                 })()}
-                {prompt && (
-                  <button onClick={() => { setPrompt(''); richInputRef.current?.setText('') }} className="absolute right-2 top-2 text-surface-500 hover:text-surface-300 transition-colors">
-                    <X size={14} />
-                  </button>
-                )}
               </div>
               </div>
 
@@ -1607,7 +1980,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             })()}
 
             {/* Multi-shot editor for Kling */}
-            {multiShots && isKling && (() => {
+            {multiShots && isKling30 && (() => {
               const maxTotal = 15
               const totalDuration = multiPrompt.reduce((s, x) => s + x.duration, 0)
               const canAdd = multiPrompt.length < 5
@@ -1685,6 +2058,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               <input ref={insertFileRef} type="file" accept="image/*" className="hidden" onChange={handleInsertUpload} />
 
               {/* Model */}
+              {!embedded && (
               <div className="relative" ref={modelsRef}>
                 <button onClick={() => setShowModels(!showModels)}
                   className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
@@ -1697,7 +2071,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                 </button>
                   {showModels && (() => {
                     const groups: { label: string; items: ModelPricing[] }[] = [
-                      { label: 'KIE.ai', items: models.filter(m => !m.local && m.provider !== 'replicate' && m.provider !== 'fal') },
+                      { label: 'KIE.ai', items: models.filter(m => !m.local && m.provider !== 'replicate' && m.provider !== 'fal' && m.provider !== 'elevenlabs') },
+                      { label: 'ElevenLabs', items: models.filter(m => m.provider === 'elevenlabs') },
                       { label: 'Replicate', items: models.filter(m => m.provider === 'replicate') },
                       { label: 'fal.ai', items: models.filter(m => m.provider === 'fal') },
                       { label: 'Local', items: models.filter(m => m.local) },
@@ -1717,6 +2092,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                                 <span className={`text-[10px] ml-2 ${m.local ? 'text-green-500/70' : 'text-surface-600'}`}>
                                   {m.local ? <><Cpu size={10} className="inline mr-0.5" />Local</> : m.category}
                                 </span>
+                                {m.refTags && <span className="text-[9px] ml-1.5 px-1 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-semibold">@TAGS</span>}
                               </div>
                               <span className="text-amber-400/80 text-[10px]">{m.local ? (serverStatus === 'running' ? 'Ready' : 'Offline') : (m.provider === 'replicate' || m.provider === 'fal' ? `$${(m.prices[0]?.cost || 0).toFixed(3)}/${m.unit === 's' ? 's' : 'img'}` : `${Math.round(m.prices[0]?.cost * 200)} cr`)}</span>
                             </button>
@@ -1727,37 +2103,30 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                     )
                   })()}
               </div>
+              )}
 
               {/* Camera control */}
               {mode !== 'audio' && (
-                <div
-                  className="relative"
-                  onMouseEnter={() => setCameraTip(true)}
-                  onMouseLeave={() => setCameraTip(false)}
-                >
-                  <button onClick={() => setShowCameraModal(true)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${cameraEnabled ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
-                    <Camera size={11} /> Camera
-                  </button>
-                  {cameraTip && (
-                    <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 shadow-xl min-w-[190px] pointer-events-none">
-                      <p className="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">Camera Control</p>
-                      {cameraEnabled ? (
-                        <div className="space-y-0.5">
-                          <p className="text-[11px] text-surface-300"><span className="text-surface-500">Lens:</span> {cameraLens}</p>
-                          <p className="text-[11px] text-surface-300"><span className="text-surface-500">Shot:</span> {cameraShot}</p>
-                          <p className="text-[11px] text-surface-300"><span className="text-surface-500">Level:</span> {cameraLevel}</p>
-                          {mode === 'video' && (
-                            <p className="text-[11px] text-surface-300"><span className="text-surface-500">Movement:</span> {cameraMovement}</p>
-                          )}
-                          <p className="text-[11px] text-surface-300"><span className="text-surface-500">Lighting:</span> {CAMERA_LIGHTING.find(l => l.value === lighting)?.label || '—'}</p>
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-surface-500">Off</p>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <CameraControl
+                  enabled={cameraEnabled}
+                  onToggleEnabled={setCameraEnabled}
+                  lens={cameraLens}
+                  onLensChange={setCameraLens}
+                  shot={cameraShot}
+                  onShotChange={setCameraShot}
+                  level={cameraLevel}
+                  onLevelChange={setCameraLevel}
+                  movement={cameraMovement}
+                  onMovementChange={setCameraMovement}
+                  lighting={lighting}
+                  onLightingChange={setLighting}
+                  filmLook={filmLook}
+                  onFilmLookChange={setFilmLook}
+                  speed={cameraSpeed}
+                  onSpeedChange={setCameraSpeed}
+                  mode={mode}
+                  embedded={embedded}
+                />
               )}
 
               {/* Audio duration for music models */}
@@ -1765,27 +2134,47 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                 <StreamDuration
                   value={duration}
                   options={currentModel.durationOptions}
-                  min={10}
-                  max={currentModel.durationMax || 30}
-                  onChange={setDuration}
+                  min={3}
+                  max={currentModel.durationMax || 600}
+                  onChange={handleDurationChange}
                 />
               )}
 
               {/* Toggles: FF, Multi-shot, Image Refs, Sound */}
-              {currentModel.fflfId && (
-                <button onClick={() => {
-                    if (isFFLF) { setSeedanceMode('ref'); setFirstFrameBase64(null); setLastFrameBase64(null); firstFrameRef.current = null; lastFrameRef.current = null }
-                    else {
+              {(currentModel.fflfId || isKling || mode === 'video') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isFFLF) {
+                      setSeedanceMode('ref')
+                      setFirstFrameBase64(null)
+                      setFirstFrameUrl(null)
+                      setLastFrameBase64(null)
+                      setLastFrameUrl(null)
+                      firstFrameRef.current = null
+                      lastFrameRef.current = null
+                    } else {
                       setSeedanceMode('fflf')
-                      // Redistribute user image refs into FF/LF: 1 ref ? FF, 2 refs ? FF + LF
+                      // Redistribute user image refs into FF/LF: 1 ref -> FF, 2 refs -> FF + LF
                       const userImageRefs = refs.filter(r => r.mime.startsWith('image/') && !(r as any).elementName)
                       const others = refs.filter(r => !userImageRefs.includes(r))
-                      if (userImageRefs[0]) { setFirstFrameBase64(userImageRefs[0].base64); firstFrameRef.current = userImageRefs[0].base64 }
-                      if (userImageRefs[1]) { setLastFrameBase64(userImageRefs[1].base64); lastFrameRef.current = userImageRefs[1].base64 }
+                      if (userImageRefs[0]?.base64) {
+                        setFirstFrameBase64(userImageRefs[0].base64)
+                        firstFrameRef.current = userImageRefs[0].base64
+                      } else if (userImageRefs[0]?.url) {
+                        setFirstFrameUrl(userImageRefs[0].url)
+                      }
+                      if (userImageRefs[1]?.base64) {
+                        setLastFrameBase64(userImageRefs[1].base64)
+                        lastFrameRef.current = userImageRefs[1].base64
+                      } else if (userImageRefs[1]?.url) {
+                        setLastFrameUrl(userImageRefs[1].url)
+                      }
                       setRefs([...userImageRefs.slice(2), ...others])
                     }
                   }}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${isFFLF ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${isFFLF ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}
+                >
                   FF
                 </button>
               )}
@@ -1798,13 +2187,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   Refs {imageRefEntries.some(e => e.base64) ? <span className="text-[10px]">({imageRefEntries.filter(e => e.base64).length})</span> : null}
                 </button>
               )}
-              {isKling && (
+              {isKling30 && (
                 <button onClick={() => { setMultiShots(!multiShots); if (!multiShots && multiPrompt.length === 0) setMultiPrompt([{ prompt: '', duration: 5 }]) }}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${multiShots ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
                   Multi-shot
                 </button>
               )}
-              {(isKling || isSeedance || isPixverseV6) && mode === 'video' && (
+              {(isKling || isSeedance || isPixverseV6 || isWan3) && mode === 'video' && (
                 <button onClick={() => setSoundEnabled(!soundEnabled)}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${soundEnabled ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
                   <Music size={11} />
@@ -1813,7 +2202,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
               {/* Selects */}
 
-              {mode === 'image' && (
+              {!embedded && mode === 'image' && (
                 <>
                   <div className="relative" ref={ratiosRef}>
                     <button onClick={() => setShowRatios(!showRatios)}
@@ -1822,7 +2211,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                     </button>
                     {showRatios && (
                       <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[100px] shadow-xl z-50">
-                        {(isFal && currentModel.falAspectRatios ? currentModel.falAspectRatios : ASPECT_RATIOS).map((r) => (
+                        {(currentModel.aspectRatios || (isFal && currentModel.falAspectRatios ? currentModel.falAspectRatios : ASPECT_RATIOS)).map((r) => (
                           <button key={r} onClick={() => { setAspectRatio(r); setShowRatios(false) }}
                             className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${aspectRatio === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
                         ))}
@@ -1842,16 +2231,16 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                 </>
               )}
 
-              {mode === 'video' && currentModel.t2vId !== 'omnihuman-1-5' && (!isReplicate || isPVideo) && (
+              {mode === 'video' && currentModel.t2vId !== 'omnihuman-1-5' && (!isReplicate || isPVideo) && !(multiShots && isKling30) && (
                 <StreamDuration
                   value={duration}
                   options={currentModel.durationOptions}
                   min={isPVideo ? 1 : 4}
                   max={currentModel.durationMax || 15}
-                  onChange={setDuration}
+                  onChange={handleDurationChange}
                 />
               )}
-              {currentModel.resolutions && (
+              {!embedded && currentModel.resolutions && (
                 <div className="relative" ref={resRef}>
                   <button onClick={() => setShowRes(!showRes)}
                     className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
@@ -1899,7 +2288,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   </button>
                 </>
               )}
-              {(currentModel.t2vId?.startsWith('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') || isMinimaxH3 || isFal || isPVideo) && (
+              {!embedded && (isWan3 || currentModel.t2vId?.includes('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') || isMinimaxH3 || isFal || isPVideo) && (
                 <div className="relative" ref={ratiosRef}>
                   <button onClick={() => { if (!grokSingleI2v) setShowRatios(!showRatios) }}
                     disabled={grokSingleI2v}
@@ -1909,7 +2298,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   </button>
                   {showRatios && (
                     <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[100px] shadow-xl z-50">
-                      {(isPVideo ? (currentModel.pvAspectRatios || ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1']) : isFal ? (currentModel.falAspectRatios || ['adaptive', '16:9']) : currentModel.t2vId?.startsWith('bytedance/') ? ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive'] : currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') ? ['1:1', '16:9', '21:9', '2:3', '3:2', '3:4', '4:3', '9:16'] : currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') ? ['16:9', '9:16', '1:1', '2:3', '3:2'] : isMinimaxH3 ? ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] : ['16:9', '9:16']).map((r) => (
+                      {(isWan3 ? ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16'] : isPVideo ? (currentModel.pvAspectRatios || ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1']) : isFal ? (currentModel.falAspectRatios || ['adaptive', '16:9']) : currentModel.t2vId?.startsWith('bytedance/') ? ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive'] : currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') ? ['1:1', '16:9', '21:9', '2:3', '3:2', '3:4', '4:3', '9:16'] : currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') ? ['16:9', '9:16', '1:1', '2:3', '3:2'] : isMinimaxH3 ? ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] : ['16:9', '9:16']).map((r) => (
                         <button key={r} onClick={() => { setAspectRatio(r); setShowRatios(false) }}
                           className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${aspectRatio === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
                       ))}
@@ -1917,7 +2306,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   )}
                 </div>
               )}
-              {mode === 'video' && !isReplicate && !isFal && !(currentModel.t2vId?.startsWith('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('grok-imagine/') || isKling || isPixverseV6 || isMinimaxH3) && (
+              {mode === 'video' && !isReplicate && !isFal && !(isWan3 || currentModel.t2vId?.includes('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('grok-imagine/') || isKling || isPixverseV6 || isMinimaxH3) && (
                 <div className="flex items-center gap-1">
                   <select value={fps} onChange={(e) => setFps(Number(e.target.value))}
                     className="bg-surface-800/80 border border-surface-700 rounded-lg px-1.5 py-1 text-[11px] text-surface-300 outline-none">
@@ -1929,23 +2318,57 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               <div className="flex-1" />
             </div>
               </div>
-              <button onClick={handleGenerate} disabled={disabled || (mode === 'audio' ? !prompt.trim() : (showRefsModal ? !prompt.trim() || (!imageRefEntries.some(e => e.base64) && !imageBase64 && refs.length === 0) : (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? !prompt.trim() && !firstFrameBase64 : (isReplicate ? (isPVideo ? !prompt.trim() : (!prompt.trim() && !imageBase64 && !refs.some(r => r.mime.startsWith('audio/')))) : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0)))))}
-                className="flex-shrink-0 flex flex-col items-center justify-center gap-1.5 px-4 min-w-[56px] bg-accent-600 hover:bg-accent-500 disabled:bg-accent-600/50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all active:scale-[0.97]">
-                <span className="flex items-center gap-1">
-                  <Sparkles size={12} />
-                  <span className="text-xs font-medium leading-none">Generar</span>
-                </span>
-                <span className="flex flex-col items-center leading-none">
-                  {currentModel.local ? <Cpu size={16} /> : (isReplicate || isFal) ? (
-                    <span>${totalDollars.toFixed(2)}</span>
+
+              {/* Right side: Generate button on top, Mode switch (Image / Video) directly under it */}
+              <div className="self-end flex flex-col items-center gap-1 shrink-0">
+                <button onClick={handleGenerate} disabled={disabled || (mode === 'audio' ? !prompt.trim() : (showRefsModal ? !prompt.trim() || (!imageRefEntries.some(e => e.base64) && !imageBase64 && refs.length === 0) : (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? !prompt.trim() && !firstFrameBase64 : (isReplicate ? (isPVideo ? !prompt.trim() : (!prompt.trim() && !imageBase64 && !refs.some(r => r.mime.startsWith('audio/')) && !refs.some(r => r.mime.startsWith('video/')))) : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0)))))}
+                  className={`flex-shrink-0 aspect-square flex flex-col items-center justify-center gap-0.5 ${iconOnlyGenerate ? 'w-10 h-10 p-0' : 'w-16 h-16 p-1'} bg-accent-600 hover:bg-accent-500 disabled:bg-accent-600/50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all active:scale-[0.97]`}
+                  title="Generar">
+                  {iconOnlyGenerate ? (
+                    <Sparkles size={16} />
                   ) : (
                     <>
-                      <span>{totalCredits}</span>
-                      <span className="text-[9px] opacity-70 mt-0.5">${totalDollars.toFixed(2)}</span>
+                      <span className="flex items-center justify-center gap-1 leading-none">
+                        {currentModel.local ? <Cpu size={14} /> : <Sparkles size={13} />}
+                        <span className="text-xs font-semibold leading-none">{currentModel.local ? 'Local' : totalCredits}</span>
+                      </span>
+                      <span className="text-[10px] opacity-80 leading-none">
+                        ${totalDollars.toFixed(2)}
+                      </span>
                     </>
                   )}
-                </span>
-              </button>
+                </button>
+
+                {/* Mode switch tabs (Image / Video) - only icons, under generate button */}
+                {mode !== 'audio' && (
+                  <div className={`flex items-center p-0.5 bg-surface-800/80 border border-surface-700/60 rounded-xl gap-0.5 ${iconOnlyGenerate ? 'w-10' : 'w-16'} justify-between`}>
+                    <button
+                      type="button"
+                      onClick={() => switchMode('image')}
+                      className={`flex-1 py-1 rounded-lg transition-all flex items-center justify-center ${
+                        mode === 'image'
+                          ? 'bg-accent-600 text-white shadow-sm'
+                          : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/50'
+                      }`}
+                      title="Imagen"
+                    >
+                      <ImageIcon size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchMode('video')}
+                      className={`flex-1 py-1 rounded-lg transition-all flex items-center justify-center ${
+                        mode === 'video'
+                          ? 'bg-accent-600 text-white shadow-sm'
+                          : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/50'
+                      }`}
+                      title="Video"
+                    >
+                      <Video size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1978,29 +2401,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           }
           e.target.value = ''
         }} />
-        <input id="file-video" type="file" accept="video/*" className="hidden" onChange={async (e) => {
+        <input id={`file-video-${instanceId}`} type="file" accept="video/*" className="hidden" onChange={async (e) => {
           const file = e.target.files?.[0]
           if (!file) return
           await handleVideoRef(file)
           e.target.value = ''
         }} />
-        <input id="file-audio" type="file" accept="audio/*" className="hidden" onChange={async (e) => {
-          const file = e.target.files?.[0]
-          if (!file) return
-          if (file.size > 20 * 1024 * 1024) { showError(`Audio "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(0)}MB)`); return }
-          const { base64, mime } = await readFileAsBase64(file)
-          setRefs(prev => [...prev, { base64, mime }])
-          e.target.value = ''
-        }} />
-        <input id="file-first" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'first')} />
-        <input id="file-last" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'last')} />
-        <input id="file-video" type="file" accept="video/*" className="hidden" onChange={async (e) => {
-          const file = e.target.files?.[0]
-          if (!file) return
-          await handleVideoRef(file)
-          e.target.value = ''
-        }} />
-        <input id="file-audio" type="file" accept="audio/*" className="hidden" onChange={async (e) => {
+        <input id={`file-audio-${instanceId}`} type="file" accept="audio/*" className="hidden" onChange={async (e) => {
           const file = e.target.files?.[0]
           if (!file) return
           if (file.size > 20 * 1024 * 1024) { showError(`Audio "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(0)}MB)`); return }
@@ -2009,66 +2416,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           e.target.value = ''
         }} />
       </div>
-      {/* Camera Control Modal */}
-      {showCameraModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowCameraModal(false)}>
-          <div className="absolute inset-0 bg-black/80" />
-          <div
-            className="relative bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl w-[640px] max-w-[94vw] max-h-[85vh] flex flex-col z-10"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-surface-800">
-              <h3 className="text-sm font-medium text-surface-200 flex items-center gap-2">
-                <Camera size={14} className="text-accent-400" /> Camera Control
-              </h3>
-              <div className="flex items-center gap-3">
-                <span className={`text-[10px] font-medium ${cameraEnabled ? 'text-accent-400' : 'text-surface-500'}`}>
-                  {cameraEnabled ? 'On' : 'Off'}
-                </span>
-                <button
-                  onClick={() => setCameraEnabled(v => !v)}
-                  className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${cameraEnabled ? 'bg-accent-500' : 'bg-surface-700'}`}
-                  aria-label="Toggle camera control"
-                >
-                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${cameraEnabled ? 'left-[22px]' : 'left-0.5'}`} />
-                </button>
-                <button onClick={() => setShowCameraModal(false)} className="text-surface-500 hover:text-surface-200">
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              <div className={`flex items-start justify-center gap-3 ${cameraEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
-                <CameraWheel label="Lens" options={CAMERA_LENSES} value={cameraLens} onChange={setCameraLens} />
-                <CameraWheel label="Shot" options={CAMERA_SHOTS} value={cameraShot} onChange={setCameraShot} />
-                <CameraWheel label="Level" options={CAMERA_LEVELS} value={cameraLevel} onChange={setCameraLevel} />
-                {mode === 'video' && (
-                  <CameraWheel label="Movement" options={CAMERA_MOVEMENTS} value={cameraMovement} onChange={setCameraMovement} />
-                )}
-              </div>
-              <div className={`mt-4 flex items-center justify-center gap-2 ${cameraEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
-                <span className="text-[10px] uppercase tracking-wider text-surface-500">Lighting</span>
-                <select
-                  value={lighting}
-                  onChange={(e) => setLighting(e.target.value)}
-                  className="bg-surface-800/80 border border-surface-700 rounded-lg px-2 py-1.5 text-[11px] text-surface-300 outline-none focus:border-accent-500/50"
-                >
-                  {CAMERA_LIGHTING.map(l => (
-                    <option key={l.value || 'none'} value={l.value}>{l.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Image References Modal */}
-      {showRefsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowRefsModal(false)}>
-          <div className="absolute inset-0 bg-black/80" />
+      {showRefsModal && (typeof document !== 'undefined' ? createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" onClick={() => setShowRefsModal(false)}>
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
           <div
-            className="relative bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl w-[420px] max-h-[80vh] flex flex-col z-10"
+            className="relative bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl w-[420px] max-w-[94vw] max-h-[80vh] flex flex-col z-10"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-surface-800">
@@ -2144,12 +2498,18 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+        document.body
+      ) : null)}
 
       {/* Insert image from library modal */}
       {showInsertLibrary && (
-        <ImageLibraryPicker onSelect={handleInsertLibrarySelect} onClose={() => setShowInsertLibrary(false)} />
+        <ImageLibraryPicker
+          onSelect={handleInsertLibrarySelect}
+          onClose={() => setShowInsertLibrary(false)}
+          allowVideo={currentModel.supportsVideoRef}
+          allowAudio={currentModel.supportsAudioRef}
+        />
       )}
     </>
   )
@@ -2173,7 +2533,7 @@ function OmniAudioWarn() {
   )
 }
 
-function ChipRef({ mime, base64, onRemove, label }: { mime: string; base64: string; onRemove: () => void; label?: string }) {
+function ChipRef({ mime, base64, url, onRemove, label }: { mime: string; base64?: string; url?: string; onRemove: () => void; label?: string }) {
   const [hover, setHover] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -2181,7 +2541,11 @@ function ChipRef({ mime, base64, onRemove, label }: { mime: string; base64: stri
   const [curTime, setCurTime] = useState(0)
   const [dur, setDur] = useState(0)
   const displayLabel = label || (mime.startsWith('video/') ? 'Video' : mime.startsWith('audio/') ? 'Audio' : 'File')
-  const src = `data:${mime};base64,${base64}`
+  const src = url
+    ? srcUrl(url)
+    : (base64?.startsWith('data:') || base64?.startsWith('http') || base64?.startsWith('app-file:') || base64?.startsWith('blob:'))
+      ? base64
+      : (base64 ? `data:${mime};base64,${base64}` : '')
   const isAudio = mime.startsWith('audio/')
 
   useEffect(() => {

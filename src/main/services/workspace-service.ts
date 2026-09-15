@@ -3,6 +3,13 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import { getRawDb, getAssetsDir, getWorkspacesDir, getWorkspaceAssetSubDir } from '../db'
 
+export interface WorkspaceStats {
+  totalAssets: number
+  images: number
+  videos: number
+  audio: number
+}
+
 export interface Workspace {
   id: string
   name: string
@@ -11,6 +18,8 @@ export interface Workspace {
   isArchived: boolean
   createdAt: number
   updatedAt: number
+  stats?: WorkspaceStats
+  lastImageUrl?: string
 }
 
 function rowToWorkspace(row: any): Workspace {
@@ -89,15 +98,117 @@ export async function ensureWorkspaceDirs(workspaceId?: string) {
   }
 }
 
+export function getWorkspaceStatsMap(): Record<string, WorkspaceStats> {
+  const raw = getRawDb()
+  const statsMap: Record<string, WorkspaceStats> = {}
+  try {
+    const rows = raw.prepare(`
+      SELECT 
+        workspace_id,
+        COUNT(*) as total,
+        SUM(CASE WHEN type = 'image' THEN 1 ELSE 0 END) as images,
+        SUM(CASE WHEN type = 'video' THEN 1 ELSE 0 END) as videos,
+        SUM(CASE WHEN type = 'audio' THEN 1 ELSE 0 END) as audio
+      FROM assets 
+      WHERE (model_used IS NULL OR (model_used != 'upload' AND model_used != 'ref'))
+      GROUP BY workspace_id
+    `).all() as any[]
+
+    for (const r of rows) {
+      const wid = r.workspaceId || r.workspace_id
+      if (wid) {
+        statsMap[wid] = {
+          totalAssets: Number(r.total) || 0,
+          images: Number(r.images) || 0,
+          videos: Number(r.videos) || 0,
+          audio: Number(r.audio) || 0,
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[WorkspaceService] Failed to load workspace stats:', err)
+  }
+  return statsMap
+}
+
+export function getWorkspaceLastImageMap(): Record<string, string> {
+  const raw = getRawDb()
+  const imageMap: Record<string, string> = {}
+  try {
+    const rows = raw.prepare(`
+      SELECT workspace_id, local_path, file_path
+      FROM (
+        SELECT 
+          workspace_id, 
+          local_path, 
+          file_path,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id 
+            ORDER BY created_at DESC
+          ) as rn
+        FROM assets
+        WHERE (type = 'image' OR (local_path IS NOT NULL AND (local_path LIKE '%.webp' OR local_path LIKE '%.png' OR local_path LIKE '%.jpg' OR local_path LIKE '%.jpeg')))
+          AND (
+            (local_path IS NOT NULL AND local_path != '')
+            OR (file_path IS NOT NULL AND file_path != '' AND file_path NOT LIKE '__error__%')
+          )
+      )
+      WHERE rn = 1
+    `).all() as any[]
+
+    for (const r of rows) {
+      const wid = r.workspaceId || r.workspace_id
+      const p = r.localPath || r.local_path || r.filePath || r.file_path
+      if (wid && p) {
+        imageMap[wid] = p
+      }
+    }
+
+    // Fallback: check drama_shots for any workspace still missing an image
+    const dramaRows = raw.prepare(`
+      SELECT dp.workspace_id, ds.keyframe_url
+      FROM drama_shots ds
+      JOIN drama_projects dp ON ds.project_id = dp.id
+      WHERE dp.workspace_id IS NOT NULL 
+        AND ds.keyframe_url IS NOT NULL 
+        AND ds.keyframe_url != ''
+      ORDER BY ds.created_at DESC
+    `).all() as any[]
+    for (const dr of dramaRows) {
+      const wid = dr.workspaceId || dr.workspace_id
+      const url = dr.keyframeUrl || dr.keyframe_url
+      if (wid && url && !imageMap[wid]) {
+        imageMap[wid] = url
+      }
+    }
+  } catch (err) {
+    console.warn('[WorkspaceService] Failed to load workspace images:', err)
+  }
+  return imageMap
+}
+
 export function listWorkspaces(): Workspace[] {
   const raw = getRawDb()
   const rows = raw.prepare('SELECT * FROM workspaces ORDER BY created_at ASC').all() as any[]
-  return rows.map(rowToWorkspace)
+  const statsMap = getWorkspaceStatsMap()
+  const imageMap = getWorkspaceLastImageMap()
+  return rows.map((r) => {
+    const ws = rowToWorkspace(r)
+    ws.stats = statsMap[ws.id] || { totalAssets: 0, images: 0, videos: 0, audio: 0 }
+    ws.lastImageUrl = imageMap[ws.id] || undefined
+    return ws
+  })
 }
 
 export function getWorkspace(id: string): Workspace | null {
   const row = getRawDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as any
-  return row ? rowToWorkspace(row) : null
+  if (!row) return null
+  const ws = rowToWorkspace(row)
+  const statsMap = getWorkspaceStatsMap()
+  const imageMap = getWorkspaceLastImageMap()
+  ws.stats = statsMap[ws.id] || { totalAssets: 0, images: 0, videos: 0, audio: 0 }
+  ws.lastImageUrl = imageMap[ws.id] || undefined
+  return ws
 }
 
 export function createWorkspace(name: string, color?: string): Workspace {

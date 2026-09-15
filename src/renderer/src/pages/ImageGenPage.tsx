@@ -1,10 +1,10 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
-import { Trash2, Coins, Loader, AlertCircle, Copy, Check, Cloud, FolderOpen, RotateCcw, CheckSquare, Square, Search, X, Star, Box, Clapperboard, Eraser, ImageIcon } from 'lucide-react'
+import { Trash2, Coins, Loader, AlertCircle, Copy, Check, Cloud, FolderOpen, RotateCcw, CheckSquare, Square, Search, X, Star, Box, Clapperboard, Eraser, ImageIcon, Clock } from 'lucide-react'
 import { useAppStore } from '../stores/app-store'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { useGridFlip } from '../hooks/useGridFlip'
-import { fileUrl, srcUrl } from '../services/file-url'
+import { fileUrl, srcUrl, thumbUrl } from '../services/file-url'
 import { AssetBadge } from '../components/ui/asset-badge'
 import { TagEditor } from '../components/ui/TagEditor'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
@@ -18,9 +18,16 @@ import { downscaleImage } from '../lib/image'
 const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-text-to-image': 'GPT Image 2',
   'gpt-image-2-image-to-image': 'GPT Image 2 I2I',
+  'gpt-image-2-5-flare-text-to-image': 'GPT Image 2.5 Flare',
+  'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5 Flare I2I',
+  'gpt-image-2-5-sunburst-text-to-image': 'GPT Image 2.5 Sunburst',
+  'gpt-image-2-5-sunburst-image-to-image': 'GPT Image 2.5 Sunburst I2I',
   'recraft/remove-background': 'Remove Background',
   'nano-banana-2': 'Nano Banana 2',
+  'seedream/5-pro-text-to-image': 'Seedream 5 Pro',
+  'seedream/5-pro-image-to-image': 'Seedream 5 Pro I2I',
   'seedream-5-pro-text-to-image': 'Seedream 5 Pro',
+  'seedream-5-pro-image-to-image': 'Seedream 5 Pro I2I',
   'flux2-pro-text-to-image': 'Flux 2 Pro',
   'grok-imagine/text-to-image': 'Grok Imagine',
   'imagen4-fast': 'Imagen 4 Fast',
@@ -71,7 +78,7 @@ const AssetCard = memo(function AssetCard({
     >
       <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
         {src ? (
-          <img src={srcUrl(src)} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+          <img src={thumbUrl(src)} className="w-full h-full object-cover" loading="lazy" decoding="async" />
         ) : isError ? (
           <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
             <AlertCircle size={20} />
@@ -115,6 +122,12 @@ const AssetCard = memo(function AssetCard({
       </button>
       <div className="absolute bottom-2 right-2 flex items-center gap-1">
         {(params.aspectRatio || params.aspect_ratio) && <AssetBadge value={params.aspectRatio || params.aspect_ratio} />}
+        {(params.generationTime || params.generationTimeSeconds || params.costTime) && (
+          <AssetBadge
+            value={params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : `${params.costTime}s`)}
+            icon={<Clock size={10} className="text-surface-300" />}
+          />
+        )}
         {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
       </div>
     </div>
@@ -149,8 +162,9 @@ export function ImageGenPage() {
     }
   }, [composerPayload, setComposerPayload])
 
-  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset, removeAssets } = usePagedAssets({ type: 'image', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, loadMore, updateAsset, removeAssets } = usePagedAssets({ type: 'image', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
   const { gridRef, capture, fadeOut, animate } = useGridFlip()
+  const pendingNextRef = useRef(false)
 
   const handleAssetsMoved = (ids: string[]) => {
     fadeOut(ids)
@@ -167,6 +181,30 @@ export function ImageGenPage() {
       if (updated) setSelectedAsset(updated)
     }
   }, [assets, selectedAsset?.id])
+
+  useEffect(() => {
+    setPromptExpanded(false)
+  }, [selectedAsset?.id])
+
+  // Preload next batch when near the end of loaded assets
+  useEffect(() => {
+    if (!selectedAsset) return
+    const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+    if (idx >= 0 && idx >= assets.length - 2 && hasMore) {
+      loadMore()
+    }
+  }, [selectedAsset?.id, assets.length, hasMore, loadMore])
+
+  // Advance to next asset if pending from hitting next at the end of the previous batch
+  useEffect(() => {
+    if (pendingNextRef.current && selectedAsset) {
+      const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+      if (idx >= 0 && idx < assets.length - 1) {
+        setSelectedAsset(assets[idx + 1])
+        pendingNextRef.current = false
+      }
+    }
+  }, [assets, selectedAsset])
 
   useEffect(() => {
     const api = (window as any).electronAPI
@@ -202,8 +240,15 @@ export function ImageGenPage() {
       if (ok) {
         setCopiedAssetId(asset.id)
         setTimeout(() => setCopiedAssetId(null), 1500)
+      } else {
+        setRecreateMsg('No se pudo copiar la imagen al portapapeles')
+        setTimeout(() => setRecreateMsg(null), 3000)
       }
-    } catch (err) { console.error('Copy image failed:', err) }
+    } catch (err) {
+      console.error('Copy image failed:', err)
+      setRecreateMsg('No se pudo copiar la imagen al portapapeles')
+      setTimeout(() => setRecreateMsg(null), 3000)
+    }
   }, [])
 
   const handleGenerate = useCallback(async (params: any) => {
@@ -392,10 +437,25 @@ export function ImageGenPage() {
             const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
             setSelectedAsset(assets[idx - 1])
           } : undefined}
-          onNext={assets.findIndex((a: any) => a.id === selectedAsset.id) < assets.length - 1 ? () => {
+          onNext={(() => {
             const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
-            setSelectedAsset(assets[idx + 1])
-          } : undefined}
+            if (idx < 0) return undefined
+            if (idx < assets.length - 1) {
+              return () => {
+                setSelectedAsset(assets[idx + 1])
+                if (idx + 1 >= assets.length - 2 && hasMore) {
+                  loadMore()
+                }
+              }
+            }
+            if (hasMore) {
+              return () => {
+                pendingNextRef.current = true
+                loadMore()
+              }
+            }
+            return undefined
+          })()}
         >
           <div>
             <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
@@ -403,6 +463,7 @@ export function ImageGenPage() {
               <p
                 onClick={() => setPromptExpanded(!promptExpanded)}
                 className={`text-sm text-surface-200 leading-relaxed flex-1 cursor-pointer select-none ${promptExpanded ? '' : 'line-clamp-3'}`}
+                title={promptExpanded ? 'Click para contraer' : 'Click para expandir'}
               >
                 {selectedAsset.prompt || params.prompt || '—'}
               </p>
@@ -436,6 +497,12 @@ export function ImageGenPage() {
             <div>
               <p className="text-[10px] text-surface-500 uppercase tracking-wider">File Size</p>
               <p className="text-xs text-surface-200">{selectedAsset.fileSize ? `${(selectedAsset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Gen Time</p>
+              <p className="text-xs text-surface-200">
+                {params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : (params.costTime ? `${params.costTime}s` : '—'))}
+              </p>
             </div>
             <div>
               <p className="text-[10px] text-surface-500 uppercase tracking-wider">Created</p>

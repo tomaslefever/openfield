@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type Page = 'image' | 'video' | 'audio' | 'library' | 'elements' | 'workflows' | 'editor' | 'cinema' | 'settings' | 'logs' | 'marketplace' | 'apps' | 'promptLibrary' | 'storyboard'
+export type Page = 'contentStudio' | 'image' | 'video' | 'voice' | 'music' | 'library' | 'elements' | 'workflows' | 'editor' | 'cinema' | 'settings' | 'logs' | 'marketplace' | 'apps' | 'promptLibrary' | 'storyboard'
 
 export interface ComposerPayload {
   prompt: string
@@ -32,26 +32,32 @@ export interface AssetSearch {
   types: { image: boolean; video: boolean; audio: boolean }
 }
 
+export type GridRenderScale = '0.25' | '0.5' | '0.75' | '1.0'
+
 interface AppState {
   currentPage: Page
   sidebarCollapsed: boolean
   composerPayload: ComposerPayload | null
   assetSearch: AssetSearch
+  gridRenderScale: GridRenderScale
 
   setPage: (page: Page) => void
   toggleSidebar: () => void
   setComposerPayload: (payload: ComposerPayload | null) => void
   setAssetSearch: (search: Partial<AssetSearch>) => void
+  setGridRenderScale: (scale: GridRenderScale) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  currentPage: 'image',
+  currentPage: 'library',
   sidebarCollapsed: false,
   composerPayload: null,
   assetSearch: { query: '', featured: false, types: { image: true, video: true, audio: true } },
+  gridRenderScale: '0.25',
 
   setPage: (page) => set({ currentPage: page }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setComposerPayload: (payload) => set({ composerPayload: payload }),
   setAssetSearch: (search) => set((state) => ({ assetSearch: { ...state.assetSearch, ...search } })),
+  setGridRenderScale: (scale) => set({ gridRenderScale: scale }),
 }))

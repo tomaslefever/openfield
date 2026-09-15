@@ -10,6 +10,21 @@ import { getFFmpeg } from '../../ffmpeg'
 
 const KIE_AUDIO_MIMES = new Set(['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav'])
 
+async function getAssetBase64(assetId: string): Promise<{ base64: string; mime: string } | null> {
+  try {
+    const raw = getRawDb()
+    const asset = raw.prepare('SELECT local_path, file_path, mime_type FROM assets WHERE id = ?').get(assetId) as any
+    const filePath = asset?.local_path || asset?.file_path
+    if (filePath) {
+      const buffer = await fs.readFile(filePath)
+      return { base64: buffer.toString('base64'), mime: asset?.mime_type || 'image/png' }
+    }
+  } catch (err) {
+    console.warn('[OF] Could not read asset from disk:', assetId, err)
+  }
+  return null
+}
+
 async function ensureKieAudioRef(base64: string, mime: string): Promise<{ base64: string; mime: string }> {
   if (KIE_AUDIO_MIMES.has(mime)) return { base64, mime }
   console.log('[OF] Transcoding audio reference to mp3, mime:', mime)
@@ -57,6 +72,201 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     if (params.resolution === '720' || params.resolution === '1080') input.output_resolution = params.resolution
     if (params.prompt) input.prompt = params.prompt
     return createTask(client, params.model, input)
+  }
+
+  // Google Gemini Omni 1.1 Flash: multimodal video generation (text-to-video, FF/LF, image references, video input)
+  if (params.model === 'google/gemini-omni-flash-1-1' || params.model === 'gemini-omni-video') {
+    const actualModel = 'google/gemini-omni-flash-1-1'
+    const omniInput: Record<string, any> = {
+      prompt: params.prompt || '',
+    }
+
+    if (params.aspectRatio) {
+      omniInput.aspect_ratio = params.aspectRatio === '9:16' ? '9:16' : '16:9'
+    }
+    if (params.resolution) {
+      omniInput.resolution = params.resolution.toLowerCase()
+    }
+
+    // Check first/last frame mode:
+    // first_frame_url is mutually exclusive with image_urls, video_list, audio_ids, character_ids
+    const hasFirstFrame = !!(params.firstFrameBase64 || params.firstFrameUrl)
+    if (hasFirstFrame) {
+      let ffUrl = params.firstFrameUrl
+      if (!ffUrl && params.firstFrameBase64) {
+        ffUrl = await uploadFileBase64(client, params.firstFrameBase64, 'image/png')
+      }
+      if (ffUrl) {
+        omniInput.first_frame_url = ffUrl
+        // last_frame_url must be provided together with first_frame_url
+        if (params.lastFrameBase64 || params.lastFrameUrl) {
+          let lfUrl = params.lastFrameUrl
+          if (!lfUrl && params.lastFrameBase64) {
+            lfUrl = await uploadFileBase64(client, params.lastFrameBase64, 'image/png')
+          }
+          if (lfUrl) omniInput.last_frame_url = lfUrl
+        }
+      }
+      const validDurations = ['4', '6', '8', '10']
+      const durStr = String(params.duration || 6)
+      omniInput.duration = validDurations.includes(durStr) ? durStr : '6'
+    } else {
+      // Check video input
+      const videoRef = params.videoRefs?.[0]
+      if (videoRef?.base64 || videoRef?.url) {
+        let videoUrl = videoRef.url
+        if (!videoUrl && videoRef.base64) {
+          videoUrl = await uploadFileBase64(client, videoRef.base64, videoRef.mime || 'video/mp4')
+        }
+        if (videoUrl) {
+          // Duration must not exceed 30s, end - start <= 10s
+          const endSec = Math.min(10, Math.max(1, Math.round(Number(params.duration) || 10)))
+          omniInput.video_list = [{
+            url: videoUrl,
+            start: 0,
+            ends: endSec,
+          }]
+        }
+      }
+
+      // If no video input, duration is required (4 | 6 | 8 | 10)
+      if (!omniInput.video_list || omniInput.video_list.length === 0) {
+        const validDurations = ['4', '6', '8', '10']
+        const durStr = String(params.duration || 6)
+        omniInput.duration = validDurations.includes(durStr) ? durStr : '6'
+      }
+
+      // Image references (up to 7 images)
+      const imageUrls: string[] = []
+      if (params.imageRefs && params.imageRefs.length > 0) {
+        for (const ref of params.imageRefs) {
+          if (ref.base64) {
+            const url = await uploadFileBase64(client, ref.base64, ref.mime || 'image/png')
+            if (url) imageUrls.push(url)
+          } else if (ref.url) {
+            imageUrls.push(ref.url)
+          }
+        }
+      } else if (params.imageBase64) {
+        const url = await uploadFileBase64(client, params.imageBase64, params.imageMime || 'image/png')
+        if (url) imageUrls.push(url)
+      } else if (params.imageUrl) {
+        imageUrls.push(params.imageUrl)
+      }
+
+      if (imageUrls.length > 0) {
+        omniInput.image_urls = imageUrls.slice(0, 7)
+      }
+    }
+
+    return createTask(client, actualModel, omniInput)
+  }
+
+  // Wan 3.0: multimodal video generation (text-to-video, FF/LF, reference images/videos/audios)
+  if (params.model === 'wan/3-0-video' || params.model === 'wan-3-0-video' || params.model === 'wan-3.0') {
+    const actualModel = 'wan/3-0-video'
+    const wanInput: Record<string, any> = {}
+    if (params.prompt) wanInput.prompt = params.prompt
+
+    // Resolution: 480P | 720P | 1080P (default 1080P)
+    if (params.resolution) {
+      const res = params.resolution.toUpperCase()
+      wanInput.resolution = res === '480P' || res === '720P' || res === '1080P' ? res : '1080P'
+    } else {
+      wanInput.resolution = '1080P'
+    }
+
+    // Aspect ratio: adaptive | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 (default adaptive)
+    if (params.aspectRatio) {
+      wanInput.aspect_ratio = params.aspectRatio
+    } else {
+      wanInput.aspect_ratio = 'adaptive'
+    }
+
+    // Duration: integer (default 5, range [2, 30])
+    if (params.duration !== undefined) {
+      wanInput.duration = typeof params.duration === 'string' ? parseInt(params.duration) : params.duration
+    } else {
+      wanInput.duration = 5
+    }
+
+    // Audio track: default true
+    wanInput.audio = params.sound !== undefined ? !!params.sound : true
+
+    // FF / LF Mode: mutually exclusive with reference_*_urls
+    const hasFirstFrame = !!(params.firstFrameBase64 || params.firstFrameUrl)
+    if (hasFirstFrame) {
+      let ffUrl = params.firstFrameUrl
+      if (!ffUrl && params.firstFrameBase64) {
+        ffUrl = await uploadFileBase64(client, params.firstFrameBase64, 'image/png')
+      }
+      if (ffUrl) {
+        wanInput.first_frame_url = ffUrl
+        if (params.lastFrameBase64 || params.lastFrameUrl) {
+          let lfUrl = params.lastFrameUrl
+          if (!lfUrl && params.lastFrameBase64) {
+            lfUrl = await uploadFileBase64(client, params.lastFrameBase64, 'image/png')
+          }
+          if (lfUrl) wanInput.last_frame_url = lfUrl
+        }
+      }
+    } else {
+      // Reference Images (up to 10)
+      const refImageUrls: string[] = []
+      if (params.imageRefs && params.imageRefs.length > 0) {
+        for (const ref of params.imageRefs) {
+          if (ref.base64) {
+            const url = await uploadFileBase64(client, ref.base64, ref.mime || 'image/png')
+            if (url) refImageUrls.push(url)
+          } else if (ref.url) {
+            refImageUrls.push(ref.url)
+          }
+        }
+      } else if (params.imageBase64) {
+        const url = await uploadFileBase64(client, params.imageBase64, params.imageMime || 'image/png')
+        if (url) refImageUrls.push(url)
+      } else if (params.imageUrl) {
+        refImageUrls.push(params.imageUrl)
+      }
+      if (refImageUrls.length > 0) {
+        wanInput.reference_image_urls = refImageUrls.slice(0, 10)
+      }
+
+      // Reference Videos (up to 5 clips)
+      if (params.videoRefs && params.videoRefs.length > 0) {
+        const refVideoUrls: string[] = []
+        for (const ref of params.videoRefs) {
+          if (ref.base64) {
+            const url = await uploadFileBase64(client, ref.base64, ref.mime || 'video/mp4')
+            if (url) refVideoUrls.push(url)
+          } else if (ref.url) {
+            refVideoUrls.push(ref.url)
+          }
+        }
+        if (refVideoUrls.length > 0) {
+          wanInput.reference_video_urls = refVideoUrls.slice(0, 5)
+        }
+      }
+
+      // Reference Audios (up to 5 clips)
+      if (params.audioRefs && params.audioRefs.length > 0) {
+        const refAudioUrls: string[] = []
+        for (const ref of params.audioRefs) {
+          if (ref.base64) {
+            const audio = await ensureKieAudioRef(ref.base64, ref.mime || 'audio/mpeg')
+            const url = await uploadFileBase64(client, audio.base64, audio.mime)
+            if (url) refAudioUrls.push(url)
+          } else if (ref.audioUrl) {
+            refAudioUrls.push(ref.audioUrl)
+          }
+        }
+        if (refAudioUrls.length > 0) {
+          wanInput.reference_audio_urls = refAudioUrls.slice(0, 5)
+        }
+      }
+    }
+
+    return createTask(client, actualModel, wanInput)
   }
 
   // Grok Imagine: single model routed by attachments — text-to-video, image-to-video or extend
@@ -121,8 +331,15 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     if (params.duration !== undefined) {
       mmInput.duration = typeof params.duration === 'string' ? parseInt(params.duration) : params.duration
     }
-    if (params.resolution === '768P' || params.resolution === '2K') {
-      mmInput.resolution = params.resolution
+    if (params.resolution) {
+      const resUpper = params.resolution.trim().toUpperCase()
+      if (resUpper === '768P' || resUpper === '2K' || resUpper === '4K') {
+        mmInput.resolution = resUpper
+      } else if (resUpper === '768') {
+        mmInput.resolution = '768P'
+      } else {
+        mmInput.resolution = params.resolution
+      }
     }
 
     if (params.model === 'minimax-h3/text-to-video') {
@@ -171,9 +388,11 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
       if (params.audioRefs && params.audioRefs.length > 0) {
         const refAudioUrls: string[] = []
         for (const ref of params.audioRefs.slice(0, 3)) {
-          const audio = await ensureKieAudioRef(ref.base64, ref.mime || 'audio/mpeg')
-          const url = await uploadFileBase64(client, audio.base64, audio.mime)
-          if (url) refAudioUrls.push(url)
+          if (ref.base64) {
+            const audio = await ensureKieAudioRef(ref.base64, ref.mime || 'audio/mpeg')
+            const url = await uploadFileBase64(client, audio.base64, audio.mime)
+            if (url) refAudioUrls.push(url)
+          }
         }
         if (refAudioUrls.length > 0) mmInput.reference_audio_urls = refAudioUrls
       }
@@ -224,22 +443,58 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     }
 
     // Kling i2v: use image_urls for reference/start image
-    if (params.imageBase64 || params.imageRefs?.length) {
-      const urls: string[] = []
-      if (params.imageRefs && params.imageRefs.length > 0) {
-        for (const ref of params.imageRefs) {
-          const url = await uploadFileBase64(client, ref.base64, ref.mime)
-          if (url) urls.push(url)
+    const urls: string[] = []
+
+    // 1. Check direct HTTP URL
+    if (params.firstFrameUrl && params.firstFrameUrl.startsWith('http')) {
+      urls.push(params.firstFrameUrl)
+    } else if (params.imageUrl && params.imageUrl.startsWith('http')) {
+      urls.push(params.imageUrl)
+    }
+
+    // 2. Check imageRefs
+    if (params.imageRefs && params.imageRefs.length > 0) {
+      for (const ref of params.imageRefs) {
+        let b64 = ref.base64
+        let mime = ref.mime || 'image/png'
+        if (!b64 && ref.assetId) {
+          const assetData = await getAssetBase64(ref.assetId)
+          if (assetData) {
+            b64 = assetData.base64
+            mime = assetData.mime || mime
+          }
         }
-      } else if (params.imageBase64) {
-        const url = await uploadFileBase64(client, params.imageBase64, params.imageMime || 'image/png')
+        if (b64) {
+          const url = await uploadFileBase64(client, b64, mime)
+          if (url) urls.push(url)
+        } else if (ref.url && ref.url.startsWith('http')) {
+          urls.push(ref.url)
+        }
+      }
+    }
+
+    // 3. Check imageBase64 or firstFrameBase64 / firstFrameAssetId
+    if (params.imageBase64) {
+      const url = await uploadFileBase64(client, params.imageBase64, params.imageMime || 'image/png')
+      if (url) urls.push(url)
+    } else if (params.firstFrameBase64) {
+      const url = await uploadFileBase64(client, params.firstFrameBase64, 'image/png')
+      if (url) urls.push(url)
+    } else if (params.firstFrameAssetId && urls.length === 0) {
+      const assetData = await getAssetBase64(params.firstFrameAssetId)
+      if (assetData) {
+        const url = await uploadFileBase64(client, assetData.base64, assetData.mime || 'image/png')
         if (url) urls.push(url)
       }
-      if (urls.length > 0) input.image_urls = urls
+    }
+
+    if (urls.length > 0) {
+      input.image_urls = urls
+      input.first_frame_url = urls[0]
     }
 
     // Kling FF/LF frames
-    if (params.firstFrameBase64) {
+    if (params.firstFrameBase64 && !input.first_frame_url) {
       const ffUrl = await uploadFileBase64(client, params.firstFrameBase64, 'image/png')
       if (ffUrl) input.first_frame_url = ffUrl
     }
@@ -262,7 +517,9 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
       if (params.firstFrameBase64) images.push({ base64: params.firstFrameBase64, mime: 'image/png' })
       if (params.lastFrameBase64) images.push({ base64: params.lastFrameBase64, mime: 'image/png' })
       if (params.imageRefs && params.imageRefs.length > 0) {
-        for (const ref of params.imageRefs) images.push({ base64: ref.base64, mime: ref.mime })
+        for (const ref of params.imageRefs) {
+          if (ref.base64) images.push({ base64: ref.base64, mime: ref.mime || 'image/png' })
+        }
       } else if (params.imageBase64) {
         images.push({ base64: params.imageBase64, mime: params.imageMime || 'image/png' })
       }
@@ -288,7 +545,11 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
       const imageRefsOut: { image_url: string; ref_name: string; type?: string }[] = []
       const allImages: { base64: string; mime: string; name?: string; refType?: string }[] = []
       if (params.imageBase64) allImages.push({ base64: params.imageBase64, mime: params.imageMime || 'image/png' })
-      if (params.imageRefs) allImages.push(...params.imageRefs)
+      if (params.imageRefs) {
+        for (const ref of params.imageRefs) {
+          if (ref.base64) allImages.push({ base64: ref.base64, mime: ref.mime || 'image/png', name: ref.name, refType: ref.refType })
+        }
+      }
       for (let i = 0; i < allImages.length; i++) {
         const url = await uploadFileBase64(client, allImages[i].base64, allImages[i].mime)
         if (url) imageRefsOut.push({
@@ -322,8 +583,10 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     const refImageUrls: string[] = []
     if (params.imageRefs && params.imageRefs.length > 0) {
       for (const ref of params.imageRefs) {
-        const url = await uploadFileBase64(client, ref.base64, ref.mime)
-        if (url) refImageUrls.push(url)
+        if (ref.base64) {
+          const url = await uploadFileBase64(client, ref.base64, ref.mime || 'image/png')
+          if (url) refImageUrls.push(url)
+        }
       }
     } else if (params.imageBase64) {
       const url = await uploadFileBase64(client, params.imageBase64, params.imageMime || 'image/png')
@@ -335,8 +598,10 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     if (params.videoRefs && params.videoRefs.length > 0) {
       const refVideoUrls: string[] = []
       for (const ref of params.videoRefs) {
-        const url = await uploadFileBase64(client, ref.base64, ref.mime)
-        if (url) refVideoUrls.push(url)
+        if (ref.base64) {
+          const url = await uploadFileBase64(client, ref.base64, ref.mime || 'video/mp4')
+          if (url) refVideoUrls.push(url)
+        }
       }
       if (refVideoUrls.length > 0) input.reference_video_urls = refVideoUrls
     }
@@ -345,9 +610,11 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     if (params.audioRefs && params.audioRefs.length > 0) {
       const refAudioUrls: string[] = []
       for (const ref of params.audioRefs) {
-        const audio = await ensureKieAudioRef(ref.base64, ref.mime || 'audio/mpeg')
-        const url = await uploadFileBase64(client, audio.base64, audio.mime)
-        if (url) refAudioUrls.push(url)
+        if (ref.base64) {
+          const audio = await ensureKieAudioRef(ref.base64, ref.mime || 'audio/mpeg')
+          const url = await uploadFileBase64(client, audio.base64, audio.mime)
+          if (url) refAudioUrls.push(url)
+        }
       }
       if (refAudioUrls.length > 0) input.reference_audio_urls = refAudioUrls
     }
@@ -360,10 +627,19 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     }
   } else if (!isKling && !isSeedance && !isPixverseV6) {
     // Non-Seedance, non-Kling, non-PixVerse models use image_urls
-    if (params.imageBase64) {
+    const urls: string[] = []
+    if (params.imageRefs && params.imageRefs.length > 0) {
+      for (const ref of params.imageRefs) {
+        if (ref.base64) {
+          const url = await uploadFileBase64(client, ref.base64, ref.mime || 'image/png')
+          if (url) urls.push(url)
+        }
+      }
+    } else if (params.imageBase64) {
       const imageUrl = await uploadFileBase64(client, params.imageBase64, params.imageMime || 'image/png')
-      if (imageUrl) input.image_urls = [imageUrl]
+      if (imageUrl) urls.push(imageUrl)
     }
+    if (urls.length > 0) input.image_urls = urls
   }
 
   return createTask(client, params.model, input)

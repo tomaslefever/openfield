@@ -708,6 +708,93 @@ export class AssetManager {
     if (converted > 0) raw.save()
     return { converted, failed }
   }
+
+  // Detects broken video assets (missing file, `__error__` marker, or a local file
+  // that ffmpeg can't decode) and tries to recover them: transcode with ffmpeg when
+  // a file exists, or re-download from the original task when it doesn't.
+  async fixBrokenVideos(): Promise<{ checked: number; fixed: number; failed: number; skipped: number; details: string[] }> {
+    const raw = getRawDb()
+    const rows = raw.prepare("SELECT * FROM assets WHERE type = 'video'").all() as any[]
+    const result = { checked: 0, fixed: 0, failed: 0, skipped: 0, details: [] as string[] }
+
+    for (const asset of rows) {
+      const isError = String(asset.filePath || '').startsWith('__error__')
+      const label = asset.fileName || asset.id
+
+      // Resolve an existing file on disk
+      let filePath: string | null = null
+      for (const p of [asset.localPath, asset.filePath]) {
+        if (p && typeof p === 'string' && !p.startsWith('http') && !p.startsWith('__error__')) {
+          try { await fs.access(p); filePath = p; break } catch {}
+        }
+      }
+
+      if (!filePath) {
+        if (asset.taskId) {
+          result.checked++
+          try {
+            await this.refreshAsset(asset.id)
+            const after = this.getAsset(asset.id) as any
+            if (after?.localPath && !String(after.localPath).startsWith('http') && !String(after.filePath || '').startsWith('__error__')) {
+              result.fixed++
+              result.details.push(`Recovered from task: ${label}`)
+            } else {
+              result.failed++
+              result.details.push(`No task/file to recover: ${label}`)
+            }
+          } catch {
+            result.failed++
+          }
+        } else {
+          result.skipped++
+        }
+        continue
+      }
+
+      result.checked++
+      const playable = await isVideoPlayable(filePath)
+      const codec = await getVideoCodec(filePath)
+      // Chromium (Electron) only plays H.264 reliably: transcode anything else.
+      const needsTranscode = !playable || (codec !== null && codec !== 'h264')
+      if (!needsTranscode && !isError) continue
+
+      try {
+        let savedPath = filePath
+        let savedSize = (await fs.stat(filePath)).size
+        if (needsTranscode) {
+          await ensurePlayableVideo(filePath)
+          if (await isVideoPlayable(filePath)) {
+            savedSize = (await fs.stat(filePath)).size
+            result.details.push(`Transcoded: ${label}`)
+          } else {
+            result.failed++
+            result.details.push(`Transcode produced unplayable file: ${label}`)
+            continue
+          }
+        } else {
+          result.details.push(`Restored: ${label}`)
+        }
+        raw.prepare(
+          'UPDATE assets SET file_path = ?, local_path = ?, file_name = ?, mime_type = ?, file_size = ?, updated_at = ? WHERE id = ?'
+        ).run(savedPath, savedPath, path.basename(savedPath), 'video/mp4', savedSize, Date.now(), asset.id)
+        result.fixed++
+      } catch (err: any) {
+        result.failed++
+        result.details.push(`Failed: ${label} — ${err?.message || String(err)}`)
+      }
+    }
+
+    if (result.fixed > 0) raw.save()
+    console.log(`[fixBrokenVideos] checked=${result.checked} fixed=${result.fixed} failed=${result.failed} skipped=${result.skipped}`)
+    return result
+  }
+
+  getBrokenVideoStats() {
+    const raw = getRawDb()
+    const errored = raw.prepare("SELECT count(*) as c FROM assets WHERE type = 'video' AND file_path LIKE '__error__%'").get()?.c || 0
+    const total = raw.prepare("SELECT count(*) as c FROM assets WHERE type = 'video'").get()?.c || 0
+    return { errored, total }
+  }
 }
 
 let assetManagerInstance: AssetManager | null = null
@@ -759,7 +846,7 @@ export async function ensurePlayableVideo(inputPath: string): Promise<{ path: st
     const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
     const os = require('os')
     const pathMod = require('path')
-    const tmpPath = pathMod.join(os.tmpdir(), `openfield-transcode-${Date.now()}.mp4`)
+    const tmpPath = pathMod.join(os.tmpdir(), `openfield-transcode-${crypto.randomUUID()}.mp4`)
     console.log('[ensurePlayableVideo] Re-encoding to', tmpPath)
 
     await new Promise<void>((resolve, reject) => {
@@ -767,8 +854,6 @@ export async function ensurePlayableVideo(inputPath: string): Promise<{ path: st
       const buildArgs = (withAudio: boolean) => [
         '-i', inputPath,
         '-c:v', 'libx264',
-        '-profile:v', 'baseline',
-        '-level', '3.0',
         '-preset', 'ultrafast',
         '-crf', '23',
         '-pix_fmt', 'yuv420p',
@@ -817,6 +902,38 @@ export async function ensurePlayableVideo(inputPath: string): Promise<{ path: st
     console.error('[ensurePlayableVideo] FAILED:', err.message)
     try { const s = await fs.stat(inputPath); return { path: inputPath, size: s.size } } catch { return { path: inputPath, size: 0 } }
   }
+}
+
+// Quick playability probe: decodes ~1s of the file with ffmpeg. Exit code 0 means
+// the file is structurally decodable (corruption/truncation makes it fail).
+async function isVideoPlayable(filePath: string): Promise<boolean> {
+  try {
+    const ffmpegStatic = require('ffmpeg-static')
+    const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
+    const { spawn } = require('child_process')
+    return await new Promise<boolean>((resolve) => {
+      let settled = false
+      const done = (ok: boolean) => { if (!settled) { settled = true; resolve(ok) } }
+      try {
+        const proc = spawn(ffmpegPath, ['-v', 'error', '-i', filePath, '-t', '1', '-f', 'null', '-'], { windowsHide: true })
+        proc.on('error', () => done(false))
+        proc.on('close', (code: number) => done(code === 0))
+        setTimeout(() => { try { proc.kill() } catch {} done(false) }, 45000)
+      } catch { done(false) }
+    })
+  } catch { return false }
+}
+
+// Returns the video codec name (e.g. "h264", "hevc", "av1") or null if unknown.
+async function getVideoCodec(filePath: string): Promise<string | null> {
+  try {
+    const ffmpegStatic = require('ffmpeg-static')
+    const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
+    const { spawnSync } = require('child_process')
+    const res = spawnSync(ffmpegPath, ['-i', filePath], { encoding: 'utf8', timeout: 30000, windowsHide: true })
+    const m = (res.stderr || '').match(/Video:\s*(\w+)/)
+    return m ? m[1].toLowerCase() : null
+  } catch { return null }
 }
 
 export function getAssetManager(): AssetManager {

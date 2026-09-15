@@ -232,13 +232,23 @@ export function QuickPromptComposer({
     setShowInsertLibrary(true)
   }
 
-  const handleInsertLibrarySelect = async (asset: any) => {
+  const handleInsertLibrarySelect = async (assetOrAssets: any | any[]) => {
+    const assets = Array.isArray(assetOrAssets) ? assetOrAssets : [assetOrAssets]
+    if (assets.length === 0) return
     try {
       const api = (window as any).electronAPI
-      const results = await api?.assets.readBase64([asset.id])
-      const b64 = results?.[0]?.base64
-      const mime = results?.[0]?.mime || 'image/png'
-      if (b64) setExtRefs(prev => [...prev, { base64: b64, mime }])
+      const results = await api?.assets.readBase64(assets.map((a: any) => a.id))
+      if (Array.isArray(results)) {
+        const newRefs = results
+          .filter((r: any) => r?.base64)
+          .map((r: any, idx: number) => ({
+            base64: r.base64,
+            mime: r.mime || (assets[idx]?.type === 'video' ? 'video/mp4' : assets[idx]?.type === 'audio' ? 'audio/mpeg' : 'image/png')
+          }))
+        if (newRefs.length > 0) {
+          setExtRefs(prev => [...prev, ...newRefs])
+        }
+      }
     } catch { /* ignore */ }
     setShowInsertLibrary(false)
   }

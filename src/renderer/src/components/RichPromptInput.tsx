@@ -6,6 +6,7 @@ export interface RichPromptInputHandle {
   getText: () => string
   setText: (text: string) => void
   insertBadge: (el: StudioElement) => void
+  insertText: (text: string) => void
   focus: () => void
 }
 
@@ -19,6 +20,19 @@ interface Props {
   placeholder?: string
   disabled?: boolean
   className?: string
+  expanded?: boolean
+  tagPatterns?: string[]
+}
+
+const ZWSP = '\u200B'
+
+// Builds a regex matching element badges and the model's tag templates (e.g. @image_%d).
+function buildBadgeRegex(tagPatterns?: string[]): RegExp {
+  const elSrc = `@element:([^${ZWSP}]+)${ZWSP}`
+  const tagSrc = (tagPatterns || [])
+    .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%d/g, '\\d+'))
+    .join('|')
+  return new RegExp(`(${elSrc}${tagSrc ? '|' + tagSrc : ''})`, 'g')
 }
 
 function getTextBeforeCursor(editor: HTMLElement): string {
@@ -42,6 +56,10 @@ function extractText(editor: HTMLElement): string {
       result += '@element:' + (node.getAttribute('data-element-name') || '') + '\u200B'
       return
     }
+    if (node.hasAttribute('data-ref-tag')) {
+      result += node.getAttribute('data-ref-tag') || ''
+      return
+    }
     if (node.tagName === 'BR') {
       result += '\n'
       return
@@ -55,7 +73,7 @@ function extractText(editor: HTMLElement): string {
   return result
 }
 
-function renderHTML(editor: HTMLElement, text: string, elements: StudioElement[]) {
+function renderHTML(editor: HTMLElement, text: string, elements: StudioElement[], tagPatterns?: string[]) {
   const findElement = (name: string) => elements.find(e => e.name === name)
   const addText = (t: string) => {
     const parts = t.split('\n')
@@ -65,18 +83,21 @@ function renderHTML(editor: HTMLElement, text: string, elements: StudioElement[]
     }
   }
   editor.innerHTML = ''
-  const regex = /@element:([^\u200B]+)\u200B/g
+  const regex = buildBadgeRegex(tagPatterns)
   let lastIdx = 0
   let match: RegExpExecArray | null
 
   while ((match = regex.exec(text)) !== null) {
-    const elName = match[1]
+    const elName = match[2]
     if (match.index > lastIdx) {
       addText(text.substring(lastIdx, match.index))
     }
-    const el = findElement(elName)
-    const badge = createBadgeElement(elName, el)
-    editor.appendChild(badge)
+    if (elName !== undefined) {
+      const el = findElement(elName)
+      editor.appendChild(createBadgeElement(elName, el))
+    } else {
+      editor.appendChild(createTagBadge(match[1]))
+    }
     lastIdx = regex.lastIndex
   }
 
@@ -119,11 +140,27 @@ function createBadgeElement(name: string, el?: StudioElement): HTMLElement {
   return span
 }
 
+function createTagBadge(token: string): HTMLElement {
+  const span = document.createElement('span')
+  span.setAttribute('data-ref-tag', token)
+  span.contentEditable = 'false'
+  span.style.cssText = `
+    display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px; margin: 0 2px;
+    border-radius: 6px; font-size: 13px; vertical-align: middle;
+    user-select: none; cursor: default;
+    background: rgba(34,211,238,0.12);
+    border: 1px solid rgba(34,211,238,0.32);
+    color: #22d3ee;
+  `
+  span.appendChild(document.createTextNode(token))
+  return span
+}
+
 export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
-  function RichPromptInput({ value, onChange, onAtState, onKeyDown, onBadgeClick, elements, placeholder, disabled, className }, ref) {
+  function RichPromptInput({ value, onChange, onAtState, onKeyDown, onBadgeClick, elements, placeholder, disabled, className, expanded, tagPatterns }, ref) {
     const editorRef = useRef<HTMLDivElement>(null)
     const internalChangeRef = useRef(false)
-    const prevValueRef = useRef(value)
+    const prevValueRef = useRef<string | null>(null)
     const valueRef = useRef(value)
 
     valueRef.current = value
@@ -144,7 +181,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
       const hadFocus = document.activeElement === editor
 
       internalChangeRef.current = true
-      renderHTML(editor, value, elements)
+      renderHTML(editor, value, elements, tagPatterns)
 
       if (hadFocus) {
         const newSel = window.getSelection()
@@ -167,7 +204,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
       }
 
       internalChangeRef.current = false
-    }, [value, elements])
+    }, [value, elements, tagPatterns])
 
     const handleInput = useCallback(() => {
       if (internalChangeRef.current) return
@@ -201,7 +238,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
 
         const node = range.startContainer
         const prevSibling = node.previousSibling
-        if (prevSibling instanceof HTMLElement && prevSibling.hasAttribute('data-element-name')) {
+        if (prevSibling instanceof HTMLElement && (prevSibling.hasAttribute('data-element-name') || prevSibling.hasAttribute('data-ref-tag'))) {
           e.preventDefault()
           prevSibling.remove()
           if (!internalChangeRef.current) {
@@ -222,7 +259,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
 
         const node = range.startContainer
         const nextSibling = node.nextSibling
-        if (nextSibling instanceof HTMLElement && nextSibling.hasAttribute('data-element-name')) {
+        if (nextSibling instanceof HTMLElement && (nextSibling.hasAttribute('data-element-name') || nextSibling.hasAttribute('data-ref-tag'))) {
           e.preventDefault()
           nextSibling.remove()
           if (!internalChangeRef.current) {
@@ -247,8 +284,44 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
         if (!editor) return
         internalChangeRef.current = true
         prevValueRef.current = text
-        renderHTML(editor, text, elements)
+        renderHTML(editor, text, elements, tagPatterns)
         onChange(text)
+        internalChangeRef.current = false
+      },
+      insertText: (text: string) => {
+        const editor = editorRef.current
+        if (!editor) return
+        const sel = window.getSelection()
+        if (!sel || !sel.rangeCount) return
+
+        const before = getTextBeforeCursor(editor)
+        const atMatch = before.match(/@(\S*)$/)
+        const range = sel.getRangeAt(0)
+        if (atMatch) {
+          const textNode = range.startContainer
+          if (textNode.nodeType === Node.TEXT_NODE) {
+            const startOffset = range.startOffset - atMatch[0].length
+            range.setStart(textNode, Math.max(0, startOffset))
+            range.setEnd(textNode, range.endOffset)
+            range.deleteContents()
+          }
+        }
+
+        const badge = createTagBadge(text)
+        range.insertNode(badge)
+
+        const space = document.createTextNode('\u00A0')
+        range.setStartAfter(badge)
+        range.insertNode(space)
+        range.setStartAfter(space)
+        range.collapse(true)
+        sel.removeAllRanges()
+        sel.addRange(range)
+
+        internalChangeRef.current = true
+        onAtState(false, '')
+        prevValueRef.current = extractText(editor)
+        onChange(prevValueRef.current)
         internalChangeRef.current = false
       },
       insertBadge: (el: StudioElement) => {
@@ -289,10 +362,10 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
         internalChangeRef.current = false
       },
       focus: () => editorRef.current?.focus(),
-    }), [elements, onChange, onAtState])
+    }), [elements, onChange, onAtState, tagPatterns])
 
     return (
-      <div className={`relative ${className || ''}`}>
+      <div className={`relative transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${className || ''}`}>
         <div
           ref={editorRef}
           contentEditable={!disabled}
@@ -345,7 +418,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
             }
           }}
           data-placeholder={placeholder}
-          className="w-full bg-transparent text-sm text-surface-100 resize-none outline-none px-3 py-2.5 min-h-[42px] max-h-[120px] leading-relaxed overflow-y-auto break-words"
+          className={`w-full bg-transparent text-sm text-surface-100 resize-none outline-none px-3 py-2.5 leading-relaxed overflow-y-auto break-words transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${expanded ? 'h-[50vh] min-h-[50vh] max-h-[50vh]' : 'h-[64px] min-h-[42px] max-h-[120px]'}`}
           style={{
             caretColor: '#a78bfa',
             wordBreak: 'break-word',

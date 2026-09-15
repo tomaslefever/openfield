@@ -1,5 +1,6 @@
-﻿import { create } from 'zustand'
+import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { extractDurationFromText } from './short-drama-store'
 
 export type ElementType = 'character' | 'object' | 'scenario'
 export type ShotType = 'extreme-close-up' | 'close-up' | 'medium-close-up' | 'medium' | 'medium-long' | 'long' | 'extreme-long' | 'two-shot' | 'over-the-shoulder' | 'point-of-view' | 'dutch-angle' | 'aerial' | 'tracking' | 'panning' | 'static'
@@ -107,6 +108,7 @@ export interface ScriptScene {
   title: string
   description: string
   order: number
+  duration?: number
 }
 
 export interface ScriptShot {
@@ -114,6 +116,7 @@ export interface ScriptShot {
   sceneId: string
   description: string
   order: number
+  duration?: number
 }
 
 export interface CinemaElement {
@@ -288,6 +291,7 @@ export const useCinemaStore = create<CinemaState>()(
         let currentSceneId = ''
         let currentSceneTitle = ''
         let currentSceneDesc = ''
+        let currentSceneDuration: number | undefined
         let sceneOrder = 0
         let shotOrder = 0
 
@@ -297,40 +301,52 @@ export const useCinemaStore = create<CinemaState>()(
 
           if (sceneMatch || shotMatch) {
             if (currentSceneId && currentSceneTitle) {
+              const sceneDur = currentSceneDuration || extractDurationFromText(currentSceneTitle) || extractDurationFromText(currentSceneDesc)
               parsedScenes.push({
                 id: currentSceneId,
                 title: currentSceneTitle,
                 description: currentSceneDesc.trim(),
                 order: sceneOrder,
+                duration: sceneDur,
               })
               sceneOrder++
             }
             if (sceneMatch) {
               currentSceneId = uid()
-              currentSceneTitle = sceneMatch[1].trim()
+              const rawTitle = sceneMatch[1].trim()
+              currentSceneDuration = extractDurationFromText(rawTitle)
+              currentSceneTitle = rawTitle
               currentSceneDesc = ''
               shotOrder = 0
             }
             if (shotMatch && currentSceneId) {
+              const shotDesc = shotMatch[1].trim()
+              const shotDur = extractDurationFromText(shotDesc)
               parsedShots.push({
                 id: uid(),
                 sceneId: currentSceneId,
-                description: shotMatch[1].trim(),
+                description: shotDesc,
                 order: shotOrder,
+                duration: shotDur,
               })
               shotOrder++
             }
           } else if (currentSceneId && line.trim()) {
             currentSceneDesc += (currentSceneDesc ? ' ' : '') + line.trim()
+            if (!currentSceneDuration) {
+              currentSceneDuration = extractDurationFromText(line.trim())
+            }
           }
         }
 
         if (currentSceneId && currentSceneTitle) {
+          const sceneDur = currentSceneDuration || extractDurationFromText(currentSceneTitle) || extractDurationFromText(currentSceneDesc)
           parsedScenes.push({
             id: currentSceneId,
             title: currentSceneTitle,
             description: currentSceneDesc.trim(),
             order: sceneOrder,
+            duration: sceneDur,
           })
         }
 

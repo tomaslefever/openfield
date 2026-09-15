@@ -1,4 +1,4 @@
-﻿import { app } from 'electron'
+import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as crypto from 'crypto'
@@ -310,6 +310,102 @@ export function runMigrations() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS drama_projects (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT,
+      title TEXT NOT NULL,
+      logline TEXT DEFAULT '',
+      idea_prompt TEXT DEFAULT '',
+      genre TEXT DEFAULT '',
+      tone TEXT DEFAULT '',
+      visual_style TEXT DEFAULT '',
+      content_type TEXT DEFAULT 'microdrama',
+      aspect_ratio TEXT DEFAULT '9:16',
+      shots_count INTEGER DEFAULT 4,
+      current_stage INTEGER DEFAULT 1,
+      llm_model TEXT DEFAULT '',
+      image_model TEXT DEFAULT '',
+      image_resolution TEXT DEFAULT '1K',
+      video_model TEXT DEFAULT '',
+      video_resolution TEXT DEFAULT '720p',
+      video_duration INTEGER DEFAULT 5,
+      voice_model TEXT DEFAULT '',
+      voice_id TEXT DEFAULT '',
+      script_text TEXT DEFAULT '',
+      final_video_asset_id TEXT,
+      final_video_path TEXT,
+      thumbnail_url TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS drama_characters (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES drama_projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      role TEXT DEFAULT '',
+      visual_prompt TEXT DEFAULT '',
+      voice_id TEXT DEFAULT '',
+      image_asset_id TEXT,
+      image_url TEXT,
+      task_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS drama_scenarios (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES drama_projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      visual_prompt TEXT DEFAULT '',
+      image_asset_id TEXT,
+      image_url TEXT,
+      task_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS drama_props (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES drama_projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      visual_prompt TEXT DEFAULT '',
+      image_asset_id TEXT,
+      image_url TEXT,
+      task_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS drama_shots (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES drama_projects(id) ON DELETE CASCADE,
+      order_index INTEGER NOT NULL,
+      scene_number INTEGER DEFAULT 1,
+      shot_number INTEGER NOT NULL,
+      camera_movement TEXT DEFAULT '',
+      character_names TEXT DEFAULT '[]',
+      scenario_name TEXT DEFAULT '',
+      prop_names TEXT DEFAULT '[]',
+      action_prompt TEXT DEFAULT '',
+      dialogue_text TEXT DEFAULT '',
+      dialogue_speaker TEXT DEFAULT '',
+      estimated_duration REAL DEFAULT 5,
+      keyframe_prompt TEXT DEFAULT '',
+      keyframe_asset_id TEXT,
+      keyframe_url TEXT,
+      keyframe_task_id TEXT,
+      video_asset_id TEXT,
+      video_local_path TEXT,
+      video_url TEXT,
+      video_task_id TEXT,
+      video_status TEXT DEFAULT 'idle',
+      video_progress INTEGER DEFAULT 0,
+      audio_asset_id TEXT,
+      audio_local_path TEXT,
+      audio_url TEXT,
+      audio_task_id TEXT,
+      audio_status TEXT DEFAULT 'idle',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
   ]
 
   for (const sql of tables) {
@@ -322,9 +418,44 @@ export function runMigrations() {
   // Migration: add openfield_task_id column to openfield_tasks
   try { raw.exec('ALTER TABLE openfield_tasks ADD COLUMN openfield_task_id TEXT') } catch {}
 
+  // Migration: add prop_names column to drama_shots
+  try { raw.exec("ALTER TABLE drama_shots ADD COLUMN prop_names TEXT DEFAULT '[]'") } catch {}
+
+  // Migration: add content_type column to drama_projects
+  try { raw.exec("ALTER TABLE drama_projects ADD COLUMN content_type TEXT DEFAULT 'microdrama'") } catch {}
+
+  // Migration: add custom_prompt_guide column to drama_projects
+  try { raw.exec("ALTER TABLE drama_projects ADD COLUMN custom_prompt_guide TEXT DEFAULT ''") } catch {}
+
+  // Migration: add workspace_id column to drama_projects
+  try { raw.exec('ALTER TABLE drama_projects ADD COLUMN workspace_id TEXT') } catch {}
+  try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_projects_workspace ON drama_projects(workspace_id)') } catch {}
+  try {
+    let defWsId = ''
+    const settingRow = raw.prepare("SELECT value FROM settings WHERE key = 'defaultWorkspaceId'").get() as any
+    if (settingRow?.value) {
+      try { defWsId = JSON.parse(settingRow.value) } catch { defWsId = settingRow.value }
+    }
+    if (!defWsId) {
+      const defaultWs = raw.prepare("SELECT id FROM workspaces WHERE name = 'Default' LIMIT 1").get() as any
+        || raw.prepare('SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1').get() as any
+      defWsId = defaultWs?.id || ''
+    }
+    if (defWsId) {
+      raw.prepare("UPDATE drama_projects SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''").run(defWsId)
+    }
+  } catch {}
+
   // Migration: add content_hash column for deduplicating reference images
   try { raw.exec('ALTER TABLE assets ADD COLUMN content_hash TEXT') } catch {}
   try { raw.exec('CREATE INDEX IF NOT EXISTS idx_assets_content_hash ON assets(content_hash)') } catch {}
+
+  // Drama indexes
+  try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_characters_proj ON drama_characters(project_id)') } catch {}
+  try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_scenarios_proj ON drama_scenarios(project_id)') } catch {}
+  try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_props_proj ON drama_props(project_id)') } catch {}
+  try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_shots_proj ON drama_shots(project_id)') } catch {}
+  try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_projects_created ON drama_projects(created_at DESC)') } catch {}
 
   // Migration: mark persisted reference images (saved at enqueue time as 'upload') as
   // 'ref' so they stay out of library listings. An asset is a reference if its id appears

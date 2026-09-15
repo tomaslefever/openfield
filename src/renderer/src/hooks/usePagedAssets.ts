@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../stores/workspace-store'
 
 export interface PagedAssetsOptions {
@@ -25,6 +25,10 @@ export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, p
   const reqRef = useRef(0)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
 
+  // Stabilize `types` array so unmemoized or newly allocated caller arrays don't cause infinite re-render loops
+  const typesKey = types && types.length > 0 ? [...types].sort().join(',') : ''
+  const memoizedTypes = useMemo(() => types, [typesKey])
+
   const fetchPage = useCallback(async (pageNum: number, append: boolean) => {
     if (busyRef.current) return
     const reqId = ++reqRef.current
@@ -35,7 +39,7 @@ export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, p
       const api = (window as any).electronAPI
       const res = await api?.assets.list({
         type,
-        ...(types && types.length > 0 ? { types } : {}),
+        ...(memoizedTypes && memoizedTypes.length > 0 ? { types: memoizedTypes } : {}),
         search: search || undefined,
         ...(isFavorite ? { isFavorite: true } : {}),
         ...(aspectRatio ? { aspectRatio } : {}),
@@ -60,7 +64,7 @@ export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, p
         else setInitialLoading(false)
       }
     }
-  }, [type, types, search, isFavorite, aspectRatio, pageSize, excludeUploads])
+  }, [type, typesKey, search, isFavorite, aspectRatio, pageSize, excludeUploads])
 
   const reset = useCallback(() => {
     reqRef.current++
@@ -106,14 +110,21 @@ export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, p
     reset()
   }, [reset, activeWorkspaceId])
 
-  // Refresh when assets change anywhere in the app (imports, drops, moves)
+  // Refresh when assets change structurally (imports, drops, deletes)
   const resetRef = useRef(reset)
   resetRef.current = reset
+  const updateAssetRef = useRef(updateAsset)
+  updateAssetRef.current = updateAsset
+
   useEffect(() => {
     const api = (window as any).electronAPI
     if (!api?.on) return
-    const unsub = api.on('assets:changed', () => resetRef.current())
-    return () => { try { unsub?.() } catch {} }
+    const unsubChanged = api.on('assets:changed', () => resetRef.current())
+    const unsubUpdated = api.on('assets:updated', (asset: any) => updateAssetRef.current(asset))
+    return () => {
+      try { unsubChanged?.() } catch {}
+      try { unsubUpdated?.() } catch {}
+    }
   }, [])
 
   useEffect(() => {

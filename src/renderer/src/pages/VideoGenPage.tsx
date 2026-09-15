@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Clock, Cloud, FolderOpen, CheckSquare, Square, Search, Star, Maximize2, RefreshCw } from 'lucide-react'
+import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Clock, Cloud, FolderOpen, CheckSquare, Square, Search, Star, RefreshCw, Video } from 'lucide-react'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { useGridFlip } from '../hooks/useGridFlip'
@@ -26,14 +26,21 @@ const MODEL_NAMES: Record<string, string> = {
   'bytedance/seedance-2-fast': 'Seedance 2 Fast',
   'wan-2-7-text-to-video': 'Wan 2.7',
   'wan-2-7-image-to-video': 'Wan 2.7',
+  'wan/3-0-video': 'Wan 3.0',
+  'wan-3-0-video': 'Wan 3.0',
   'hailuo/02-text-to-video-pro': 'Hailuo 2 Pro',
-  'gemini-omni-video': 'Gemini Omni',
+  'google/gemini-omni-flash-1-1': 'Gemini Omni 1.1 Flash',
+  'gemini-omni-video': 'Gemini Omni 1.1 Flash',
   'prunaai/p-video-avatar': 'P-Video Avatar',
   'prunaai/p-video': 'P-Video',
+  'philz1337x/crystal-video-upscaler': 'Crystal Upscaler',
   'minimax-h3/text-to-video': 'MiniMax H3',
   'minimax-h3/image-to-video': 'MiniMax H3',
   'minimax-h3/reference-to-video': 'MiniMax H3',
   'minimax/h3/reference-to-video': 'MiniMax H3 (Fal)',
+  'minimax/h3-max-turbo/text-to-video': 'MiniMax H3 Max Turbo (Fal)',
+  'minimax/h3-max/text-to-video': 'MiniMax H3 Max (Fal)',
+  'minimax/h3-max/reference-to-video': 'MiniMax H3 Max Ref (Fal)',
 }
 
 export function VideoGenPage() {
@@ -42,9 +49,6 @@ export function VideoGenPage() {
   const [copiedPrompt, setCopiedPrompt] = useState(false)
   const [promptExpanded, setPromptExpanded] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'done'>('idle')
-  const [upscaling, setUpscaling] = useState(false)
-  const [upscaleRes, setUpscaleRes] = useState<'720p' | '1080p'>('1080p')
-  const [upscaleError, setUpscaleError] = useState<string | null>(null)
   const [isDev, setIsDev] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
@@ -96,8 +100,9 @@ export function VideoGenPage() {
     playAttemptsRef.current.delete(id)
   }
 
-  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset, removeAssets } = usePagedAssets({ type: 'video', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, loadMore, updateAsset, removeAssets } = usePagedAssets({ type: 'video', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
   const { gridRef, capture, fadeOut, animate } = useGridFlip()
+  const pendingNextRef = useRef(false)
 
   const handleAssetsMoved = (ids: string[]) => {
     fadeOut(ids)
@@ -115,7 +120,7 @@ export function VideoGenPage() {
   }, [])
 
   useEffect(() => {
-    setSelectedAsset((prev) => {
+    setSelectedAsset((prev: any) => {
       if (!prev || assets.length === 0) return prev
       const updated = assets.find((a: any) => a.id === prev.id)
       if (!updated) return prev
@@ -123,6 +128,30 @@ export function VideoGenPage() {
       return updated
     })
   }, [assets])
+
+  useEffect(() => {
+    setPromptExpanded(false)
+  }, [selectedAsset?.id])
+
+  // Preload next batch when near the end of loaded assets
+  useEffect(() => {
+    if (!selectedAsset) return
+    const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+    if (idx >= 0 && idx >= assets.length - 2 && hasMore) {
+      loadMore()
+    }
+  }, [selectedAsset?.id, assets.length, hasMore, loadMore])
+
+  // Advance to next asset if pending from hitting next at the end of the previous batch
+  useEffect(() => {
+    if (pendingNextRef.current && selectedAsset) {
+      const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+      if (idx >= 0 && idx < assets.length - 1) {
+        setSelectedAsset(assets[idx + 1])
+        pendingNextRef.current = false
+      }
+    }
+  }, [assets, selectedAsset])
 
   useEffect(() => {
     const api = (window as any).electronAPI
@@ -141,12 +170,20 @@ export function VideoGenPage() {
     const handler = (e: KeyboardEvent) => {
       const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
       if (e.key === 'ArrowLeft' && idx > 0) setSelectedAsset(assets[idx - 1])
-      if (e.key === 'ArrowRight' && idx < assets.length - 1) setSelectedAsset(assets[idx + 1])
+      if (e.key === 'ArrowRight') {
+        if (idx >= 0 && idx < assets.length - 1) {
+          setSelectedAsset(assets[idx + 1])
+          if (idx + 1 >= assets.length - 2 && hasMore) loadMore()
+        } else if (hasMore) {
+          pendingNextRef.current = true
+          loadMore()
+        }
+      }
       if (e.key === 'Escape') setSelectedAsset(null)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [selectedAsset, assets])
+  }, [selectedAsset, assets, hasMore, loadMore])
 
   const handleDelete = useCallback(async (assetId: string) => {
     await (window as any).electronAPI?.assets.delete(assetId)
@@ -179,10 +216,25 @@ export function VideoGenPage() {
     }
   }
 
+  const handleAddReference = async () => {
+    if (!selectedAsset) return
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64([selectedAsset.id])
+      const b64 = results?.[0]?.base64 || ''
+      const mime = results?.[0]?.mime || 'video/mp4'
+      if (!b64) return
+      composerRef.current?.addRefs([{ base64: b64, mime }])
+      setSelectedAsset(null)
+    } catch (err) {
+      console.error('Reference failed:', err)
+    }
+  }
+
   const handleGenerate = useCallback(async (params: any) => {
     try {
       const api = (window as any).electronAPI
-      const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/')
+      const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/')
       if (isFalModel) {
         await api?.fal.generate(params)
@@ -244,22 +296,6 @@ export function VideoGenPage() {
   }, [selectedIds, clearSelection])
 
   const params = selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}
-
-  const canUpscale = !!(selectedAsset?.taskId && selectedAsset.modelUsed?.startsWith('grok-imagine'))
-
-  const handleUpscale = async () => {
-    if (!selectedAsset || !canUpscale || upscaling) return
-    setUpscaling(true)
-    setUpscaleError(null)
-    try {
-      await (window as any).electronAPI?.openfield.upscaleVideo(selectedAsset.id, upscaleRes)
-    } catch (err: any) {
-      console.error('Upscale failed:', err)
-      setUpscaleError(err?.message || 'Upscale failed')
-    } finally {
-      setUpscaling(false)
-    }
-  }
 
   const handleReload = () => {
     reset()
@@ -345,7 +381,23 @@ export function VideoGenPage() {
                   {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
                 </button>
                 <div className="absolute bottom-2 right-2 flex items-center gap-1">
-                  {(() => { try { const p = JSON.parse(asset.parameters || '{}'); if (p.aspectRatio) return <AssetBadge value={p.aspectRatio} /> } catch {} return null })()}
+                  {(() => {
+                    try {
+                      const p = JSON.parse(asset.parameters || '{}')
+                      return (
+                        <>
+                          {p.aspectRatio && <AssetBadge value={p.aspectRatio} />}
+                          {(p.generationTime || p.generationTimeSeconds || p.costTime) && (
+                            <AssetBadge
+                              value={p.generationTime || (p.generationTimeSeconds ? `${p.generationTimeSeconds}s` : `${p.costTime}s`)}
+                              icon={<Clock size={10} className="text-surface-300" />}
+                            />
+                          )}
+                        </>
+                      )
+                    } catch {}
+                    return null
+                  })()}
                   {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
                 </div>
               </div>
@@ -405,7 +457,7 @@ export function VideoGenPage() {
       {/* Detail modal */}
       {selectedAsset && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setSelectedAsset(null)}>
-          <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Video */}
             <div className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative">
               {assets.findIndex((a: any) => a.id === selectedAsset.id) > 0 && (
@@ -415,15 +467,25 @@ export function VideoGenPage() {
                   <ChevronLeft size={20} />
                 </button>
               )}
-              {assets.findIndex((a: any) => a.id === selectedAsset.id) < assets.length - 1 && (
+              {(assets.findIndex((a: any) => a.id === selectedAsset.id) < assets.length - 1 || hasMore) && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); const idx = assets.findIndex((a: any) => a.id === selectedAsset.id); setSelectedAsset(assets[idx + 1]) }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
+                    if (idx >= 0 && idx < assets.length - 1) {
+                      setSelectedAsset(assets[idx + 1])
+                      if (idx + 1 >= assets.length - 2 && hasMore) loadMore()
+                    } else if (hasMore) {
+                      pendingNextRef.current = true
+                      loadMore()
+                    }
+                  }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors z-10">
                   <ChevronRight size={20} />
                 </button>
               )}
               {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__'))) ? (
-                <AutoPlayVideo key={selectedAsset.id} src={srcUrl(selectedAsset.localPath || selectedAsset.filePath)} className="max-w-full max-h-[80vh] object-contain" />
+                <AutoPlayVideo key={selectedAsset.id} src={srcUrl(selectedAsset.localPath || selectedAsset.filePath)} className="max-w-full max-h-[90vh] object-contain" />
               ) : (
                 <div className="text-surface-600">No preview</div>
               )}
@@ -436,7 +498,7 @@ export function VideoGenPage() {
               </button>
             </div>
             {/* Details */}
-            <div className="w-72 bg-surface-900/80 border-l border-surface-800 flex flex-col">
+            <div className="w-96 min-w-[380px] flex-shrink-0 bg-surface-900/80 border-l border-surface-800 flex flex-col">
               <div className="flex items-center justify-end px-3 py-2 border-b border-surface-800 flex-shrink-0">
                 <button onClick={() => setSelectedAsset(null)} title="Close"
                   className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
@@ -450,6 +512,7 @@ export function VideoGenPage() {
                   <p
                     onClick={() => setPromptExpanded(!promptExpanded)}
                     className={`text-sm text-surface-200 leading-relaxed flex-1 cursor-pointer select-none ${promptExpanded ? '' : 'line-clamp-3'}`}
+                    title={promptExpanded ? 'Click para contraer' : 'Click para expandir'}
                   >
                     {selectedAsset.prompt || params.prompt || '—'}
                   </p>
@@ -498,6 +561,12 @@ export function VideoGenPage() {
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">File Size</p>
                 <p className="text-sm text-surface-200">{selectedAsset.fileSize ? `${(selectedAsset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Gen Time</p>
+                <p className="text-sm text-surface-200">
+                  {params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : (params.costTime ? `${params.costTime}s` : '—'))}
+                </p>
               </div>
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Credits Used</p>
@@ -569,29 +638,15 @@ export function VideoGenPage() {
                   {saveState === 'done' ? <Check size={12} className="text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
                   {saveState === 'done' ? 'Saved' : 'Save as'}
                 </button>
-                <div className="flex items-center gap-1">
-                  <select value={upscaleRes} onChange={(e) => setUpscaleRes(e.target.value as '720p' | '1080p')} disabled={upscaling} title="Upscale resolution"
-                    className="bg-surface-800 border border-surface-700 rounded-lg px-1 py-1 text-[10px] text-surface-300 outline-none w-14 flex-shrink-0">
-                    <option value="1080p">1080p</option>
-                    <option value="720p">720p</option>
-                  </select>
-                  <button onClick={handleUpscale} disabled={!canUpscale || upscaling}
-                    title={!canUpscale ? 'Upscale solo funciona con videos generados por Grok Imagine' : 'Upscale this video'}
-                    className="btn-ghost text-xs flex-1 justify-center flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
-                    {upscaling ? <Loader size={12} className="animate-spin" /> : <Maximize2 size={12} />} Upscale
-                  </button>
-                </div>
+                <button onClick={handleAddReference} className="btn-ghost text-xs w-full col-span-2 justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
+                  <Video size={12} /> Reference
+                </button>
                   {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') && !selectedAsset.filePath.startsWith('http'))) && (
                     <button onClick={() => (window as any).electronAPI?.assets.showInFolder(selectedAsset.id)}
                       className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
                       <FolderOpen size={12} /> Show in folder
                     </button>
                   )}
-                {upscaleError && (
-                  <p className="col-span-2 text-[10px] text-red-400 flex items-center gap-1">
-                    <AlertCircle size={10} className="flex-shrink-0" /> <span className="line-clamp-2">{upscaleError}</span>
-                  </p>
-                )}
                 {confirmDelete === selectedAsset.id ? (
                   <div className="col-span-2 flex items-center gap-2 justify-center">
                     <span className="text-[11px] text-surface-400">Confirm delete?</span>

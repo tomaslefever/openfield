@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Monitor, Palette, Globe, Folder, Save, Shapes, RotateCcw, Cable, Copy, Check, RefreshCw, Download, ScrollText } from 'lucide-react'
+import { Monitor, Palette, Globe, Folder, Save, Shapes, RotateCcw, Cable, Copy, Check, RefreshCw, Download, ScrollText, Cpu } from 'lucide-react'
 import { ProvidersSection } from '../components/ProvidersSection'
 import { useAppStore } from '../stores/app-store'
 
@@ -9,11 +9,15 @@ export function SettingsPage() {
   const [language, setLanguage] = useState('en')
   const [defaultImageModel, setDefaultImageModel] = useState('gpt-image-2-text-to-image')
   const [defaultVideoModel, setDefaultVideoModel] = useState('kling-3-0')
+  const [gridRenderScale, setGridRenderScaleState] = useState<string>('0.25')
   const [assetPath, setAssetPath] = useState('')
   const [saveWebp, setSaveWebp] = useState(true)
   const [webpStats, setWebpStats] = useState<{ total: number; pending: number }>({ total: 0, pending: 0 })
   const [convertingWebp, setConvertingWebp] = useState(false)
   const [webpResult, setWebpResult] = useState<string | null>(null)
+  const [videoFixStats, setVideoFixStats] = useState<{ errored: number; total: number }>({ errored: 0, total: 0 })
+  const [fixingVideos, setFixingVideos] = useState(false)
+  const [videoFixResult, setVideoFixResult] = useState<string | null>(null)
   const [primaryBasePrompt, setPrimaryBasePrompt] = useState('')
   const [poseBasePrompt, setPoseBasePrompt] = useState('')
   const [moodboardBasePrompt, setMoodboardBasePrompt] = useState('')
@@ -39,6 +43,9 @@ export function SettingsPage() {
         setLanguage(settings.language || 'en')
         setDefaultImageModel(settings.defaultImageModel || 'gpt-image-2-text-to-image')
         setDefaultVideoModel(settings.defaultVideoModel || 'kling-3-0')
+        const scale = settings.gridRenderScale || '0.25'
+        setGridRenderScaleState(scale)
+        useAppStore.getState().setGridRenderScale(scale)
         setSaveWebp(settings.saveImagesAsWebp !== false)
         setPrimaryBasePrompt(settings['elements:primaryBasePrompt'] || PRIMARY_DEFAULT)
         setPoseBasePrompt(settings['elements:poseBasePrompt'] || POSE_DEFAULT)
@@ -47,6 +54,7 @@ export function SettingsPage() {
       settingsLoaded.current = true
     })
     ;(window as any).electronAPI?.assets?.webpStats?.().then(setWebpStats).catch(() => {})
+    ;(window as any).electronAPI?.assets?.brokenVideoStats?.().then(setVideoFixStats).catch(() => {})
     ;(window as any).electronAPI?.bridge?.getStatus?.().then(setBridgeStatus).catch(() => {})
     ;(window as any).electronAPI?.updater?.state?.().then((s: any) => {
       if (s?.currentVersion) setAppVersion(s.currentVersion)
@@ -78,9 +86,31 @@ export function SettingsPage() {
     } catch (err: any) {
       console.error('Convert to WebP failed:', err)
       setWebpResult(`Error: ${err?.message || String(err)}`)
-    } finally {
-      setConvertingWebp(false)
     }
+    setConvertingWebp(false)
+  }
+
+  const handleFixBrokenVideos = async () => {
+    setFixingVideos(true)
+    setVideoFixResult(null)
+    try {
+      const res = await (window as any).electronAPI?.assets.fixBrokenVideos()
+      if (res) {
+        setVideoFixResult(
+          res.fixed > 0
+            ? `Fixed ${res.fixed} video${res.fixed === 1 ? '' : 's'} (${res.failed} failed, ${res.skipped} skipped)`
+            : res.failed > 0
+              ? `No videos could be fixed (${res.failed} failed)`
+              : 'No broken videos detected'
+        )
+      }
+      const stats = await (window as any).electronAPI?.assets.brokenVideoStats()
+      if (stats) setVideoFixStats(stats)
+    } catch (err: any) {
+      console.error('Fix broken videos failed:', err)
+      setVideoFixResult(`Error: ${err?.message || String(err)}`)
+    }
+    setFixingVideos(false)
   }
 
   // Auto-save base prompts on edit (debounced 2s)
@@ -89,7 +119,7 @@ export function SettingsPage() {
     if (!settingsLoaded.current) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      (window as any).electronAPI?.settings.set(key, value)
+      ;(window as any).electronAPI?.settings.set(key, value)
     }, 2000)
   }, [])
 
@@ -110,10 +140,12 @@ export function SettingsPage() {
     await (window as any).electronAPI?.settings.set('language', language)
     await (window as any).electronAPI?.settings.set('defaultImageModel', defaultImageModel)
     await (window as any).electronAPI?.settings.set('defaultVideoModel', defaultVideoModel)
+    await (window as any).electronAPI?.settings.set('gridRenderScale', gridRenderScale)
     await (window as any).electronAPI?.settings.set('saveImagesAsWebp', saveWebp)
     await (window as any).electronAPI?.settings.set('elements:primaryBasePrompt', primaryBasePrompt)
     await (window as any).electronAPI?.settings.set('elements:poseBasePrompt', poseBasePrompt)
     await (window as any).electronAPI?.settings.set('elements:moodboardBasePrompt', moodboardBasePrompt)
+    useAppStore.getState().setGridRenderScale(gridRenderScale as any)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -151,6 +183,42 @@ export function SettingsPage() {
                   <select value={language} onChange={(e) => setLanguage(e.target.value)} className="input-field">
                     <option value="en">English</option>
                     <option value="es">Español</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Graphics & Performance / Rendimiento */}
+            <div className="card">
+              <div className="flex items-center gap-2 mb-4">
+                <Cpu size={16} className="text-accent-400" />
+                <div>
+                  <h2 className="text-sm font-semibold text-surface-100">Gráficos y Rendimiento (GPU)</h2>
+                  <p className="text-[11px] text-surface-500">Optimización de memoria VRAM y velocidad del grid de assets</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-surface-300 font-medium mb-1">
+                    Escalado de render en Cuadrículas / Grid Render Scale
+                  </label>
+                  <p className="text-[11px] text-surface-500 mb-2 leading-relaxed">
+                    Ajusta la resolución a la que se procesan y renderizan las imágenes en las cuadrículas. Reducir la escala ahorra hasta un 95% de memoria GPU (VRAM) y asegura un desplazamiento a 60–120 FPS sin saturar los recursos gráficos. Al hacer clic para ver la imagen o video en el modal, se renderiza siempre a calidad 100% original.
+                  </p>
+                  <select
+                    value={gridRenderScale}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setGridRenderScaleState(val)
+                      useAppStore.getState().setGridRenderScale(val as any)
+                      ;(window as any).electronAPI?.settings.set('gridRenderScale', val)
+                    }}
+                    className="input-field max-w-md"
+                  >
+                    <option value="0.25">0.25x — Ultra optimizado (25% resolución, ahorra ~95% VRAM - Recomendado)</option>
+                    <option value="0.5">0.50x — Equilibrado (50% resolución, ahorra ~75% VRAM)</option>
+                    <option value="0.75">0.75x — Alta definición (75% resolución, ahorra ~45% VRAM)</option>
+                    <option value="1.0">1.00x — Calidad original (100% nativa sin escalado)</option>
                   </select>
                 </div>
               </div>
@@ -314,6 +382,22 @@ export function SettingsPage() {
                   className="btn-ghost text-xs disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
                 >
                   {convertingWebp ? 'Converting...' : 'Convert All'}
+                </button>
+              </div>
+              <div className="mt-4 pt-4 border-t border-surface-800 flex items-center justify-between">
+                <div>
+                  <label className="block text-xs text-surface-500">Fix broken videos</label>
+                  <p className="text-[10px] text-surface-600 mt-0.5">
+                    {videoFixStats.errored > 0 ? `${videoFixStats.errored} of ${videoFixStats.total} videos marked as broken` : videoFixStats.total > 0 ? 'No broken videos detected' : 'No videos found'}
+                  </p>
+                  {videoFixResult && <p className="text-[10px] text-accent-400 mt-1">{videoFixResult}</p>}
+                </div>
+                <button
+                  onClick={handleFixBrokenVideos}
+                  disabled={fixingVideos || videoFixStats.total === 0}
+                  className="btn-ghost text-xs disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                >
+                  {fixingVideos ? 'Fixing...' : 'Fix Videos'}
                 </button>
               </div>
             </div>

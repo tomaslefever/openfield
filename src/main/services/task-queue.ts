@@ -1,4 +1,4 @@
-﻿import { EventEmitter } from 'events'
+import { EventEmitter } from 'events'
 import { getRawDb } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import * as crypto from 'crypto'
@@ -106,10 +106,13 @@ export { stripForStorage }
 // Build the parameters JSON persisted on assets: strip base64 but keep asset IDs.
 // Backfills assetIds saved at enqueue time so recreate can reload refs even for
 // tasks enqueued before assetIds were persisted in openfield_tasks.payload.
-function buildStoredParams(taskPayload: any, raw: any, taskId: string): string {
+function buildStoredParams(taskPayload: any, raw: any, taskId: string, extraParams?: Record<string, any>): string {
   const base = stripForStorage(taskPayload)
+  if (extraParams) {
+    Object.assign(base, extraParams)
+  }
   try {
-    const placeholder = raw.prepare('SELECT parameters FROM assets WHERE task_id = ? AND file_path = ? LIMIT 1').get(taskId, '') as any
+    const placeholder = raw.prepare('SELECT parameters FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(taskId) as any
     if (placeholder?.parameters) {
       const existing = JSON.parse(placeholder.parameters)
       for (const k of ['imageAssetId', 'firstFrameAssetId', 'lastFrameAssetId']) {
@@ -284,6 +287,32 @@ export class TaskQueue extends EventEmitter {
     const taskPayload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
     const creditsUsed = Math.round(result.creditsConsumed || 0)
 
+    // Calculate generation time (in seconds and ms)
+    const startedAt = task.started_at || task.created_at || Date.now()
+    const elapsedMs = Math.max(0, Date.now() - startedAt)
+    let genTimeSeconds: number
+    let genTimeMs: number
+
+    if (result.costTime && typeof result.costTime === 'number' && result.costTime > 0) {
+      if (result.costTime > 1000) {
+        genTimeMs = result.costTime
+        genTimeSeconds = Number((result.costTime / 1000).toFixed(1))
+      } else {
+        genTimeSeconds = Number(result.costTime.toFixed(1))
+        genTimeMs = Math.round(result.costTime * 1000)
+      }
+    } else {
+      genTimeMs = elapsedMs
+      genTimeSeconds = Number((elapsedMs / 1000).toFixed(1))
+    }
+
+    const extraParams = {
+      generationTimeSeconds: genTimeSeconds,
+      generationTimeMs: genTimeMs,
+      generationTime: `${genTimeSeconds}s`,
+      costTime: result.costTime || genTimeSeconds,
+    }
+
     const resultUrls = extractUrls(result.resultJson)
 
     let localAssetId: string | null = null
@@ -294,7 +323,7 @@ export class TaskQueue extends EventEmitter {
 
     const updatePlaceholderWithRemote = () => {
       if (!remoteUrl) return
-      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? AND file_path = ? LIMIT 1').get(task.taskId, '') as any
+      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
       if (placeholder) {
         raw.prepare(
           `UPDATE assets SET file_path = ?, file_name = ?, mime_type = ?, model_used = ?, prompt = ?, parameters = ?, updated_at = ? WHERE id = ?`
@@ -302,7 +331,7 @@ export class TaskQueue extends EventEmitter {
           remoteUrl, `${type === 'image' ? 'remote' : type === 'audio' ? 'remote-audio' : 'remote-video'}-${assetId}`, defaultMime(),
           taskPayload?.model || result.model || '',
           taskPayload?.prompt || '',
-          buildStoredParams(taskPayload, raw, task.taskId),
+          buildStoredParams(taskPayload, raw, task.taskId, extraParams),
           Date.now(),
           placeholder.id
         )
@@ -345,7 +374,7 @@ export class TaskQueue extends EventEmitter {
         localAssetId = assetId
 
         // Find the placeholder asset for this task
-        const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? AND file_path = ? LIMIT 1').get(task.taskId, '') as any
+        const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
 
         if (placeholder) {
           // Update placeholder with real data (keep original ID)
@@ -355,7 +384,7 @@ export class TaskQueue extends EventEmitter {
             remoteUrl, localPath, fileName, mime,
             taskPayload?.model || result.model || '',
             taskPayload?.prompt || '',
-            buildStoredParams(taskPayload, raw, task.taskId),
+            buildStoredParams(taskPayload, raw, task.taskId, extraParams),
             fileSize,
             creditsUsed,
             Date.now(),
@@ -370,7 +399,7 @@ export class TaskQueue extends EventEmitter {
             assetId, type, remoteUrl, localPath, fileName, mime,
             taskPayload?.model || result.model || '',
             taskPayload?.prompt || '',
-            buildStoredParams(taskPayload, raw, task.taskId),
+            buildStoredParams(taskPayload, raw, task.taskId, extraParams),
             fileSize,
             creditsUsed,
             task.taskId, taskWs, Date.now(), Date.now()

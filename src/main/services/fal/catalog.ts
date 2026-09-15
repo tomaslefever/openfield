@@ -27,6 +27,35 @@ export interface FalModelCatalogEntry {
 
 export const FAL_MODELS: FalModelCatalogEntry[] = [
   {
+    id: 'minimax/h3-max-turbo/text-to-video',
+    name: 'MiniMax H3 Max Turbo',
+    category: 'MiniMax',
+    type: 'video',
+    costPerSecond: 0.01,
+    resolutions: ['768P', '480P', '1080P'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+  },
+  {
+    id: 'minimax/h3-max/text-to-video',
+    name: 'MiniMax H3 Max',
+    category: 'MiniMax',
+    type: 'video',
+    costPerSecond: 0.02,
+    resolutions: ['768P', '480P', '1080P'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+  },
+  {
+    id: 'minimax/h3-max/reference-to-video',
+    name: 'MiniMax H3 Max Reference',
+    category: 'MiniMax',
+    type: 'video',
+    costPerSecond: 0.08,
+    resolutions: ['768P', '480P'],
+    aspectRatios: ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    freeReferenceImages: 4,
+    extraReferenceImageCost: 0.02,
+  },
+  {
     id: 'minimax/h3/reference-to-video',
     name: 'MiniMax H3',
     category: 'MiniMax',

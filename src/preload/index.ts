@@ -16,6 +16,8 @@ const electronAPI = {
     stats: () => ipcRenderer.invoke('assets:stats'),
     webpStats: () => ipcRenderer.invoke('assets:webpStats'),
     convertAllToWebp: () => ipcRenderer.invoke('assets:convertAllToWebp'),
+    fixBrokenVideos: () => ipcRenderer.invoke('assets:fixBrokenVideos'),
+    brokenVideoStats: () => ipcRenderer.invoke('assets:brokenVideoStats'),
     scanOrphans: () => ipcRenderer.invoke('assets:scanOrphans'),
     adoptOrphans: (workspaceId?: string) => ipcRenderer.invoke('assets:adoptOrphans', workspaceId),
     import: (filePaths: string[]) => ipcRenderer.invoke('assets:import', filePaths),
@@ -23,6 +25,7 @@ const electronAPI = {
     refresh: (id: string) => ipcRenderer.invoke('assets:refresh', id),
     downloadToLocal: (id: string) => ipcRenderer.invoke('assets:downloadToLocal', id),
     saveAs: (id: string) => ipcRenderer.invoke('assets:saveAs', id),
+    exportZip: (ids: string[], defaultName?: string) => ipcRenderer.invoke('assets:exportZip', ids, defaultName),
     showInFolder: (id: string) => ipcRenderer.invoke('assets:showInFolder', id),
     importBase64: (base64: string, mime: string, fileName: string, workspaceId?: string, modelUsed?: string) => ipcRenderer.invoke('assets:importBase64', base64, mime, fileName, workspaceId, modelUsed),
     saveRef: (base64: string, mime: string, name: string) => ipcRenderer.invoke('assets:saveRef', base64, mime, name),
@@ -56,6 +59,16 @@ const electronAPI = {
   },
   balances: {
     list: () => ipcRenderer.invoke('balances:list'),
+  },
+  elevenlabs: {
+    models: () => ipcRenderer.invoke('elevenlabs:models'),
+    voices: (opts?: any) => ipcRenderer.invoke('elevenlabs:voices', opts),
+    generate: (params: any) => ipcRenderer.invoke('elevenlabs:generate', params),
+    generateDialogue: (params: any) => ipcRenderer.invoke('elevenlabs:generateDialogue', params),
+    voiceChange: (params: any) => ipcRenderer.invoke('elevenlabs:voiceChange', params),
+    music: (params: any) => ipcRenderer.invoke('elevenlabs:music', params),
+    sfx: (params: any) => ipcRenderer.invoke('elevenlabs:sfx', params),
+    account: () => ipcRenderer.invoke('elevenlabs:account'),
   },
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),
@@ -92,6 +105,8 @@ const electronAPI = {
   ffmpeg: {
     probe: (filePath: string) => ipcRenderer.invoke('ffmpeg:probe', filePath),
     thumbnail: (filePath: string, time?: number) => ipcRenderer.invoke('ffmpeg:thumbnail', filePath, time),
+    concat: (inputPaths: string[], outputPath: string) => ipcRenderer.invoke('ffmpeg:concat', inputPaths, outputPath),
+    assembleDrama: (options: any) => ipcRenderer.invoke('ffmpeg:assembleDrama', options),
   },
   tasks: {
     list: (filters?: any) => ipcRenderer.invoke('tasks:list', filters),
@@ -123,7 +138,7 @@ const electronAPI = {
       'openfield:task:progress', 'openfield:task:completed', 'openfield:task:failed',
       'replicate:task:progress', 'replicate:task:completed', 'replicate:task:failed',
       'fal:task:progress', 'fal:task:completed', 'fal:task:failed',
-      'assets:changed',
+      'assets:changed', 'assets:updated',
       'export:progress', 'export:complete', 'export:error',
       'error', 'notification',
       'models:download:progress', 'models:download:completed', 'models:download:error',
@@ -218,6 +233,21 @@ const electronAPI = {
     serverLoadModel: (modelId: string, device?: string) => ipcRenderer.invoke('local:server:loadModel', modelId, device),
     serverUnloadModel: () => ipcRenderer.invoke('local:server:unloadModel'),
     serverModelInfo: () => ipcRenderer.invoke('local:server:modelInfo'),
+  },
+
+  // ─── Short Drama (Microseries AI) ─────────────────
+  drama: {
+    listProjects: (workspaceId?: string) => ipcRenderer.invoke('drama:project:list', workspaceId),
+    getProject: (id: string) => ipcRenderer.invoke('drama:project:get', id),
+    saveProject: (data: any) => ipcRenderer.invoke('drama:project:save', data),
+    deleteProject: (id: string) => ipcRenderer.invoke('drama:project:delete', id),
+    duplicateProject: (id: string) => ipcRenderer.invoke('drama:project:duplicate', id),
+    updateCharacter: (id: string, data: any) => ipcRenderer.invoke('drama:character:update', id, data),
+    updateScenario: (id: string, data: any) => ipcRenderer.invoke('drama:scenario:update', id, data),
+    updateProp: (id: string, data: any) => ipcRenderer.invoke('drama:prop:update', id, data),
+    updateShot: (id: string, data: any) => ipcRenderer.invoke('drama:shot:update', id, data),
+    moveWorkspace: (id: string, workspaceId: string) =>
+      ipcRenderer.invoke('drama:project:moveWorkspace', { id, workspaceId }),
   },
 };
 

@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef, memo, useMemo } from 'react'
 import { Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Cloud, FolderOpen, CheckSquare, Square, Search, Star, Mic, AudioLines, Play, Pause, Clock, Download } from 'lucide-react'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
-import { VoiceGenView } from '../components/voice/VoiceGenView'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { useGridFlip } from '../hooks/useGridFlip'
 import { copyText } from '../lib/clipboard'
@@ -11,31 +10,7 @@ import { TagEditor } from '../components/ui/TagEditor'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
-import { Tabs } from '../components/ui/tabs'
-
-const MODEL_NAMES: Record<string, string> = {
-  'gpt-tts-1': 'GPT TTS',
-  'minimax-text-to-speech': 'MiniMax TTS',
-  'openaudio-text-to-music': 'OpenAudio Music',
-  'mucat-text-to-music': 'MuCat Music',
-}
-
-const KIND_ICON: Record<string, typeof Mic> = {
-  voice: Mic,
-  music: AudioLines,
-}
-
-function getAudioKind(asset: any): 'voice' | 'music' | null {
-  const model = asset.modelUsed || ''
-  if (model.startsWith('piper:') || model.startsWith('kokoro:') || model === 'gpt-tts-1' || model === 'minimax-text-to-speech') return 'voice'
-  if (model === 'openaudio-text-to-music' || model === 'mucat-text-to-music') return 'music'
-  try {
-    const p = JSON.parse(asset.parameters || '{}')
-    if (p.kind === 'voice') return 'voice'
-    if (p.kind === 'music') return 'music'
-  } catch {}
-  return null
-}
+import { getAudioKind, MODEL_NAMES, KIND_ICON } from '../lib/audio'
 
 function Waveform({ playing }: { playing: boolean }) {
   const bars = [4, 6, 5, 9, 6, 11, 7, 12, 6, 9, 5, 7]
@@ -69,7 +44,6 @@ const AssetCard = memo(function AssetCard({
   onTogglePlay: (asset: any) => void
   onToggleFavorite: (id: string) => void
 }) {
-  const params = (() => { try { return JSON.parse(asset.parameters || '{}') } catch { return {} } })()
   const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
   const isError = asset.filePath?.startsWith('__error__')
   const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
@@ -151,8 +125,7 @@ function AssetBadgeCompat({ credits }: { credits: number }) {
   )
 }
 
-export function AudioGenPage() {
-  const [activeTab, setActiveTab] = useState<'voice' | 'music'>('voice')
+export function MusicGenPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
@@ -180,8 +153,9 @@ export function AudioGenPage() {
     }
   }, [composerPayload, setComposerPayload])
 
-  const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, updateAsset, removeAssets } = usePagedAssets({ type: 'audio', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
+  const { assets, hasMore, initialLoading, loadingMore, sentinelRef, reset, loadMore, updateAsset, removeAssets } = usePagedAssets({ type: 'audio', search, isFavorite: showFavorites, pageSize: 20, excludeUploads: true })
   const { gridRef, capture, fadeOut, animate } = useGridFlip()
+  const pendingNextRef = useRef(false)
 
   const handleAssetsMoved = (ids: string[]) => {
     fadeOut(ids)
@@ -192,14 +166,7 @@ export function AudioGenPage() {
     }, 180)
   }
 
-  // Split assets by kind
-  const voiceAssets = useMemo(() => assets.filter((a: any) => getAudioKind(a) === 'voice'), [assets])
   const musicAssets = useMemo(() => assets.filter((a: any) => getAudioKind(a) === 'music'), [assets])
-
-  const tabCounts = useMemo(() => ({
-    voice: voiceAssets.length,
-    music: musicAssets.length,
-  }), [voiceAssets, musicAssets])
 
   useEffect(() => {
     setSelectedAsset((prev: any) => {
@@ -210,6 +177,26 @@ export function AudioGenPage() {
       return updated
     })
   }, [assets])
+
+  // Preload next batch when near the end of loaded assets
+  useEffect(() => {
+    if (!selectedAsset) return
+    const idx = musicAssets.findIndex((a: any) => a.id === selectedAsset.id)
+    if (idx >= 0 && idx >= musicAssets.length - 2 && hasMore) {
+      loadMore()
+    }
+  }, [selectedAsset?.id, musicAssets.length, hasMore, loadMore])
+
+  // Advance to next asset if pending from hitting next at the end of the previous batch
+  useEffect(() => {
+    if (pendingNextRef.current && selectedAsset) {
+      const idx = musicAssets.findIndex((a: any) => a.id === selectedAsset.id)
+      if (idx >= 0 && idx < musicAssets.length - 1) {
+        setSelectedAsset(musicAssets[idx + 1])
+        pendingNextRef.current = false
+      }
+    }
+  }, [musicAssets, selectedAsset])
 
   useEffect(() => {
     const api = (window as any).electronAPI
@@ -233,16 +220,23 @@ export function AudioGenPage() {
 
   useEffect(() => {
     if (!selectedAsset) return
-    const currentAssets = activeTab === 'voice' ? voiceAssets : musicAssets
     const handler = (e: KeyboardEvent) => {
-      const idx = currentAssets.findIndex((a: any) => a.id === selectedAsset.id)
-      if (e.key === 'ArrowLeft' && idx > 0) setSelectedAsset(currentAssets[idx - 1])
-      if (e.key === 'ArrowRight' && idx < currentAssets.length - 1) setSelectedAsset(currentAssets[idx + 1])
+      const idx = musicAssets.findIndex((a: any) => a.id === selectedAsset.id)
+      if (e.key === 'ArrowLeft' && idx > 0) setSelectedAsset(musicAssets[idx - 1])
+      if (e.key === 'ArrowRight') {
+        if (idx >= 0 && idx < musicAssets.length - 1) {
+          setSelectedAsset(musicAssets[idx + 1])
+          if (idx + 1 >= musicAssets.length - 2 && hasMore) loadMore()
+        } else if (hasMore) {
+          pendingNextRef.current = true
+          loadMore()
+        }
+      }
       if (e.key === 'Escape') setSelectedAsset(null)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [selectedAsset, voiceAssets, musicAssets, activeTab])
+  }, [selectedAsset, musicAssets, hasMore, loadMore])
 
   const handleDelete = useCallback(async (assetId: string) => {
     await (window as any).electronAPI?.assets.delete(assetId)
@@ -282,13 +276,19 @@ export function AudioGenPage() {
       if (params.local && params.voiceId) {
         setAudioStatus({ status: 'starting', message: 'Iniciando...', pct: 0 })
         await api?.local.audioGenerate({ voiceId: params.voiceId, prompt: params.prompt, engine: params.engine, speed: params.speed })
+      } else if (params.engine === 'elevenlabs' && params.kind === 'music') {
+        setAudioStatus({ status: 'starting', message: 'Generando música con ElevenLabs...', pct: 0 })
+        await api?.elevenlabs.music({ prompt: params.prompt, duration: params.duration })
+      } else if (params.engine === 'elevenlabs' && params.voiceId) {
+        setAudioStatus({ status: 'starting', message: 'Iniciando ElevenLabs...', pct: 0 })
+        await api?.elevenlabs.generate({ voiceId: params.voiceId, prompt: params.prompt, speed: params.speed })
       } else {
         await api?.openfield.generateAudio(params)
       }
       setAudioStatus(null)
       reset()
     } catch (err: any) {
-      console.error('Audio generation failed:', err)
+      console.error('Music generation failed:', err)
       setAudioStatus(null)
       setAudioError(err?.message || 'Error generando audio. Revisa la consola.')
     }
@@ -337,81 +337,24 @@ export function AudioGenPage() {
     el.play().then(() => setPlayingId(asset.id)).catch(() => {})
   }, [playingId])
 
-  useEffect(() => {
-    const visibleIds = new Set(musicAssets.map((a: any) => a.id))
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      let changed = false
-      for (const id of prev) {
-        if (!visibleIds.has(id)) { next.delete(id); changed = true }
-      }
-      return changed ? next : prev
-    })
-  }, [activeTab])
-
   const params = selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}
   const modelUsed = selectedAsset?.modelUsed || ''
   const isPiper = modelUsed.startsWith('piper:')
   const isKokoro = modelUsed.startsWith('kokoro:')
-  const isLocalVoice = isPiper || isKokoro
+  const isLocalVoice = isPiper || isKokoro || (modelUsed.startsWith('elevenlabs:') && modelUsed !== 'elevenlabs:music' && modelUsed !== 'elevenlabs:sfx')
 
   function localVoiceLabel(modelUsedRaw: string): string {
     if (modelUsedRaw.startsWith('piper:')) return `Piper · ${modelUsedRaw.slice(6)}`
     if (modelUsedRaw.startsWith('kokoro:')) return `Kokoro · ${modelUsedRaw.slice(7)}`
+    if (modelUsedRaw.startsWith('elevenlabs:')) return `ElevenLabs · ${modelUsedRaw.slice(11)}`
     return modelUsedRaw
   }
 
-  // === Voice Tab Layout ===
-  if (activeTab === 'voice') {
-    return (
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {/* Tab bar */}
-        <div className="px-4 pt-4 pb-2 flex-shrink-0">
-          <Tabs
-            tabs={[
-              { id: 'voice', label: 'Voice', icon: Mic, count: tabCounts.voice },
-              { id: 'music', label: 'Music', icon: AudioLines, count: tabCounts.music },
-            ]}
-            activeTab={activeTab}
-            onChange={(id) => setActiveTab(id as 'voice' | 'music')}
-          />
-        </div>
-
-        <VoiceGenView
-          onGenerate={handleGenerate}
-          voiceAssets={voiceAssets}
-          isGenerating={!!audioStatus}
-          statusMessage={audioStatus?.message || ''}
-          statusPct={audioStatus?.pct || 0}
-          errorMessage={audioError}
-          onClearError={() => setAudioError('')}
-        />
-
-        {/* Hidden audio element for playback */}
-        <audio
-          ref={audioRef}
-          className="hidden"
-          onEnded={() => setPlayingId(null)}
-          onPause={() => setPlayingId(null)}
-        />
-      </div>
-    )
-  }
-
-  // === Music Tab Layout ===
   return (
     <div className="flex flex-col h-full relative">
       <div className="flex-1 overflow-y-auto p-4 pb-64">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center gap-3 mb-4">
-            <Tabs
-              tabs={[
-                { id: 'voice', label: 'Voice', icon: Mic, count: tabCounts.voice },
-                { id: 'music', label: 'Music', icon: AudioLines, count: tabCounts.music },
-              ]}
-              activeTab={activeTab}
-              onChange={(id) => setActiveTab(id as 'voice' | 'music')}
-            />
             <span className="text-[10px] text-surface-600 ml-auto flex-shrink-0">{musicAssets.length} audios</span>
             <div className="relative w-48 flex-shrink-0">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-500" />
@@ -515,7 +458,7 @@ export function AudioGenPage() {
         </div>
       )}
 
-      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="audio" subMode={activeTab} floating />
+      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="audio" subMode="music" floating />
 
       <BulkActionBar
         selectedCount={selectedIds.size}
@@ -545,7 +488,7 @@ export function AudioGenPage() {
       {/* Detail modal */}
       {selectedAsset && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setSelectedAsset(null)}>
-          <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex-1 bg-surface-900/40 flex items-center justify-center min-h-[400px] relative p-6">
               {musicAssets.findIndex((a: any) => a.id === selectedAsset.id) > 0 && (
                 <button
@@ -554,9 +497,19 @@ export function AudioGenPage() {
                   <ChevronLeft size={20} />
                 </button>
               )}
-              {musicAssets.findIndex((a: any) => a.id === selectedAsset.id) < musicAssets.length - 1 && (
+              {(musicAssets.findIndex((a: any) => a.id === selectedAsset.id) < musicAssets.length - 1 || hasMore) && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); const idx = musicAssets.findIndex((a: any) => a.id === selectedAsset.id); setSelectedAsset(musicAssets[idx + 1]) }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const idx = musicAssets.findIndex((a: any) => a.id === selectedAsset.id)
+                    if (idx >= 0 && idx < musicAssets.length - 1) {
+                      setSelectedAsset(musicAssets[idx + 1])
+                      if (idx + 1 >= musicAssets.length - 2 && hasMore) loadMore()
+                    } else if (hasMore) {
+                      pendingNextRef.current = true
+                      loadMore()
+                    }
+                  }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors z-10">
                   <ChevronRight size={20} />
                 </button>
@@ -592,7 +545,7 @@ export function AudioGenPage() {
                 <Star size={14} fill={selectedAsset.isFavorite ? 'currentColor' : 'none'} />
               </button>
             </div>
-            <div className="w-72 bg-surface-900/80 border-l border-surface-800 flex flex-col">
+            <div className="w-96 min-w-[380px] flex-shrink-0 bg-surface-900/80 border-l border-surface-800 flex flex-col">
               <div className="flex items-center justify-end px-3 py-2 border-b border-surface-800 flex-shrink-0">
                 <button onClick={() => setSelectedAsset(null)} title="Close"
                   className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
@@ -617,8 +570,8 @@ export function AudioGenPage() {
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Kind</p>
                 <p className="text-sm text-surface-200 flex items-center gap-1">
-                  {(params.kind === 'voice' || isPiper || isKokoro) ? <Mic size={12} /> : params.kind === 'music' ? <AudioLines size={12} /> : null}
-                  {params.kind === 'voice' ? 'Voice' : params.kind === 'music' ? 'Music' : isLocalVoice ? 'Voice (local)' : '—'}
+                  {getAudioKind(selectedAsset) === 'music' ? <AudioLines size={12} /> : (getAudioKind(selectedAsset) === 'voice' || isLocalVoice) ? <Mic size={12} /> : null}
+                  {getAudioKind(selectedAsset) === 'music' ? 'Music' : getAudioKind(selectedAsset) === 'voice' ? 'Voice' : isLocalVoice ? 'Voice (local)' : '—'}
                 </p>
               </div>
               {params.duration != null && (
@@ -630,6 +583,12 @@ export function AudioGenPage() {
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">File Size</p>
                 <p className="text-sm text-surface-200">{selectedAsset.fileSize ? `${(selectedAsset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Gen Time</p>
+                <p className="text-sm text-surface-200">
+                  {params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : (params.costTime ? `${params.costTime}s` : '—'))}
+                </p>
               </div>
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Credits Used</p>

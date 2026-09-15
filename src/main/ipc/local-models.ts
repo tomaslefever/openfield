@@ -110,8 +110,8 @@ export function registerLocalModelsHandlers({ handle }: IpcContext) {
       const asset = await getAssetManager().importFile(wavPath, 'audio')
       const db = getRawDb()
       db.prepare(
-        'UPDATE assets SET prompt = ?, model_used = ?, credits_used = 0 WHERE id = ?'
-      ).run(params.prompt || '', `kokoro:${params.voiceId}`, asset.id)
+        'UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, credits_used = 0 WHERE id = ?'
+      ).run(params.prompt || '', `kokoro:${params.voiceId}`, JSON.stringify({ engine: 'kokoro', voiceId: params.voiceId, speed: params.speed || 1 }), asset.id)
       db.saveSync()
       sender.send('local:audio:progress', { status: 'completed', message: 'Audio generado', pct: 100 })
       return asset
@@ -135,8 +135,8 @@ export function registerLocalModelsHandlers({ handle }: IpcContext) {
     const asset = await getAssetManager().importFile(wavPath, 'audio')
     const db = getRawDb()
     db.prepare(
-      'UPDATE assets SET prompt = ?, model_used = ?, credits_used = 0 WHERE id = ?'
-    ).run(params.prompt || '', `piper:${voiceId}`, asset.id)
+      'UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, credits_used = 0 WHERE id = ?'
+    ).run(params.prompt || '', `piper:${voiceId}`, JSON.stringify({ engine: 'piper', voiceId, speed: params.speed || 1 }), asset.id)
     db.saveSync()
     return asset
   })

@@ -86,6 +86,18 @@ export class ReplicateQueue extends EventEmitter {
     const input: Record<string, any> = {}
     const isPVideo = payload.model === 'prunaai/p-video'
     const isAvatar = payload.model === 'prunaai/p-video-avatar'
+    const isCrystalUpscaler = payload.model === 'philz1337x/crystal-video-upscaler'
+
+    if (isCrystalUpscaler) {
+      // Crystal Video Upscaler: requires a reference video (no prompt/resolution inputs)
+      const videoRef = payload.videoRefs?.[0]
+      if (videoRef?.base64) {
+        input.video = `data:${videoRef.mime || 'video/mp4'};base64,${videoRef.base64}`
+      }
+      input.scale_factor = payload.scaleFactor ?? 2
+      return input
+    }
+
     const imageBase64 = payload.imageBase64 || payload.imageRefs?.[0]?.base64
     if (imageBase64) {
       const mime = payload.imageMime || payload.imageRefs?.[0]?.mime || 'image/png'
@@ -138,6 +150,7 @@ export class ReplicateQueue extends EventEmitter {
         const input = this.buildInput(payload)
         if (!input.image && payload.model === 'prunaai/p-video-avatar') throw new Error('A portrait image is required for this model.')
         if (!input.prompt && !input.image && !input.audio && payload.model === 'prunaai/p-video') throw new Error('P-Video requires a prompt, image or audio.')
+        if (!input.video && payload.model === 'philz1337x/crystal-video-upscaler') throw new Error('Crystal Upscaler requiere un video de referencia.')
 
         logRun(raw, task.taskId, 'api-request', `Creating prediction: model=${modelName(payload.model)}, resolution=${payload.resolution || '720p'}, voice=${payload.voice || 'default'}`)
         prediction = await this.apiClient.createPrediction({ version, input })
@@ -191,7 +204,7 @@ export class ReplicateQueue extends EventEmitter {
     let localAssetId: string | null = null
 
     const updatePlaceholder = (fields: Record<string, any>) => {
-      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? AND file_path = ? LIMIT 1').get(task.taskId, '') as any
+      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
       if (!placeholder) return null
       const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ')
       raw.prepare(`UPDATE assets SET ${sets}, updated_at = ? WHERE id = ?`)
