@@ -16,6 +16,8 @@
     "lint": "oxlint",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
+  "description": "The Open Desktop Creative Studio for Generative AI",
+  "author": "Tomás Lefever <tomaslefevern@gmail.com>",
   "build": {
     "appId": "com.openfield.desktop",
     "productName": "Openfield",
@@ -37,8 +39,10 @@
         "nsis"
       ],
       "icon": "resources/icon.ico",
-      "shortcutName": "Openfield",
       "artifactName": "Openfield-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "shortcutName": "Openfield"
     },
     "mac": {
       "target": [
