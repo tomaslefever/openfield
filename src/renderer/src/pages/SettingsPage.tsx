@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Monitor, Palette, Globe, Folder, Save, Shapes, RotateCcw, Cable, Copy, Check, RefreshCw, Download, ScrollText, Cpu } from 'lucide-react'
-import { ProvidersSection } from '../components/ProvidersSection'
 import { useAppStore } from '../stores/app-store'
 
 export function SettingsPage() {
@@ -155,14 +154,18 @@ export function SettingsPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-lg font-semibold text-surface-100">Settings</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold text-surface-100">Settings</h1>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-surface-800 text-surface-300 border border-surface-700 font-mono">
+                v{appVersion}
+              </span>
+            </div>
             <button onClick={handleSave} className="btn-primary flex items-center gap-2">
               <Save size={16} /> {saved ? 'Saved!' : 'Save Settings'}
             </button>
           </div>
 
           <div className="space-y-6">
-            <ProvidersSection />
 
             <div className="card">
               <div className="flex items-center gap-2 mb-4">

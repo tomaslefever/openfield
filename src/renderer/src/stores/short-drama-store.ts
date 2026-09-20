@@ -561,7 +561,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
             tone: proj.tone || 'Cinematográfico',
             visualStyle: proj.visualStyle || '',
             aspectRatio: proj.aspectRatio || '9:16',
-            shotsCount: proj.shotsCount || (proj.shots?.length || 4),
+            shotsCount: typeof proj.shotsCount === 'number' ? proj.shotsCount : (typeof proj.shots_count === 'number' ? proj.shots_count : (proj.shots?.length || 4)),
             currentStage: proj.currentStage || 1,
             llmModel: llm,
             imageModel: imgM,
@@ -609,7 +609,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
       tone: initialData?.tone || config.tones[0] || 'Cinematográfico y Misterioso',
       visualStyle: initialData?.visualStyle || config.defaultVisualStyle,
       aspectRatio: initialData?.aspectRatio || config.defaultAspectRatio,
-      shotsCount: initialData?.shotsCount || config.defaultShotsCount,
+      shotsCount: typeof initialData?.shotsCount === 'number' ? initialData.shotsCount : config.defaultShotsCount,
       currentStage: 1,
       script: '',
       logline: '',
@@ -939,7 +939,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
 
     try {
       const api = (window as any).electronAPI
-      const shotsCount = state.shotsCount || 4
+      const shotsCount = typeof state.shotsCount === 'number' ? state.shotsCount : 4
       const style = state.visualStyle
       const genre = state.genre
       const tone = state.tone
@@ -957,9 +957,13 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
         customPromptGuide: state.customPromptGuide,
       })
 
+      const shotsText = shotsCount > 0
+        ? `Cantidad requerida de escenas/tomas: ${shotsCount}`
+        : 'Cantidad de escenas/tomas: AUTO (determina libremente la cantidad óptima según el desarrollo narrativo)'
+
       const userContent = state.customPromptGuide && state.customPromptGuide.trim()
-        ? `GUÍA Y DIRECTIVAS DE EXTRACCIÓN Y PROMPTS:\n${state.customPromptGuide.trim()}\n\nCONTENIDO / IDEA:\n${prompt}\nGénero: ${genre}\nTono: ${tone}\nEstilo visual: ${style}`
-        : `Idea: ${prompt}\nGénero: ${genre}\nTono: ${tone}\nEstilo visual: ${style}`
+        ? `GUÍA Y DIRECTIVAS DE EXTRACCIÓN Y PROMPTS:\n${state.customPromptGuide.trim()}\n\nCONTENIDO / IDEA:\n${prompt}\nGénero: ${genre}\nTono: ${tone}\nEstilo visual: ${style}\n${shotsText}`
+        : `Idea: ${prompt}\nGénero: ${genre}\nTono: ${tone}\nEstilo visual: ${style}\n${shotsText}`
 
       const res = await api.openfield.agentChat({
         messages: [

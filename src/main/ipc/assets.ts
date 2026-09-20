@@ -1,7 +1,22 @@
 import { shell, dialog, BrowserWindow } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
-const archiver = require('archiver')
+function createZipArchive(options: any) {
+  const archiverModule = require('archiver')
+  if (typeof archiverModule.ZipArchive === 'function') {
+    return new archiverModule.ZipArchive(options)
+  }
+  if (typeof archiverModule === 'function') {
+    return archiverModule('zip', options)
+  }
+  if (typeof archiverModule.default === 'function') {
+    return archiverModule.default('zip', options)
+  }
+  if (typeof archiverModule.create === 'function') {
+    return archiverModule.create('zip', options)
+  }
+  throw new Error('Could not instantiate ZipArchive from archiver package')
+}
 import type { IpcContext } from './context'
 import { getAssetManager } from '../services/asset-manager'
 import { getActiveWorkspaceId } from '../services/workspace-service'
@@ -22,6 +37,21 @@ export function notifyAssetUpdated(asset: any) {
   for (const win of BrowserWindow.getAllWindows()) {
     try { win.webContents.send('assets:updated', asset) } catch {}
   }
+}
+
+function cleanFilePath(rawPath: string): string {
+  let clean = rawPath
+  if (clean.startsWith('file:///')) clean = clean.slice(8)
+  else if (clean.startsWith('file://')) clean = clean.slice(7)
+  else if (clean.startsWith('asset://localhost/')) clean = clean.slice('asset://localhost/'.length)
+  clean = clean.replace(/[?#].*$/, '')
+  if (clean.includes('%')) {
+    try { clean = decodeURIComponent(clean) } catch {}
+  }
+  if (process.platform === 'win32') {
+    clean = clean.replace(/^\/([a-zA-Z]:)/, '$1')
+  }
+  return path.normalize(clean)
 }
 
 export function registerAssetsHandlers({ handle }: IpcContext) {
@@ -49,6 +79,19 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
 
   handle('assets:deleteMultiple', (_e, ids: string[]) => {
     const result = getAssetManager().deleteAssets(ids)
+    notifyAssetsChanged()
+    return result
+  })
+
+  handle('assets:archiveMultiple', (_e, ids: string[], archive: boolean = true) => {
+    const result = getAssetManager().archiveAssets(ids, archive)
+    notifyAssetsChanged()
+    return result
+  })
+
+  handle('assets:archive', (_e, id: string, archive: boolean = true) => {
+    const result = getAssetManager().archiveAsset(id, archive)
+    if (result) notifyAssetUpdated(result)
     notifyAssetsChanged()
     return result
   })
@@ -93,15 +136,8 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
         if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` }
         await fs.promises.writeFile(result.filePath, Buffer.from(await resp.arrayBuffer()))
       } else {
-        let cleanPath = rawPath
-        if (cleanPath.startsWith('file:///')) cleanPath = cleanPath.slice(8)
-        else if (cleanPath.startsWith('file://')) cleanPath = cleanPath.slice(7)
-        else if (cleanPath.startsWith('asset://localhost/')) cleanPath = cleanPath.slice('asset://localhost/'.length)
-        cleanPath = cleanPath.replace(/[?#].*$/, '')
-        if (cleanPath.includes('%')) {
-          try { cleanPath = decodeURIComponent(cleanPath) } catch {}
-        }
-        await fs.promises.copyFile(path.normalize(cleanPath), result.filePath)
+        const cleanPath = cleanFilePath(rawPath)
+        await fs.promises.copyFile(cleanPath, result.filePath)
       }
       return { ok: true, path: result.filePath }
     } catch (err: any) {
@@ -134,41 +170,75 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
       zipFilePath += '.zip'
     }
 
+    let outputStream: fs.WriteStream | null = null
+    let archive: any = null
+
     try {
       const manager = getAssetManager()
       const usedNames = new Set<string>()
-      const entriesToArchive: Array<{ name: string; buffer: Buffer }> = []
+
+      // Create ZIP instance using createZipArchive helper supporting Archiver v8 ZipArchive
+      archive = createZipArchive({
+        zlib: { level: 6 },
+      })
+
+      outputStream = fs.createWriteStream(zipFilePath)
+
+      const archivePromise = new Promise<void>((resolve, reject) => {
+        let finished = false
+        const done = () => {
+          if (!finished) {
+            finished = true
+            resolve()
+          }
+        }
+        outputStream!.on('close', done)
+        outputStream!.on('finish', done)
+        outputStream!.on('error', (err: any) => reject(err))
+        archive.on('warning', (err: any) => {
+          if (err.code === 'ENOENT') {
+            console.warn('[AssetManager] Archive warning:', err)
+          } else {
+            reject(err)
+          }
+        })
+        archive.on('error', (err: any) => reject(err))
+      })
+
+      archive.pipe(outputStream)
+
+      let entriesCount = 0
 
       for (const id of ids) {
         const asset = manager.getAsset(id) as any
         if (!asset) continue
 
-        const rawPath =
-          asset.local_path ||
-          asset.localPath ||
-          (asset.file_path && !asset.file_path.startsWith('__error__') ? asset.file_path : null) ||
-          (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
-        if (!rawPath) continue
-
         const fileName = asset.file_name || asset.fileName
         const mimeType = asset.mime_type || asset.mimeType
 
-        // Clean path if needed
-        let cleanPath = rawPath
-        if (cleanPath.startsWith('file:///')) {
-          cleanPath = cleanPath.slice(8)
-        } else if (cleanPath.startsWith('file://')) {
-          cleanPath = cleanPath.slice(7)
-        } else if (cleanPath.startsWith('asset://localhost/')) {
-          cleanPath = cleanPath.slice('asset://localhost/'.length)
-        }
-        cleanPath = cleanPath.replace(/[?#].*$/, '')
-        if (cleanPath.includes('%')) {
-          try { cleanPath = decodeURIComponent(cleanPath) } catch {}
+        // Check local path candidates
+        const candidates = [
+          asset.local_path,
+          asset.localPath,
+          asset.file_path,
+          asset.filePath,
+        ].filter(Boolean)
+
+        let resolvedLocalFile: string | null = null
+        for (const cand of candidates) {
+          if (typeof cand === 'string' && !cand.startsWith('http://') && !cand.startsWith('https://') && !cand.startsWith('__error__')) {
+            const cleaned = cleanFilePath(cand)
+            try {
+              if (fs.existsSync(cleaned) && fs.statSync(cleaned).isFile()) {
+                resolvedLocalFile = cleaned
+                break
+              }
+            } catch {}
+          }
         }
 
         // Determine base filename and extension
-        let baseName = fileName || (cleanPath ? path.basename(cleanPath) : `asset_${id}`)
+        let baseName = fileName || (resolvedLocalFile ? path.basename(resolvedLocalFile) : `asset_${id}`)
         let ext = path.extname(baseName)
         if (!ext && mimeType) {
           const mimeExtMap: Record<string, string> = {
@@ -204,62 +274,65 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
         }
         usedNames.add(finalName.toLowerCase())
 
-        // Read buffer from remote URL or local file
-        if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
-          try {
-            const resp = await fetch(cleanPath)
-            if (resp.ok) {
-              const buf = Buffer.from(await resp.arrayBuffer())
-              entriesToArchive.push({ name: finalName, buffer: buf })
-            }
-          } catch (fetchErr) {
-            console.error(`[AssetManager] Failed to fetch remote asset ${id}:`, fetchErr)
-          }
+        if (resolvedLocalFile) {
+          // Stream directly from disk (low RAM usage, maximum performance)
+          archive.file(resolvedLocalFile, { name: finalName })
+          entriesCount++
         } else {
-          try {
-            const normalizedLocal = path.normalize(cleanPath)
-            const buf = await fs.promises.readFile(normalizedLocal)
-            entriesToArchive.push({ name: finalName, buffer: buf })
-          } catch (fileErr) {
-            console.error(`[AssetManager] Failed to read local asset ${id} at ${cleanPath}:`, fileErr)
+          // Check for remote URL
+          const remoteUrl = candidates.find(c => typeof c === 'string' && (c.startsWith('http://') || c.startsWith('https://')))
+          if (remoteUrl) {
+            try {
+              const resp = await fetch(remoteUrl)
+              if (resp.ok) {
+                const buf = Buffer.from(await resp.arrayBuffer())
+                archive.append(buf, { name: finalName })
+                entriesCount++
+              }
+            } catch (fetchErr) {
+              console.error(`[AssetManager] Failed to fetch remote asset ${id}:`, fetchErr)
+            }
+          } else {
+            // Fallback: try reading base64 via manager
+            try {
+              const b64List = await manager.readAssetsBase64([id])
+              if (b64List?.[0]?.base64) {
+                const buf = Buffer.from(b64List[0].base64, 'base64')
+                archive.append(buf, { name: finalName })
+                entriesCount++
+              }
+            } catch {}
           }
         }
       }
 
-      if (entriesToArchive.length === 0) {
+      if (entriesCount === 0) {
+        try { archive?.abort?.() } catch {}
+        try { outputStream?.destroy() } catch {}
+        try { if (fs.existsSync(zipFilePath)) fs.unlinkSync(zipFilePath) } catch {}
         return { ok: false, error: 'No se pudieron leer los archivos de los assets seleccionados' }
       }
 
-      // Write to ZIP using archiver
-      await new Promise<void>((resolve, reject) => {
-        const outputStream = fs.createWriteStream(zipFilePath)
-        const archive = archiver('zip', {
-          zlib: { level: 6 },
-        })
+      await archive.finalize()
+      await archivePromise
 
-        outputStream.on('close', () => resolve())
-        outputStream.on('error', (err: any) => reject(err))
-        archive.on('warning', (err: any) => {
-          if (err.code === 'ENOENT') {
-            console.warn('[AssetManager] Archive warning:', err)
-          } else {
-            reject(err)
-          }
-        })
-        archive.on('error', (err: any) => reject(err))
-
-        archive.pipe(outputStream)
-
-        for (const entry of entriesToArchive) {
-          archive.append(entry.buffer, { name: entry.name })
+      // Verify final file on disk
+      try {
+        const stat = fs.statSync(zipFilePath)
+        if (stat.size === 0) {
+          try { fs.unlinkSync(zipFilePath) } catch {}
+          return { ok: false, error: 'El archivo ZIP generado está vacío (0 bytes)' }
         }
+      } catch {
+        return { ok: false, error: 'No se pudo verificar el archivo ZIP generado' }
+      }
 
-        archive.finalize().catch(reject)
-      })
-
-      return { ok: true, path: zipFilePath, count: entriesToArchive.length }
+      return { ok: true, path: zipFilePath, count: entriesCount }
     } catch (err: any) {
       console.error('[AssetManager] Failed to export zip:', err)
+      try { archive?.abort?.() } catch {}
+      try { outputStream?.destroy() } catch {}
+      try { if (fs.existsSync(zipFilePath)) fs.unlinkSync(zipFilePath) } catch {}
       return { ok: false, error: err?.message || 'Failed to generate ZIP archive' }
     }
   })
@@ -273,13 +346,7 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
       (asset.file_path && !asset.file_path.startsWith('__error__') && !asset.file_path.startsWith('http') ? asset.file_path : null) ||
       (asset.filePath && !asset.filePath.startsWith('__error__') && !asset.filePath.startsWith('http') ? asset.filePath : null)
     if (!raw) return false
-    let clean = raw
-    if (clean.startsWith('file:///')) clean = clean.slice(8)
-    else if (clean.startsWith('file://')) clean = clean.slice(7)
-    else if (clean.startsWith('asset://localhost/')) clean = clean.slice('asset://localhost/'.length)
-    clean = clean.replace(/[?#].*$/, '')
-    const decoded = clean.includes('%') ? decodeURIComponent(clean) : clean
-    const filePath = path.normalize(decoded)
+    const filePath = cleanFilePath(raw)
     try {
       shell.showItemInFolder(filePath)
     } catch {

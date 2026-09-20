@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Tags, Trash2, Plus, X, FolderInput, Check, Loader, Archive } from 'lucide-react'
+import { Tags, Trash2, Plus, X, FolderInput, Check, Loader, Archive, FileArchive } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppStore } from '../../stores/app-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
@@ -10,6 +10,8 @@ interface BulkActionBarProps {
   selectedIds?: string[]
   onAddTags: () => void
   onDelete: () => void
+  onArchive?: () => void
+  archiveTitle?: string
   onAddToComposer?: () => void
   onExportZip?: () => void
   onClearSelection: () => void
@@ -21,6 +23,8 @@ export function BulkActionBar({
   selectedIds,
   onAddTags,
   onDelete,
+  onArchive,
+  archiveTitle,
   onAddToComposer,
   onExportZip,
   onClearSelection,
@@ -31,6 +35,7 @@ export function BulkActionBar({
   const [moveOpen, setMoveOpen] = useState(false)
   const [moving, setMoving] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const moveRef = useRef<HTMLDivElement>(null)
@@ -63,6 +68,26 @@ export function BulkActionBar({
       await exportAssetsAsZip(selectedIds)
     } finally {
       setExporting(false)
+    }
+  }
+
+  const handleArchive = async () => {
+    if (archiving || !selectedIds?.length) return
+    if (onArchive) {
+      onArchive()
+      return
+    }
+    setArchiving(true)
+    try {
+      const api = (window as any).electronAPI
+      await api?.assets.archiveMultiple(selectedIds, true)
+      toast.success(`${selectedIds.length} ${selectedIds.length === 1 ? 'asset archivado' : 'assets archivados'}`)
+      onClearSelection()
+    } catch (err) {
+      console.error('[BulkActionBar] Archive failed:', err)
+      toast.error('No se pudieron archivar los assets')
+    } finally {
+      setArchiving(false)
     }
   }
 
@@ -196,9 +221,18 @@ export function BulkActionBar({
           onClick={handleExportZip}
           disabled={exporting}
           className="p-2 rounded-lg text-surface-300 bg-surface-800 hover:bg-surface-700 transition-colors disabled:opacity-50"
-          title="Export as ZIP"
+          title="Exportar como ZIP"
         >
-          {exporting ? <Loader size={16} className="animate-spin text-accent-400" /> : <Archive size={16} />}
+          {exporting ? <Loader size={16} className="animate-spin text-accent-400" /> : <FileArchive size={16} />}
+        </button>
+
+        <button
+          onClick={handleArchive}
+          disabled={archiving}
+          className="p-2 rounded-lg text-surface-300 bg-surface-800 hover:bg-surface-700 transition-colors disabled:opacity-50"
+          title={archiveTitle || 'Archivar'}
+        >
+          {archiving ? <Loader size={16} className="animate-spin text-accent-400" /> : <Archive size={16} />}
         </button>
 
         <button

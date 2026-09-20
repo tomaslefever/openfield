@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { X, ChevronLeft, ChevronRight, Star, Copy, Check } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight, Star, Copy, Check, AlertCircle, RotateCcw } from 'lucide-react'
+import { ImageGeneration, type ImageGenerationStatus } from '../agents/image-generation'
 
 interface ImagePreviewModalProps {
   src: string
@@ -11,6 +12,12 @@ interface ImagePreviewModalProps {
   onCopyImage?: () => void
   copiedImage?: boolean
   children?: React.ReactNode
+  status?: ImageGenerationStatus
+  prompt?: string
+  resolution?: string
+  aspectRatio?: string
+  statusText?: string
+  onRetry?: () => void
 }
 
 function clampPan(containerRef: React.RefObject<HTMLDivElement | null>, imgRef: React.RefObject<HTMLImageElement | null>, px: number, py: number, z: number) {
@@ -35,7 +42,23 @@ function clampPan(containerRef: React.RefObject<HTMLDivElement | null>, imgRef: 
   return { x: cx, y: cy }
 }
 
-export function ImagePreviewModal({ src, onClose, onPrev, onNext, isFavorite, onToggleFavorite, onCopyImage, copiedImage, children }: ImagePreviewModalProps) {
+export function ImagePreviewModal({
+  src,
+  onClose,
+  onPrev,
+  onNext,
+  isFavorite,
+  onToggleFavorite,
+  onCopyImage,
+  copiedImage,
+  children,
+  status,
+  prompt,
+  resolution,
+  aspectRatio,
+  statusText,
+  onRetry,
+}: ImagePreviewModalProps) {
   const hasSidebar = !!children
   const containerRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
@@ -110,17 +133,21 @@ export function ImagePreviewModal({ src, onClose, onPrev, onNext, isFavorite, on
     setIsDragging(false)
   }, [])
 
+  const isError = status === 'error'
+  const isGenerating = !src && !isError
+  const isGeneratingOrError = isError || isGenerating
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
       <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div
           ref={containerRef}
           className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative overflow-hidden"
-          onWheel={handleWheel}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onWheel={!isGeneratingOrError ? handleWheel : undefined}
+          onMouseDown={!isGeneratingOrError ? handleMouseDown : undefined}
+          onMouseMove={!isGeneratingOrError ? handleMouseMove : undefined}
+          onMouseUp={!isGeneratingOrError ? handleMouseUp : undefined}
+          onMouseLeave={!isGeneratingOrError ? handleMouseUp : undefined}
         >
           {onPrev && (
             <button
@@ -136,18 +163,51 @@ export function ImagePreviewModal({ src, onClose, onPrev, onNext, isFavorite, on
               <ChevronRight size={20} />
             </button>
           )}
-          <img
-            ref={imgRef}
-            src={src}
-            className="max-w-full max-h-[90vh] object-contain select-none"
-            draggable={false}
-            style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-              transformOrigin: 'center center',
-              cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
-            }}
-          />
-          {onCopyImage && (
+          {isError ? (
+            <div className="flex flex-col items-center justify-center gap-3 text-red-400 p-8 text-center max-w-lg">
+              <AlertCircle size={36} className="flex-shrink-0" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-red-400">Error en la generación</p>
+                <p className="text-xs text-red-400/90 leading-relaxed font-mono bg-red-950/30 border border-red-900/40 rounded-lg p-3 max-w-md">
+                  {statusText || 'No se pudo completar la generación'}
+                </p>
+              </div>
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="mt-2 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-surface-200 bg-surface-800 hover:bg-surface-700 border border-surface-700 transition-colors"
+                >
+                  <RotateCcw size={14} className="text-accent-400" />
+                  Reintentar generación
+                </button>
+              )}
+            </div>
+          ) : isGenerating ? (
+            <div className="absolute inset-0 w-full h-full">
+              <ImageGeneration
+                status="generating"
+                size="fill"
+                showStatus={false}
+                prompt={undefined}
+                resolution={undefined}
+                className="w-full h-full"
+              />
+            </div>
+          ) : (
+            <img
+              ref={imgRef}
+              src={src}
+              className="max-w-full max-h-[90vh] object-contain select-none"
+              draggable={false}
+              style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: 'center center',
+                cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
+              }}
+            />
+          )}
+          {!isGeneratingOrError && onCopyImage && (
             <button
               onClick={(e) => { e.stopPropagation(); onCopyImage() }}
               title="Copiar imagen"

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Sparkles, Send, Loader, ChevronDown } from 'lucide-react'
 import { IMAGE_MODELS, costCredits } from '../lib/models'
+import { useProvidersStore, isModelConfigured } from '../stores/providers-store'
 
 interface InlinePromptComposerProps {
   initialPrompt: string
@@ -25,7 +26,9 @@ export function InlinePromptComposer({
   const [generating, setGenerating] = useState(false)
   const [showModels, setShowModels] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const selectedModel = IMAGE_MODELS.find(m => m.t2iId === modelId || m.i2iId === modelId) || IMAGE_MODELS[0]
+  const configuredProviders = useProvidersStore((s) => s.configuredProviders)
+  const availableModels = IMAGE_MODELS.filter((m) => isModelConfigured(m, configuredProviders))
+  const selectedModel = availableModels.find(m => m.t2iId === modelId || m.i2iId === modelId) || availableModels[0] || null
 
   useEffect(() => {
     setPrompt(initialPrompt)
@@ -109,22 +112,29 @@ export function InlinePromptComposer({
         <div className="relative">
           <button
             onClick={() => setShowModels(!showModels)}
-            className="text-amber-400 hover:text-amber-300 flex items-center gap-0.5 transition-colors"
+            disabled={availableModels.length === 0}
+            className="text-amber-400 hover:text-amber-300 disabled:text-surface-500 disabled:cursor-not-allowed flex items-center gap-0.5 transition-colors"
           >
-            {selectedModel.name}
+            {selectedModel?.name || 'Sin modelo'}
             <ChevronDown size={10} />
           </button>
           {showModels && (
             <div className="absolute bottom-full left-0 mb-1 bg-surface-800 border border-surface-700 rounded-lg py-1 min-w-[160px] shadow-xl z-50"
               onMouseLeave={() => setShowModels(false)}>
-              {IMAGE_MODELS.map(m => (
-                <button key={m.t2iId}
-                  onClick={() => { onModelChange?.(m.t2iId!); setShowModels(false) }}
-                  className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${m.t2iId === modelId || m.i2iId === modelId ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
-                  <span>{m.name}</span>
-                  <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
-                </button>
-              ))}
+              {availableModels.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-surface-400">
+                  Sin proveedor configurado
+                </div>
+              ) : (
+                availableModels.map(m => (
+                  <button key={m.t2iId}
+                    onClick={() => { onModelChange?.(m.t2iId!); setShowModels(false) }}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${m.t2iId === modelId || m.i2iId === modelId ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
+                    <span>{m.name}</span>
+                    <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>

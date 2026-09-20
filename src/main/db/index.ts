@@ -168,7 +168,7 @@ export function runMigrations() {
       id TEXT PRIMARY KEY, type TEXT NOT NULL, file_path TEXT NOT NULL, file_name TEXT NOT NULL,
       mime_type TEXT NOT NULL, width INTEGER, height INTEGER, duration REAL, file_size INTEGER,
       prompt TEXT, negative_prompt TEXT, model_used TEXT NOT NULL, parameters TEXT,
-      tags TEXT, is_favorite INTEGER DEFAULT 0, credits_used INTEGER, task_id TEXT,
+      tags TEXT, is_favorite INTEGER DEFAULT 0, is_archived INTEGER DEFAULT 0, credits_used INTEGER, task_id TEXT,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS workspaces (
@@ -296,6 +296,36 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS fal_tasks (
+      task_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      request_id TEXT,
+      result_asset_id TEXT,
+      error_message TEXT,
+      progress INTEGER DEFAULT 0,
+      retry_count INTEGER DEFAULT 0,
+      started_at INTEGER,
+      completed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS machgen_tasks (
+      task_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      request_id TEXT,
+      result_asset_id TEXT,
+      error_message TEXT,
+      progress INTEGER DEFAULT 0,
+      retry_count INTEGER DEFAULT 0,
+      started_at INTEGER,
+      completed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS higgsfield_tasks (
       task_id TEXT PRIMARY KEY,
       status TEXT NOT NULL,
       type TEXT NOT NULL,
@@ -449,6 +479,10 @@ export function runMigrations() {
   // Migration: add content_hash column for deduplicating reference images
   try { raw.exec('ALTER TABLE assets ADD COLUMN content_hash TEXT') } catch {}
   try { raw.exec('CREATE INDEX IF NOT EXISTS idx_assets_content_hash ON assets(content_hash)') } catch {}
+
+  // Migration: add is_archived column for archiving assets
+  try { raw.exec('ALTER TABLE assets ADD COLUMN is_archived INTEGER DEFAULT 0') } catch {}
+  try { raw.exec('CREATE INDEX IF NOT EXISTS idx_assets_archived ON assets(is_archived)') } catch {}
 
   // Drama indexes
   try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_characters_proj ON drama_characters(project_id)') } catch {}

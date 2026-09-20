@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
 import { Trash2, Coins, Loader, AlertCircle, Copy, Check, Cloud, FolderOpen, RotateCcw, CheckSquare, Square, Search, X, Star, Box, Clapperboard, Eraser, ImageIcon, Clock } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAppStore } from '../stores/app-store'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { usePagedAssets } from '../hooks/usePagedAssets'
@@ -11,6 +12,7 @@ import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
 import { ImagePreviewModal } from '../components/ui/ImagePreviewModal'
+import { ImageGeneration } from '../components/agents/image-generation'
 import { ElementWizard } from '../components/ElementWizard'
 import { copyText, copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
@@ -80,56 +82,64 @@ const AssetCard = memo(function AssetCard({
         {src ? (
           <img src={thumbUrl(src)} className="w-full h-full object-cover" loading="lazy" decoding="async" />
         ) : isError ? (
-          <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
-            <AlertCircle size={20} />
-            <span className="text-[10px] text-center text-red-400/80 line-clamp-3">{asset.filePath.replace('__error__:', '')}</span>
+          <div className="flex flex-col items-center justify-center gap-1.5 text-red-400 p-3 text-center w-full h-full">
+            <AlertCircle size={20} className="flex-shrink-0" />
+            <span className="text-[10px] text-red-400/80 line-clamp-3 leading-tight">{asset.filePath.replace('__error__:', '')}</span>
           </div>
         ) : isLoading ? (
-          <div className="flex flex-col items-center gap-2 text-accent-400">
-            <Loader size={24} className="animate-spin" />
-            <span className="text-xs text-surface-500 px-2 text-center line-clamp-2">{asset.prompt}</span>
-          </div>
+          <ImageGeneration
+            status="generating"
+            size="fill"
+            showStatus={false}
+            prompt={undefined}
+            resolution={undefined}
+            className="w-full h-full"
+          />
         ) : (
           <div className="text-surface-600 text-sm">No preview</div>
         )}
       </div>
-      <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
-        {isCloud && (
-          <div className="bg-black/60 rounded-md p-1">
-            <Cloud size={12} className="text-blue-400" />
-          </div>
-        )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onCopyImage(asset) }}
-          title="Copiar imagen"
-          className={`p-1 rounded-md transition-colors ${copied ? 'text-green-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-white'}`}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite(asset.id) }}
-          title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
-          className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
-        >
-          <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
-        </button>
-      </div>
+      {!isLoading && (
+        <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+          {isCloud && (
+            <div className="bg-black/60 rounded-md p-1">
+              <Cloud size={12} className="text-blue-400" />
+            </div>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onCopyImage(asset) }}
+            title="Copiar imagen"
+            className={`p-1 rounded-md transition-colors ${copied ? 'text-green-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-white'}`}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleFavorite(asset.id) }}
+            title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
+            className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+          >
+            <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
+          </button>
+        </div>
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); onToggleSelect(asset.id, e.shiftKey) }}
         className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSelected ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
       >
         {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
       </button>
-      <div className="absolute bottom-2 right-2 flex items-center gap-1">
-        {(params.aspectRatio || params.aspect_ratio) && <AssetBadge value={params.aspectRatio || params.aspect_ratio} />}
-        {(params.generationTime || params.generationTimeSeconds || params.costTime) && (
-          <AssetBadge
-            value={params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : `${params.costTime}s`)}
-            icon={<Clock size={10} className="text-surface-300" />}
-          />
-        )}
-        {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
-      </div>
+      {!isLoading && (
+        <div className="absolute bottom-2 right-2 flex items-center gap-1">
+          {(params.aspectRatio || params.aspect_ratio) && <AssetBadge value={params.aspectRatio || params.aspect_ratio} />}
+          {(params.generationTime || params.generationTimeSeconds || params.costTime) && (
+            <AssetBadge
+              value={params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : `${params.costTime}s`)}
+              icon={<Clock size={10} className="text-surface-300" />}
+            />
+          )}
+          {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
+        </div>
+      )}
     </div>
   )
 })
@@ -251,6 +261,67 @@ export function ImageGenPage() {
     }
   }, [])
 
+  const handleRecreate = useCallback(async () => {
+    if (!selectedAsset) return
+    try {
+      const p = JSON.parse(selectedAsset.parameters || '{}')
+      const api = (window as any).electronAPI
+      let imageBase64: string | undefined
+      if (p.imageAssetId) {
+        const results = await api?.assets.readBase64([p.imageAssetId])
+        imageBase64 = results?.[0]?.base64 || undefined
+      } else if (typeof p.imageBase64 === 'string' && p.imageBase64.length > 50) {
+        imageBase64 = p.imageBase64
+      }
+      let imageRefs: any[] | undefined
+      if (Array.isArray(p.imageRefs) && p.imageRefs.length > 0) {
+        const ids = p.imageRefs.map((r: any) => r.assetId).filter(Boolean)
+        if (ids.length > 0) {
+          const results = await api?.assets.readBase64(ids)
+          const map = new Map((results || []).map((r: any) => [r.id, r.base64]))
+          imageRefs = p.imageRefs.map((r: any) => ({
+            ...r,
+            base64: r.assetId ? (map.get(r.assetId) || '') : (r.base64 || ''),
+          })).filter((r: any) => r.base64?.length > 20)
+        } else {
+          imageRefs = p.imageRefs.filter((r: any) => r.base64?.length > 50)
+        }
+      }
+      let firstFrameBase64: string | undefined
+      let lastFrameBase64: string | undefined
+      if (p.firstFrameAssetId) {
+        const results = await api?.assets.readBase64([p.firstFrameAssetId])
+        firstFrameBase64 = results?.[0]?.base64 || undefined
+      } else if (typeof p.firstFrameBase64 === 'string' && p.firstFrameBase64.length > 50) {
+        firstFrameBase64 = p.firstFrameBase64
+      }
+      if (p.lastFrameAssetId) {
+        const results = await api?.assets.readBase64([p.lastFrameAssetId])
+        lastFrameBase64 = results?.[0]?.base64 || undefined
+      } else if (typeof p.lastFrameBase64 === 'string' && p.lastFrameBase64.length > 50) {
+        lastFrameBase64 = p.lastFrameBase64
+      }
+      if (!imageBase64 && (!imageRefs || imageRefs.length === 0) && !firstFrameBase64 && !lastFrameBase64) {
+        setRecreateMsg('Esta imagen no tiene referencias guardadas para adjuntar.')
+      }
+      composerRef.current?.loadFromParams({
+        prompt: selectedAsset.prompt || '',
+        model: selectedAsset.modelUsed || '',
+        aspectRatio: p.aspectRatio || p.aspect_ratio || 'auto',
+        resolution: p.resolution || '1K',
+        imageBase64,
+        imageMime: p.imageMime || 'image/png',
+        imageRefs: imageRefs?.length ? imageRefs : undefined,
+        firstFrameBase64,
+        lastFrameBase64,
+      })
+    } catch (err: any) {
+      console.error('Recreate failed:', err)
+      setRecreateMsg(`Error al recrear: ${err?.message || String(err)}`)
+    }
+    setSelectedAsset(null)
+  }, [selectedAsset])
+
   const handleGenerate = useCallback(async (params: any) => {
     try {
       const api = (window as any).electronAPI
@@ -304,6 +375,21 @@ export function ImageGenPage() {
     setShowBulkDelete(false)
     clearSelection()
     reset()
+  }, [selectedIds, clearSelection, reset])
+
+  const handleBulkArchive = useCallback(async () => {
+    const api = (window as any).electronAPI
+    const count = selectedIds.size
+    if (count === 0) return
+    try {
+      await api?.assets.archiveMultiple(Array.from(selectedIds), true)
+      toast.success(`${count} ${count === 1 ? 'imagen archivada' : 'imágenes archivadas'}`)
+      clearSelection()
+      reset()
+    } catch (err) {
+      console.error('[ImageGenPage] Bulk archive failed:', err)
+      toast.error('Error al archivar imágenes')
+    }
   }, [selectedIds, clearSelection, reset])
 
   const handleBulkAddTags = useCallback(async (tags: string[]) => {
@@ -396,13 +482,22 @@ export function ImageGenPage() {
         </div>
       </div>
 
-      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="image" floating />
+      <PromptComposer
+        ref={composerRef}
+        onGenerate={handleGenerate}
+        mode="image"
+        onModeChange={(m) => {
+          if (m === 'video') setPage('video')
+        }}
+        floating
+      />
 
       <BulkActionBar
         selectedCount={selectedIds.size}
         selectedIds={Array.from(selectedIds)}
         onAddTags={() => setShowBulkTag(true)}
         onDelete={() => setShowBulkDelete(true)}
+        onArchive={handleBulkArchive}
         onAddToComposer={handleBulkAddToComposer}
         onClearSelection={clearSelection}
         onAssetsMoved={handleAssetsMoved}
@@ -428,6 +523,12 @@ export function ImageGenPage() {
       {selectedAsset && (
         <ImagePreviewModal
           src={fileUrl(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') ? selectedAsset.filePath : ''))}
+          status={selectedAsset.filePath?.startsWith('__error__') ? 'error' : (!selectedAsset.localPath && selectedAsset.modelUsed && selectedAsset.modelUsed !== 'import' ? 'generating' : undefined)}
+          prompt={selectedAsset.prompt || params.prompt}
+          resolution={params.resolution || params.size}
+          aspectRatio={params.aspectRatio || '1 / 1'}
+          statusText={selectedAsset.filePath?.startsWith('__error__') ? selectedAsset.filePath.replace('__error__:', '') : 'Generando imagen...'}
+          onRetry={handleRecreate}
           onClose={() => setSelectedAsset(null)}
           isFavorite={!!selectedAsset.isFavorite}
           onToggleFavorite={() => handleToggleFavorite(selectedAsset.id)}
@@ -526,67 +627,7 @@ export function ImageGenPage() {
             />
           </div>
           <div className="pt-2 border-t border-surface-800 grid grid-cols-2 gap-1.5">
-            <button onClick={async () => {
-              try {
-                const p = JSON.parse(selectedAsset.parameters || '{}')
-                const api = (window as any).electronAPI
-                setRecreateMsg(null)
-                // Load image from asset IDs (new format) or fallback to base64
-                let imageBase64: string | undefined
-                if (p.imageAssetId) {
-                  const results = await api?.assets.readBase64([p.imageAssetId])
-                  imageBase64 = results?.[0]?.base64 || undefined
-                } else if (typeof p.imageBase64 === 'string' && p.imageBase64.length > 50) {
-                  imageBase64 = p.imageBase64
-                }
-                let imageRefs: any[] | undefined
-                if (p.imageRefs?.length) {
-                  const ids = p.imageRefs.map((r: any) => r.assetId).filter(Boolean)
-                  if (ids.length > 0) {
-                    const results = await api?.assets.readBase64(ids)
-                    const map = new Map((results || []).map((r: any) => [r.id, r.base64]))
-                    imageRefs = p.imageRefs.map((r: any) => ({
-                      ...r,
-                      base64: r.assetId ? (map.get(r.assetId) || r.base64 || '') : (r.base64 || ''),
-                    })).filter((r: any) => r.base64?.length > 20)
-                  } else {
-                    imageRefs = p.imageRefs.filter((r: any) => r.base64?.length > 50)
-                  }
-                }
-                let firstFrameBase64: string | undefined
-                let lastFrameBase64: string | undefined
-                if (p.firstFrameAssetId) {
-                  const results = await api?.assets.readBase64([p.firstFrameAssetId])
-                  firstFrameBase64 = results?.[0]?.base64 || undefined
-                } else if (typeof p.firstFrameBase64 === 'string' && p.firstFrameBase64.length > 50) {
-                  firstFrameBase64 = p.firstFrameBase64
-                }
-                if (p.lastFrameAssetId) {
-                  const results = await api?.assets.readBase64([p.lastFrameAssetId])
-                  lastFrameBase64 = results?.[0]?.base64 || undefined
-                } else if (typeof p.lastFrameBase64 === 'string' && p.lastFrameBase64.length > 50) {
-                  lastFrameBase64 = p.lastFrameBase64
-                }
-                if (!imageBase64 && (!imageRefs || imageRefs.length === 0) && !firstFrameBase64 && !lastFrameBase64) {
-                  setRecreateMsg('Esta imagen no tiene referencias guardadas para adjuntar.')
-                }
-                composerRef.current?.loadFromParams({
-                  prompt: selectedAsset.prompt || '',
-                  model: selectedAsset.modelUsed || '',
-                  aspectRatio: p.aspectRatio || p.aspect_ratio || 'auto',
-                  resolution: p.resolution || '1K',
-                  imageBase64,
-                  imageMime: p.imageMime || 'image/png',
-                  imageRefs: imageRefs?.length ? imageRefs : undefined,
-                  firstFrameBase64,
-                  lastFrameBase64,
-                })
-              } catch (err: any) {
-                console.error('Recreate failed:', err)
-                setRecreateMsg(`Error al recrear: ${err?.message || String(err)}`)
-              }
-              setSelectedAsset(null)
-            }} className={MODAL_ACTION_BTN}>
+            <button onClick={handleRecreate} className={MODAL_ACTION_BTN}>
               <RotateCcw size={12} /> Recreate
             </button>
             <button onClick={async () => {

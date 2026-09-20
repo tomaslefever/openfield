@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Search, Download, Trash2, Star, Cloud, CheckSquare, Square, Loader, AlertCircle, X, ChevronLeft, ChevronRight, Copy, Check, RotateCcw, FolderOpen, Clock, Tag, RefreshCw, Inbox, Upload, AudioLines, Play, Pause, Image as ImageIcon, Video, Eraser, Clapperboard, Box } from 'lucide-react'
+import { Search, Download, Trash2, Star, Cloud, CheckSquare, Square, Loader, AlertCircle, X, ChevronLeft, ChevronRight, Copy, Check, RotateCcw, FolderOpen, Clock, Tag, RefreshCw, Inbox, Upload, AudioLines, Play, Pause, Image as ImageIcon, Video, Eraser, Clapperboard, Box, Archive } from 'lucide-react'
+import { toast } from 'sonner'
 import { srcUrl, thumbUrl } from '../services/file-url'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { useGridFlip } from '../hooks/useGridFlip'
@@ -11,6 +12,7 @@ import { AutoPlayVideo } from '../components/ui/AutoPlayVideo'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
+import { ImageGeneration } from '../components/agents/image-generation'
 import { ElementWizard } from '../components/ElementWizard'
 import { copyText, copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
@@ -52,6 +54,9 @@ const MODEL_NAMES: Record<string, string> = {
   'bytedance/seedance-2-5': 'Seedance 2.5',
   'bytedance/seedance-2-fast': 'Seedance 2 Fast',
   'bytedance/seedance-2-mini': 'Seedance 2 Mini',
+  'bytedance/seedance-2.0/text-to-video': 'Seedance 2.0 (Higgsfield)',
+  'bytedance/seedance-2.5/text-to-video': 'Seedance 2.5 (Higgsfield)',
+  'kling-video/v3.0/std/text-to-video': 'Kling 3.0 Standard (Higgsfield)',
   'wan-2-7-text-to-video': 'Wan 2.7',
   'wan-2-7-image-to-video': 'Wan 2.7',
   'wan/3-0-video': 'Wan 3.0',
@@ -128,6 +133,7 @@ export function LibraryPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
   const [showBulkDelete, setShowBulkDelete] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const [allTags, setAllTags] = useState<string[]>([])
   const [tagMenuOpen, setTagMenuOpen] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
@@ -237,6 +243,7 @@ export function LibraryPage() {
     types: pagedTypes,
     search,
     isFavorite: showFavorites,
+    isArchived: showArchived ? true : undefined,
     aspectRatio: assetSearch.aspectRatio,
     pageSize: 20,
     excludeUploads: true,
@@ -330,6 +337,10 @@ export function LibraryPage() {
     const unsubRpFailed = api.on('replicate:task:failed', onDone)
     const unsubFalComplete = api.on('fal:task:completed', onDone)
     const unsubFalFailed = api.on('fal:task:failed', onDone)
+    const unsubMgComplete = api.on('machgen:task:completed', onDone)
+    const unsubMgFailed = api.on('machgen:task:failed', onDone)
+    const unsubHfComplete = api.on('higgsfield:task:completed', onDone)
+    const unsubHfFailed = api.on('higgsfield:task:failed', onDone)
     return () => {
       unsubComplete?.()
       unsubFailed?.()
@@ -337,6 +348,10 @@ export function LibraryPage() {
       unsubRpFailed?.()
       unsubFalComplete?.()
       unsubFalFailed?.()
+      unsubMgComplete?.()
+      unsubMgFailed?.()
+      unsubHfComplete?.()
+      unsubHfFailed?.()
     }
   }, [refreshTags])
 
@@ -421,6 +436,8 @@ export function LibraryPage() {
     try {
       const api = (window as any).electronAPI
       const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
+      const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
+      const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('bytedance/seedance-2.0') || params?.model?.startsWith('bytedance/seedance-2.5') || params?.model?.startsWith('kling-video/')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/') || params?.model?.startsWith('bria/')
 
@@ -428,7 +445,11 @@ export function LibraryPage() {
         if (!assetSearch.types.video) {
           setAssetSearch({ types: { ...assetSearch.types, video: true } })
         }
-        if (isFalModel) {
+        if (isHiggsfieldModel) {
+          await api?.higgsfield.generate(params)
+        } else if (isMachgenModel) {
+          await api?.machgen.generate(params)
+        } else if (isFalModel) {
           await api?.fal.generate(params)
         } else if (isReplicateModel) {
           await api?.replicate.generate(params)
@@ -477,6 +498,26 @@ export function LibraryPage() {
     clearSelection()
     reset()
   }, [selectedIds, clearSelection, reset])
+
+  const handleBulkArchive = useCallback(async () => {
+    const api = (window as any).electronAPI
+    const count = selectedIds.size
+    if (count === 0) return
+    const shouldArchive = !showArchived
+    try {
+      await api?.assets.archiveMultiple(Array.from(selectedIds), shouldArchive)
+      toast.success(
+        shouldArchive
+          ? `${count} ${count === 1 ? 'asset archivado' : 'assets archivados'}`
+          : `${count} ${count === 1 ? 'asset desarchivado' : 'assets desarchivados'}`
+      )
+      clearSelection()
+      reset()
+    } catch (err) {
+      console.error('[LibraryPage] Bulk archive failed:', err)
+      toast.error(shouldArchive ? 'Error al archivar assets' : 'Error al desarchivar assets')
+    }
+  }, [selectedIds, showArchived, clearSelection, reset])
 
   const handleBulkAddTags = useCallback(async (tags: string[]) => {
     const api = (window as any).electronAPI
@@ -742,6 +783,13 @@ export function LibraryPage() {
             >
               <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
             </button>
+            <button
+              onClick={() => setShowArchived(v => !v)}
+              title={showArchived ? 'Ver activos' : 'Ver archivados'}
+              className={`flex-shrink-0 p-1.5 rounded-lg border transition-colors ${showArchived ? 'bg-purple-500/15 border-purple-500/40 text-purple-400' : 'border-surface-800 text-surface-500 hover:text-purple-400 hover:border-purple-500/30'}`}
+            >
+              <Archive size={14} />
+            </button>
             <div className="flex gap-1 bg-surface-900/40 rounded-lg p-1 border border-surface-800/60">
               <button
                 onClick={() => {
@@ -847,45 +895,44 @@ export function LibraryPage() {
                         <img src={thumbUrl(src)} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                       )
                     ) : isError ? (
-                      <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
-                        <AlertCircle size={20} />
-                        <span className="text-[10px] text-center text-red-400/80 line-clamp-3">{asset.filePath.replace('__error__:', '')}</span>
+                      <div className="flex flex-col items-center justify-center gap-1.5 text-red-400 p-3 text-center w-full h-full">
+                        <AlertCircle size={20} className="flex-shrink-0" />
+                        <span className="text-[10px] text-red-400/80 line-clamp-3 leading-tight">{asset.filePath?.replace('__error__:', '')}</span>
                       </div>
                     ) : isLoading ? (
-                      <div className="flex flex-col items-center justify-center gap-2 p-3 text-accent-400 w-full h-full text-center">
-                        <Loader size={24} className="animate-spin" />
-                        <span className="text-[11px] text-surface-400 font-medium line-clamp-2 leading-tight px-1">
-                          {asset.prompt || (asset.type === 'video' ? 'Generando video...' : 'Generando imagen...')}
-                        </span>
-                        {asset.modelUsed && (
-                          <span className="text-[9px] text-surface-500 bg-surface-900/60 px-2 py-0.5 rounded-full border border-surface-700/40">
-                            {modelLabel(asset.modelUsed)}
-                          </span>
-                        )}
-                      </div>
+                      <ImageGeneration
+                        status="generating"
+                        size="fill"
+                        showStatus={false}
+                        prompt={undefined}
+                        resolution={undefined}
+                        className="w-full h-full"
+                      />
                     ) : (
                       <div className="text-surface-600 text-sm">No preview</div>
                     )}
                   </div>
-                  {(asset.type === 'video' || asset.type === 'audio') && dur != null && (
+                  {!isLoading && (asset.type === 'video' || asset.type === 'audio') && dur != null && (
                     <div className="absolute bottom-2 left-2 bg-black/60 rounded px-1.5 py-0.5 text-[9px] text-white/90 font-medium z-10 flex items-center gap-1">
                       <Clock size={9} /> {formatDuration(dur)}
                     </div>
                   )}
-                  <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
-                    {!asset.localPath && asset.filePath?.startsWith('http') && (
-                      <div className="bg-black/60 rounded-md p-1">
-                        <Cloud size={12} className="text-blue-400" />
-                      </div>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleToggleFavorite(asset.id) }}
-                      title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
-                      className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
-                    >
-                      <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
-                    </button>
-                  </div>
+                  {!isLoading && (
+                    <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+                      {!asset.localPath && asset.filePath?.startsWith('http') && (
+                        <div className="bg-black/60 rounded-md p-1">
+                          <Cloud size={12} className="text-blue-400" />
+                        </div>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleToggleFavorite(asset.id) }}
+                        title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
+                        className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+                      >
+                        <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
+                      </button>
+                    </div>
+                  )}
                   <button
                     onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id, e.shiftKey) }}
                     className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
@@ -944,6 +991,8 @@ export function LibraryPage() {
         selectedIds={Array.from(selectedIds)}
         onAddTags={() => setShowBulkTag(true)}
         onDelete={() => setShowBulkDelete(true)}
+        onArchive={handleBulkArchive}
+        archiveTitle={showArchived ? 'Desarchivar' : 'Archivar'}
         onAddToComposer={handleBulkAddToComposer}
         onClearSelection={clearSelection}
         onAssetsMoved={handleAssetsMoved}
@@ -966,10 +1015,10 @@ export function LibraryPage() {
       )}
 
       {/* Unified detail modal (same as ImageGen/VideoGen) */}
-      {selectedAsset && modalSrc && (
+      {selectedAsset && (
         <LibraryAssetModal
           asset={selectedAsset}
-          src={modalSrc}
+          src={modalSrc || ''}
           params={params}
           onClose={() => setSelectedAsset(null)}
           onPrev={assets.findIndex((a: any) => a.id === selectedAsset.id) > 0 ? () => {
@@ -1130,6 +1179,9 @@ function LibraryAssetModal({
 
   const isImage = asset.type === 'image'
   const isVideo = asset.type === 'video'
+  const isError = asset.filePath?.startsWith('__error__')
+  const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
+  const isGeneratingOrError = !src || isError || isLoading
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
@@ -1138,11 +1190,11 @@ function LibraryAssetModal({
         <div
           ref={containerRef}
           className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative overflow-hidden"
-          onWheel={isImage ? handleWheel : undefined}
-          onMouseDown={isImage ? handleMouseDown : undefined}
-          onMouseMove={isImage ? handleMouseMove : undefined}
-          onMouseUp={isImage ? handleMouseUp : undefined}
-          onMouseLeave={isImage ? handleMouseUp : undefined}
+          onWheel={isImage && !isGeneratingOrError ? handleWheel : undefined}
+          onMouseDown={isImage && !isGeneratingOrError ? handleMouseDown : undefined}
+          onMouseMove={isImage && !isGeneratingOrError ? handleMouseMove : undefined}
+          onMouseUp={isImage && !isGeneratingOrError ? handleMouseUp : undefined}
+          onMouseLeave={isImage && !isGeneratingOrError ? handleMouseUp : undefined}
         >
           {onPrev && (
             <button onClick={(e) => { e.stopPropagation(); onPrev() }}
@@ -1156,7 +1208,36 @@ function LibraryAssetModal({
               <ChevronRight size={20} />
             </button>
           )}
-          {isImage ? (
+          {isError ? (
+            <div className="flex flex-col items-center justify-center gap-3 text-red-400 p-8 text-center max-w-lg">
+              <AlertCircle size={36} className="flex-shrink-0" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-red-400">Error en la generación</p>
+                <p className="text-xs text-red-400/90 leading-relaxed font-mono bg-red-950/30 border border-red-900/40 rounded-lg p-3 max-w-md">
+                  {asset.filePath?.replace('__error__:', '') || 'No se pudo completar la generación'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onRecreate}
+                className="mt-2 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-surface-200 bg-surface-800 hover:bg-surface-700 border border-surface-700 transition-colors"
+              >
+                <RotateCcw size={14} className="text-accent-400" />
+                Reintentar generación
+              </button>
+            </div>
+          ) : isLoading ? (
+            <div className="absolute inset-0 w-full h-full">
+              <ImageGeneration
+                status="generating"
+                size="fill"
+                showStatus={false}
+                prompt={undefined}
+                resolution={undefined}
+                className="w-full h-full"
+              />
+            </div>
+          ) : isImage ? (
             <img
               ref={imgRef}
               src={srcUrl(src)}
@@ -1174,7 +1255,7 @@ function LibraryAssetModal({
           ) : (
             <audio controls src={srcUrl(src)} className="max-w-full px-4" autoPlay />
           )}
-          {isImage && onCopyImage && (
+          {!isGeneratingOrError && isImage && onCopyImage && (
             <button
               onClick={(e) => { e.stopPropagation(); onCopyImage() }}
               title="Copiar imagen"

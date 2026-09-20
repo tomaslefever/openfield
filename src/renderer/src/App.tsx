@@ -17,6 +17,8 @@ import { WorkflowsPage } from './pages/WorkflowsPage'
 import { EditorPage } from './pages/EditorPage'
 import { CinemaStudioPage } from './pages/CinemaStudioPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { ProvidersPage } from './pages/ProvidersPage'
+import { useProvidersStore } from './stores/providers-store'
 import { LogsPage } from './pages/LogsPage'
 import { MarketplacePage } from './pages/MarketplacePage'
 import { AppsPage } from './pages/AppsPage'
@@ -41,6 +43,7 @@ const pages: Record<Page, React.FC> = {
   workflows: WorkflowsPage,
   editor: EditorPage,
   cinema: CinemaStudioPage,
+  providers: ProvidersPage,
   settings: SettingsPage,
   logs: LogsPage,
   marketplace: MarketplacePage,
@@ -55,6 +58,7 @@ function App() {
 
   useEffect(() => {
     useWorkspaceStore.getState().load()
+    useProvidersStore.getState().load()
     ;(window as any).electronAPI?.settings?.get('gridRenderScale').then((scale: any) => {
       if (scale) useAppStore.getState().setGridRenderScale(scale)
     }).catch(() => {})

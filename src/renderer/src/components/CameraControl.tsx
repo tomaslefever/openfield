@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { Video, ChevronUp, ChevronDown, X } from 'lucide-react'
+import { Video, ChevronUp, ChevronDown, X, Copy, Check, Clipboard, Info } from 'lucide-react'
 
 export interface CameraControlState {
   enabled: boolean
@@ -331,6 +331,154 @@ export function CameraControlModal({
   onSpeedChange,
   mode = 'video',
 }: CameraControlModalProps) {
+  const [copied, setCopied] = useState(false)
+  const [pasted, setPasted] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    const data: CameraControlState = {
+      enabled,
+      lens,
+      shot,
+      level,
+      movement: mode === 'video' ? movement : '',
+      lighting,
+      filmLook,
+      speed: mode === 'video' ? speed : '',
+    }
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }, [enabled, lens, shot, level, movement, lighting, filmLook, speed, mode])
+
+  const handlePaste = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text || !text.trim()) return
+
+      const trimmed = text.trim()
+
+      // 1. Try parsing JSON
+      try {
+        const data = JSON.parse(trimmed)
+        if (data && typeof data === 'object') {
+          let matched = false
+          if (data.lens && CAMERA_LENSES.includes(data.lens)) {
+            onLensChange(data.lens)
+            matched = true
+          } else if (data.lens) {
+            const found = CAMERA_LENSES.find(l => l.toLowerCase() === data.lens.toLowerCase())
+            if (found) { onLensChange(found); matched = true }
+          }
+
+          if (data.shot && CAMERA_SHOTS.includes(data.shot)) {
+            onShotChange(data.shot)
+            matched = true
+          } else if (data.shot) {
+            const found = CAMERA_SHOTS.find(s => s.toLowerCase() === data.shot.toLowerCase())
+            if (found) { onShotChange(found); matched = true }
+          }
+
+          if (data.level && CAMERA_LEVELS.includes(data.level)) {
+            onLevelChange(data.level)
+            matched = true
+          } else if (data.level) {
+            const found = CAMERA_LEVELS.find(lvl => lvl.toLowerCase() === data.level.toLowerCase())
+            if (found) { onLevelChange(found); matched = true }
+          }
+
+          if (onMovementChange) {
+            if (data.movement && CAMERA_MOVEMENTS.includes(data.movement)) {
+              onMovementChange(data.movement)
+              matched = true
+            } else if (data.movement) {
+              const found = CAMERA_MOVEMENTS.find(m => m.toLowerCase().replace(/[\s-_]+/g, '') === data.movement.toLowerCase().replace(/[\s-_]+/g, ''))
+              if (found) { onMovementChange(found); matched = true }
+            }
+          }
+
+          if (data.lighting !== undefined) {
+            const found = CAMERA_LIGHTING.find(l => l.value === data.lighting || (l.label && l.label.toLowerCase() === data.lighting.toLowerCase()))
+            if (found) { onLightingChange(found.value); matched = true }
+            else if (data.lighting === '') { onLightingChange(''); matched = true }
+          }
+
+          if (data.filmLook !== undefined) {
+            const found = CAMERA_FILM_LOOKS.find(f => f.value === data.filmLook || (f.label && f.label.toLowerCase() === data.filmLook.toLowerCase()))
+            if (found) { onFilmLookChange(found.value); matched = true }
+            else if (data.filmLook === '') { onFilmLookChange(''); matched = true }
+          }
+
+          if (onSpeedChange && data.speed !== undefined) {
+            const found = CAMERA_SPEEDS.find(s => s.value === data.speed || (s.label && s.label.toLowerCase() === data.speed.toLowerCase()))
+            if (found) { onSpeedChange(found.value); matched = true }
+            else if (data.speed === '') { onSpeedChange(''); matched = true }
+          }
+
+          if (matched) {
+            if (data.enabled !== undefined) {
+              onToggleEnabled(Boolean(data.enabled))
+            } else {
+              onToggleEnabled(true)
+            }
+            setPasted(true)
+            setTimeout(() => setPasted(false), 1500)
+            return
+          }
+        }
+      } catch {
+        // Not JSON, fall through to parseCameraBlock
+      }
+
+      // 2. Try parsing camera block or raw camera specs
+      const blockText = trimmed.includes('[camera_control]')
+        ? trimmed
+        : `[camera_control]\nCamera composition: ${trimmed}\n[/camera_control]`
+      const parsed = parseCameraBlock(blockText)
+
+      if (parsed.enabled || parsed.lens || parsed.shot || parsed.level || parsed.movement || parsed.lighting || parsed.filmLook || parsed.speed) {
+        if (parsed.lens) onLensChange(parsed.lens)
+        if (parsed.shot) onShotChange(parsed.shot)
+        if (parsed.level) onLevelChange(parsed.level)
+        if (parsed.movement && onMovementChange) onMovementChange(parsed.movement)
+        if (parsed.lighting !== undefined) onLightingChange(parsed.lighting)
+        if (parsed.filmLook !== undefined) onFilmLookChange(parsed.filmLook)
+        if (parsed.speed !== undefined && onSpeedChange) onSpeedChange(parsed.speed)
+        onToggleEnabled(true)
+        setPasted(true)
+        setTimeout(() => setPasted(false), 1500)
+      }
+    } catch (err) {
+      console.error('Error pasting camera parameters:', err)
+    }
+  }, [onLensChange, onShotChange, onLevelChange, onMovementChange, onLightingChange, onFilmLookChange, onSpeedChange, onToggleEnabled])
+
+  // Keyboard shortcut listener for Ctrl+C / Ctrl+V and ⌘C / ⌘V
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey
+      if (!isCtrlOrCmd) return
+
+      const target = e.target as HTMLElement | null
+      const isInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
+      if (isInput && window.getSelection()?.toString()) {
+        return
+      }
+
+      if (e.key.toLowerCase() === 'c') {
+        e.preventDefault()
+        handleCopy()
+      } else if (e.key.toLowerCase() === 'v') {
+        e.preventDefault()
+        handlePaste()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, handleCopy, handlePaste])
+
   if (!isOpen) return null
 
   const modalContent = (
@@ -344,7 +492,69 @@ export function CameraControlModal({
           <h3 className="text-sm font-medium text-surface-200 flex items-center gap-2">
             <Video size={14} className="text-accent-400" /> Control de Cámara
           </h3>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            {/* 3 xs action buttons: copy, paste, info */}
+            <div className="flex items-center gap-1 bg-surface-800/80 p-0.5 rounded-lg border border-surface-700/60">
+              <button
+                type="button"
+                onClick={handleCopy}
+                title="Copiar ajustes (Ctrl+C)"
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors text-surface-300 hover:text-white hover:bg-surface-700 active:scale-95 cursor-pointer"
+              >
+                {copied ? (
+                  <>
+                    <Check size={11} className="text-emerald-400" />
+                    <span className="text-emerald-400">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={11} className="text-surface-400" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePaste}
+                title="Pegar ajustes (Ctrl+V)"
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors text-surface-300 hover:text-white hover:bg-surface-700 active:scale-95 cursor-pointer"
+              >
+                {pasted ? (
+                  <>
+                    <Check size={11} className="text-emerald-400" />
+                    <span className="text-emerald-400">Pasted</span>
+                  </>
+                ) : (
+                  <>
+                    <Clipboard size={11} className="text-surface-400" />
+                    <span>Paste</span>
+                  </>
+                )}
+              </button>
+
+              {/* Info button with hover tooltip */}
+              <div className="relative group">
+                <button
+                  type="button"
+                  className="flex items-center justify-center p-1 rounded text-[10px] text-surface-400 hover:text-surface-200 hover:bg-surface-700 transition-colors cursor-pointer"
+                  aria-label="Información sobre atajos"
+                >
+                  <Info size={12} />
+                </button>
+                <div className="pointer-events-none absolute right-0 top-full mt-2 hidden group-hover:flex flex-col z-50 w-60 p-2.5 bg-surface-800 border border-surface-700 rounded-xl shadow-2xl text-[11px] text-surface-200 animate-in fade-in-0 zoom-in-95">
+                  <span className="font-semibold text-accent-400 mb-1 flex items-center gap-1">
+                    <Info size={12} /> Atajos de teclado
+                  </span>
+                  <span className="text-surface-300 leading-relaxed">
+                    Puedes copiar y pegar los ajustes de cámara usando <kbd className="px-1.5 py-0.5 bg-surface-950 border border-surface-600 rounded text-[10px] text-surface-200 font-mono">Ctrl+C</kbd> y <kbd className="px-1.5 py-0.5 bg-surface-950 border border-surface-600 rounded text-[10px] text-surface-200 font-mono">Ctrl+V</kbd> (o ⌘C / ⌘V en Mac).
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="h-4 w-px bg-surface-800 mx-0.5" />
+
             <span className={`text-[10px] font-medium ${enabled ? 'text-accent-400' : 'text-surface-500'}`}>
               {enabled ? 'On' : 'Off'}
             </span>
@@ -355,7 +565,7 @@ export function CameraControlModal({
             >
               <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${enabled ? 'left-[22px]' : 'left-0.5'}`} />
             </button>
-            <button onClick={onClose} className="text-surface-500 hover:text-surface-200">
+            <button onClick={onClose} className="text-surface-500 hover:text-surface-200 p-1 rounded-lg hover:bg-surface-800 transition-colors">
               <X size={16} />
             </button>
           </div>

@@ -3,6 +3,7 @@ import { readSetting } from './helpers'
 import { OpenfieldApiClient } from '../services/kie'
 import { ReplicateApiClient } from '../services/replicate'
 import { FalApiClient } from '../services/fal'
+import { MachgenApiClient } from '../services/machgen'
 
 export function registerBalancesHandlers({ handle }: IpcContext) {
   handle('balances:list', async () => {
@@ -50,6 +51,24 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
       } catch { /* key invalid or offline */ }
     }
 
+    const machgenKey = readSetting('machgenApiKey')
+    if (machgenKey) {
+      try {
+        const client = new MachgenApiClient(machgenKey)
+        const acc = await client.getAccount()
+        if (acc && typeof acc.balance_micros === 'number') {
+          const dollars = acc.balance_micros / 1_000_000
+          balances.push({
+            provider: 'machgen',
+            label: 'MachGen',
+            kind: 'dollars',
+            value: dollars,
+            url: 'https://www.machgen.ai',
+          })
+        }
+      } catch { /* key invalid or offline */ }
+    }
+
     const elevenLabsKey = readSetting('elevenlabsApiKey')
     if (elevenLabsKey) {
       try {
@@ -68,6 +87,17 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
           })
         }
       } catch { /* key invalid or offline */ }
+    }
+
+    const higgsfieldKey = readSetting('higgsfieldApiKey')
+    if (higgsfieldKey) {
+      balances.push({
+        provider: 'higgsfield',
+        label: 'Higgsfield AI',
+        kind: 'account',
+        value: 'Connected',
+        url: 'https://console.higgsfield.ai',
+      })
     }
 
     return balances

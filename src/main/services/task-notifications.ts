@@ -43,12 +43,16 @@ const COMPLETED_CHANNEL: Record<string, string> = {
   Openfield: 'openfield:task:completed',
   Replicate: 'replicate:task:completed',
   'fal.ai': 'fal:task:completed',
+  MachGen: 'machgen:task:completed',
+  Higgsfield: 'higgsfield:task:completed',
 }
 
 const FAILED_CHANNEL: Record<string, string> = {
   Openfield: 'openfield:task:failed',
   Replicate: 'replicate:task:failed',
   'fal.ai': 'fal:task:failed',
+  MachGen: 'machgen:task:failed',
+  Higgsfield: 'higgsfield:task:failed',
 }
 
 // Broadcast task events to every open window so pages refresh their asset lists

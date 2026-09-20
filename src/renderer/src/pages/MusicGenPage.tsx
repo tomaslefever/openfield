@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, memo, useMemo } from 'react'
 import { Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Cloud, FolderOpen, CheckSquare, Square, Search, Star, Mic, AudioLines, Play, Pause, Clock, Download } from 'lucide-react'
+import { toast } from 'sonner'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { useGridFlip } from '../hooks/useGridFlip'
@@ -312,6 +313,21 @@ export function MusicGenPage() {
     reset()
   }, [selectedIds, clearSelection, reset])
 
+  const handleBulkArchive = useCallback(async () => {
+    const api = (window as any).electronAPI
+    const count = selectedIds.size
+    if (count === 0) return
+    try {
+      await api?.assets.archiveMultiple(Array.from(selectedIds), true)
+      toast.success(`${count} ${count === 1 ? 'audio archivado' : 'audios archivados'}`)
+      clearSelection()
+      reset()
+    } catch (err) {
+      console.error('[MusicGenPage] Bulk archive failed:', err)
+      toast.error('Error al archivar audios')
+    }
+  }, [selectedIds, clearSelection, reset])
+
   const handleBulkAddTags = useCallback(async (tags: string[]) => {
     const api = (window as any).electronAPI
     await api?.assets.addTagsMultiple(Array.from(selectedIds), tags)
@@ -465,6 +481,7 @@ export function MusicGenPage() {
         selectedIds={Array.from(selectedIds)}
         onAddTags={() => setShowBulkTag(true)}
         onDelete={() => setShowBulkDelete(true)}
+        onArchive={handleBulkArchive}
         onClearSelection={clearSelection}
         onAssetsMoved={handleAssetsMoved}
       />

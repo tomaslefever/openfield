@@ -1,16 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
-import {
-  Wand2,
-  Sparkles,
-  Video,
-  AudioLines,
-  Bot,
-  ChevronDown,
-  ChevronUp,
-  Check,
-  Search,
-  Cpu,
-} from 'lucide-react'
+import { useMemo } from 'react'
+import { ChevronDown } from 'lucide-react'
 import {
   ModelPricing,
   IMAGE_MODELS,
@@ -19,6 +8,10 @@ import {
   LLM_MODELS,
   unitPrice,
 } from '../../lib/models'
+import { Selector } from '../ui/Selector'
+import { SelectorOption } from '../ui/SelectorOption'
+import { ProviderLogo, getProviderForModel } from '../icons/ProviderLogos'
+import { cn } from '@/lib/utils'
 
 interface Props {
   kind: 'image' | 'video' | 'audio' | 'llm'
@@ -29,7 +22,7 @@ interface Props {
   compact?: boolean
   showCost?: boolean
   resolution?: string
-  filterProvider?: 'kie' | 'fal' | 'replicate' | 'elevenlabs'
+  filterProvider?: 'kie' | 'fal' | 'replicate' | 'elevenlabs' | 'machgen' | 'higgsfield'
   dropUp?: boolean
 }
 
@@ -45,25 +38,6 @@ export function ModelSelectorDropdown({
   filterProvider,
   dropUp = false,
 }: Props) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const dropdownRef = useRef<HTMLDivElement>(null)
-
-  // Close when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [isOpen])
-
   const allModels = useMemo(() => {
     let list: ModelPricing[] = []
     if (kind === 'image') list = IMAGE_MODELS
@@ -92,73 +66,16 @@ export function ModelSelectorDropdown({
     )
   }, [allModels, selectedModelId])
 
-  const filteredModels = useMemo(() => {
-    if (!searchQuery.trim()) return allModels
-    const q = searchQuery.toLowerCase().trim()
-    return allModels.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.category.toLowerCase().includes(q) ||
-        (m.provider && m.provider.toLowerCase().includes(q))
-    )
-  }, [allModels, searchQuery])
-
-  // Group models by provider exactly as in PromptComposer.tsx
-  const groups = useMemo(() => {
-    const list = [
-      {
-        label: 'KIE.ai',
-        items: filteredModels.filter(
-          (m) => !m.local && m.provider !== 'replicate' && m.provider !== 'fal' && m.provider !== 'elevenlabs'
-        ),
-      },
-      {
-        label: 'fal.ai',
-        items: filteredModels.filter((m) => m.provider === 'fal'),
-      },
-      {
-        label: 'Replicate',
-        items: filteredModels.filter((m) => m.provider === 'replicate'),
-      },
-      {
-        label: 'ElevenLabs',
-        items: filteredModels.filter((m) => m.provider === 'elevenlabs'),
-      },
-      {
-        label: 'Local',
-        items: filteredModels.filter((m) => m.local),
-      },
-    ]
-    return list.filter((g) => g.items.length > 0)
-  }, [filteredModels])
-
-  const currentPrice = useMemo(() => {
-    if (!selectedModel || kind === 'llm') return null
-    const cost = unitPrice(selectedModel, resolution)
-    return `$${cost.toFixed(3)}${selectedModel.unit === 's' ? '/s' : ''}`
-  }, [selectedModel, resolution, kind])
-
-  const Icon =
-    kind === 'image'
-      ? Wand2
-      : kind === 'video'
-      ? Video
-      : kind === 'audio'
-      ? AudioLines
-      : Bot
-
-  const handleSelectModel = (m: ModelPricing) => {
-    const primaryId =
-      kind === 'image'
+  const getModelId = (m: ModelPricing) => {
+    return (
+      (kind === 'image'
         ? m.t2iId || m.name
         : kind === 'video'
         ? m.i2vId || m.t2vId || m.name
         : kind === 'audio'
         ? m.t2aId || m.name
-        : m.modelId || m.name
-    onSelect(m, primaryId)
-    setIsOpen(false)
-    setSearchQuery('')
+        : m.modelId || m.name) || m.name
+    )
   }
 
   const isModelActive = (m: ModelPricing) => {
@@ -173,159 +90,251 @@ export function ModelSelectorDropdown({
     )
   }
 
-  return (
-    <div className={`relative inline-block text-left ${className}`} ref={dropdownRef}>
-      {/* Trigger Button */}
-      <button
-        type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        disabled={disabled}
-        className={`flex items-center gap-1.5 bg-surface-800/90 hover:bg-surface-700/90 border border-surface-700/80 hover:border-surface-600 rounded-lg text-surface-200 transition-colors ${
-          compact ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-xs'
-        } ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
+  // Groups by provider with official logos
+  const groups = useMemo(() => {
+    const list = [
+      {
+        id: 'kie',
+        label: (
+          <div className="flex items-center gap-1.5">
+            <ProviderLogo provider="kie" size={13} />
+            <span>KIE.ai</span>
+          </div>
+        ),
+        items: allModels.filter(
+          (m) =>
+            !m.local &&
+            m.provider !== 'replicate' &&
+            m.provider !== 'fal' &&
+            m.provider !== 'elevenlabs' &&
+            m.provider !== 'machgen' &&
+            m.provider !== 'higgsfield'
+        ),
+      },
+      {
+        id: 'higgsfield',
+        label: (
+          <div className="flex items-center gap-1.5">
+            <ProviderLogo provider="higgsfield" size={13} />
+            <span>Higgsfield AI</span>
+          </div>
+        ),
+        items: allModels.filter((m) => m.provider === 'higgsfield'),
+      },
+      {
+        id: 'machgen',
+        label: (
+          <div className="flex items-center gap-1.5">
+            <ProviderLogo provider="machgen" size={13} />
+            <span>MachGen</span>
+          </div>
+        ),
+        items: allModels.filter((m) => m.provider === 'machgen'),
+      },
+      {
+        id: 'fal',
+        label: (
+          <div className="flex items-center gap-1.5">
+            <ProviderLogo provider="fal" size={13} />
+            <span>fal.ai</span>
+          </div>
+        ),
+        items: allModels.filter((m) => m.provider === 'fal'),
+      },
+      {
+        id: 'replicate',
+        label: (
+          <div className="flex items-center gap-1.5">
+            <ProviderLogo provider="replicate" size={13} />
+            <span>Replicate</span>
+          </div>
+        ),
+        items: allModels.filter((m) => m.provider === 'replicate'),
+      },
+      {
+        id: 'elevenlabs',
+        label: (
+          <div className="flex items-center gap-1.5">
+            <ProviderLogo provider="elevenlabs" size={13} />
+            <span>ElevenLabs</span>
+          </div>
+        ),
+        items: allModels.filter((m) => m.provider === 'elevenlabs'),
+      },
+      {
+        id: 'local',
+        label: (
+          <div className="flex items-center gap-1.5">
+            <ProviderLogo provider="local" size={13} />
+            <span>Local</span>
+          </div>
+        ),
+        items: allModels.filter((m) => m.local),
+      },
+    ]
+    return list.filter((g) => g.items.length > 0)
+  }, [allModels])
+
+  const currentPrice = useMemo(() => {
+    if (!selectedModel || kind === 'llm') return null
+    const cost = unitPrice(selectedModel, resolution)
+    return `$${cost.toFixed(3)}${selectedModel.unit === 's' ? '/s' : ''}`
+  }, [selectedModel, resolution, kind])
+
+  const handleSelectModel = (_value: string, m: ModelPricing) => {
+    const primaryId = getModelId(m)
+    onSelect(m, primaryId)
+  }
+
+  const renderProviderBadge = (m: ModelPricing) => {
+    const p = getProviderForModel(m)
+    const badgeConfigs: Record<string, { label: string; className: string }> = {
+      replicate: {
+        label: 'Replicate',
+        className: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
+      },
+      fal: {
+        label: 'FAL',
+        className: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+      },
+      machgen: {
+        label: 'MachGen',
+        className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      },
+      higgsfield: {
+        label: 'Higgsfield',
+        className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      },
+      elevenlabs: {
+        label: 'ElevenLabs',
+        className: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+      },
+      local: {
+        label: 'LOCAL',
+        className: 'bg-green-500/15 text-green-300 border-green-500/30',
+      },
+      kie: {
+        label: 'KIE',
+        className: 'bg-accent-500/15 text-accent-300 border-accent-500/30',
+      },
+    }
+
+    const cfg = badgeConfigs[p] || badgeConfigs.kie
+
+    return (
+      <span
+        className={cn(
+          'text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider flex items-center gap-1 shrink-0',
+          cfg.className
+        )}
       >
-        <Icon size={compact ? 12 : 13} className="text-accent-400 flex-shrink-0" />
-        <span className="font-medium truncate max-w-[150px]">
-          {selectedModel?.name || 'Seleccionar Modelo'}
-        </span>
+        <ProviderLogo provider={p} size={10} />
+        <span>{cfg.label}</span>
+      </span>
+    )
+  }
 
-        {/* Provider Tag */}
-        {selectedModel?.provider === 'replicate' ? (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-400 font-semibold uppercase">
-            Replicate
-          </span>
-        ) : selectedModel?.provider === 'fal' ? (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-sky-500/20 text-sky-400 font-semibold uppercase">
-            FAL
-          </span>
-        ) : selectedModel?.provider === 'elevenlabs' ? (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-semibold uppercase">
-            ElevenLabs
-          </span>
-        ) : selectedModel?.local ? (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-500 font-semibold flex items-center gap-0.5">
-            <Cpu size={9} /> LOCAL
-          </span>
-        ) : (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-accent-500/20 text-accent-400 font-semibold uppercase">
-            KIE
-          </span>
-        )}
-
-        {showCost && currentPrice && (
-          <span className="text-[10px] text-surface-400 font-mono hidden sm:inline ml-0.5">
-            ({currentPrice})
-          </span>
-        )}
-
-        {isOpen ? (
-          <ChevronUp size={12} className="text-surface-400 ml-0.5 flex-shrink-0" />
-        ) : (
-          <ChevronDown size={12} className="text-surface-400 ml-0.5 flex-shrink-0" />
-        )}
-      </button>
-
-      {/* Popover Dropdown Menu */}
-      {isOpen && (
-        <div
-          className={`absolute ${
-            dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
-          } left-0 bg-surface-900 border border-surface-700 rounded-xl py-1 min-w-[260px] w-max max-w-[340px] shadow-2xl z-50 overflow-hidden flex flex-col`}
-          style={{ maxHeight: '340px' }}
+  return (
+    <Selector<ModelPricing>
+      className={className}
+      groups={groups}
+      value={selectedModel ? getModelId(selectedModel) : ''}
+      getOptionValue={getModelId}
+      getOptionLabel={(m) => m.name}
+      onChange={handleSelectModel}
+      disabled={disabled}
+      dropUp={dropUp}
+      searchPlaceholder="Buscar modelo..."
+      emptyMessage="No hay modelos disponibles con proveedor configurado"
+      filterOption={(m, q) => {
+        const query = q.toLowerCase().trim()
+        return (
+          m.name.toLowerCase().includes(query) ||
+          m.category.toLowerCase().includes(query) ||
+          (m.provider ? m.provider.toLowerCase().includes(query) : false)
+        )
+      }}
+      renderTrigger={(_selected, isOpen) => (
+        <button
+          type="button"
+          disabled={disabled || allModels.length === 0}
+          className={cn(
+            'flex items-center gap-2 bg-surface-900/90 hover:bg-surface-800/90 border border-surface-700/80 hover:border-surface-600 rounded-lg text-surface-200 transition-all duration-150 shadow-sm cursor-pointer select-none',
+            compact ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-xs',
+            isOpen && 'ring-2 ring-accent-500/40 border-accent-500 bg-surface-800',
+            (disabled || allModels.length === 0) && 'opacity-50 pointer-events-none'
+          )}
         >
-          {/* Quick Search */}
-          <div className="p-2 border-b border-surface-800 bg-surface-950/40">
-            <div className="relative flex items-center">
-              <Search size={12} className="absolute left-2.5 text-surface-500 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar modelo..."
-                className="w-full bg-surface-800 text-xs text-surface-200 pl-7 pr-2.5 py-1 rounded-lg border border-surface-700/80 outline-none focus:border-accent-500 placeholder:text-surface-500"
-                autoFocus
-              />
-            </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <ProviderLogo provider={getProviderForModel(selectedModel)} size={compact ? 13 : 14} />
+            </span>
+            <span className="font-medium truncate max-w-[140px] text-surface-100">
+              {selectedModel?.name || (allModels.length === 0 ? 'Sin proveedor' : 'Seleccionar Modelo')}
+            </span>
           </div>
 
-          {/* Grouped Model List */}
-          <div className="overflow-y-auto max-h-[280px] divide-y divide-surface-800/60">
-            {groups.length === 0 ? (
-              <div className="p-4 text-center text-xs text-surface-500">
-                No se encontraron modelos
-              </div>
-            ) : (
-              groups.map((g) => (
-                <div key={g.label} className="py-1">
-                  <div className="px-3 pt-1.5 pb-1 text-[9px] uppercase tracking-wider text-surface-500 font-semibold flex items-center justify-between">
-                    <span>{g.label}</span>
-                    <span className="text-[9px] font-mono text-surface-600">
-                      {g.items.length} {g.items.length === 1 ? 'modelo' : 'modelos'}
-                    </span>
-                  </div>
-                  {g.items.map((m) => {
-                    const active = isModelActive(m)
-                    const cost = unitPrice(m, resolution)
-                    const costDisplay =
-                      kind === 'llm'
-                        ? ''
-                        : m.provider === 'replicate' || m.provider === 'fal'
-                        ? `$${cost.toFixed(3)}/${m.unit === 's' ? 's' : 'img'}`
-                        : `${Math.round(cost * 200)} cr`
+          {/* Provider Badge */}
+          {selectedModel && renderProviderBadge(selectedModel)}
 
-                    return (
-                      <button
-                        key={`${g.label}-${m.name}`}
-                        type="button"
-                        onClick={() => handleSelectModel(m)}
-                        className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between gap-2 ${
-                          active
-                            ? 'text-accent-400 bg-accent-500/10 font-medium'
-                            : 'text-surface-300 hover:text-surface-100 hover:bg-surface-800/70'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          {active ? (
-                            <Check size={12} className="text-accent-400 flex-shrink-0" />
-                          ) : (
-                            <div className="w-3" />
-                          )}
-                          <span className="truncate">{m.name}</span>
-                          <span
-                            className={`text-[10px] flex-shrink-0 ${
-                              m.local ? 'text-green-500/80' : 'text-surface-500'
-                            }`}
-                          >
-                            {m.local ? (
-                              <>
-                                <Cpu size={9} className="inline mr-0.5" />
-                                Local
-                              </>
-                            ) : (
-                              m.category
-                            )}
-                          </span>
-                          {m.refTags && (
-                            <span className="text-[8px] px-1 py-0.2 rounded bg-cyan-500/15 text-cyan-400 font-semibold">
-                              @TAGS
-                            </span>
-                          )}
-                        </div>
+          {/* Cost display */}
+          {showCost && currentPrice && (
+            <span className="text-[10px] text-surface-400 font-mono hidden sm:inline ml-0.5">
+              ({currentPrice})
+            </span>
+          )}
 
-                        {costDisplay && (
-                          <span className="text-amber-400/90 text-[10px] font-mono flex-shrink-0">
-                            {costDisplay}
-                          </span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              ))
+          <ChevronDown
+            size={12}
+            className={cn(
+              'text-surface-400 ml-0.5 flex-shrink-0 transition-transform duration-150',
+              isOpen && 'rotate-180 text-surface-200'
             )}
-          </div>
-        </div>
+          />
+        </button>
       )}
-    </div>
+      renderOption={(m, { selected }) => {
+        const active = selected || isModelActive(m)
+        const cost = unitPrice(m, resolution)
+        const costDisplay =
+          kind === 'llm'
+            ? ''
+            : m.provider === 'replicate' || m.provider === 'fal' || m.provider === 'machgen' || m.provider === 'higgsfield'
+            ? `$${cost.toFixed(3)}/${m.unit === 's' ? 's' : 'img'}`
+            : `${Math.round(cost * 200)} cr`
+
+        const descriptionText = m.local
+          ? 'Modelo Local en GPU'
+          : `${m.category}${m.resolutions && m.resolutions.length > 0 ? ` • ${m.resolutions.join(', ')}` : ''}`
+
+        const providerId = getProviderForModel(m)
+
+        return (
+          <SelectorOption
+            icon={<ProviderLogo provider={providerId} size={15} />}
+            label={m.name}
+            description={descriptionText}
+            layout="stacked"
+            selected={active}
+            size="sm"
+            endContent={
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {m.refTags && (
+                  <span className="text-[8px] px-1 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-semibold">
+                    @TAGS
+                  </span>
+                )}
+                {renderProviderBadge(m)}
+                {costDisplay && (
+                  <span className="text-amber-400/90 text-[10px] font-mono flex-shrink-0 ml-1">
+                    {costDisplay}
+                  </span>
+                )}
+              </div>
+            }
+          />
+        )
+      }}
+    />
   )
 }

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Download, Trash2, Coins, Loader, AlertCircle, X, Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Clock, Cloud, FolderOpen, CheckSquare, Square, Search, Star, RefreshCw, Video } from 'lucide-react'
+import { toast } from 'sonner'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { useGridFlip } from '../hooks/useGridFlip'
@@ -12,6 +13,7 @@ import { TagEditor } from '../components/ui/TagEditor'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
+import { ImageGeneration } from '../components/agents/image-generation'
 
 const MODEL_NAMES: Record<string, string> = {
   'kling-3.0/video': 'Kling 3.0',
@@ -24,6 +26,9 @@ const MODEL_NAMES: Record<string, string> = {
   'bytedance/seedance-2': 'Seedance 2',
   'bytedance/seedance-2-5': 'Seedance 2.5',
   'bytedance/seedance-2-fast': 'Seedance 2 Fast',
+  'bytedance/seedance-2.0/text-to-video': 'Seedance 2.0 (Higgsfield)',
+  'bytedance/seedance-2.5/text-to-video': 'Seedance 2.5 (Higgsfield)',
+  'kling-video/v3.0/std/text-to-video': 'Kling 3.0 Standard (Higgsfield)',
   'wan-2-7-text-to-video': 'Wan 2.7',
   'wan-2-7-image-to-video': 'Wan 2.7',
   'wan/3-0-video': 'Wan 3.0',
@@ -58,6 +63,7 @@ export function VideoGenPage() {
   const composerRef = useRef<PromptComposerHandle>(null)
   const composerPayload = useAppStore(s => s.composerPayload)
   const setComposerPayload = useAppStore(s => s.setComposerPayload)
+  const setPage = useAppStore(s => s.setPage)
 
   // Load prompt from Prompt Library regenerate
   useEffect(() => {
@@ -162,7 +168,11 @@ export function VideoGenPage() {
     const unsubRpFailed = api.on('replicate:task:failed', () => reset())
     const unsubFalComplete = api.on('fal:task:completed', () => reset())
     const unsubFalFailed = api.on('fal:task:failed', () => reset())
-    return () => { unsubComplete?.(); unsubFailed?.(); unsubRpComplete?.(); unsubRpFailed?.(); unsubFalComplete?.(); unsubFalFailed?.() }
+    const unsubMgComplete = api.on('machgen:task:completed', () => reset())
+    const unsubMgFailed = api.on('machgen:task:failed', () => reset())
+    const unsubHfComplete = api.on('higgsfield:task:completed', () => reset())
+    const unsubHfFailed = api.on('higgsfield:task:failed', () => reset())
+    return () => { unsubComplete?.(); unsubFailed?.(); unsubRpComplete?.(); unsubRpFailed?.(); unsubFalComplete?.(); unsubFalFailed?.(); unsubMgComplete?.(); unsubMgFailed?.(); unsubHfComplete?.(); unsubHfFailed?.() }
   }, [reset])
 
   useEffect(() => {
@@ -234,9 +244,15 @@ export function VideoGenPage() {
   const handleGenerate = useCallback(async (params: any) => {
     try {
       const api = (window as any).electronAPI
+      const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('bytedance/seedance-2.0') || params?.model?.startsWith('bytedance/seedance-2.5') || params?.model?.startsWith('kling-video/')
+      const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/')
-      if (isFalModel) {
+      if (isHiggsfieldModel) {
+        await api?.higgsfield.generate(params)
+      } else if (isMachgenModel) {
+        await api?.machgen.generate(params)
+      } else if (isFalModel) {
         await api?.fal.generate(params)
       } else if (isReplicateModel) {
         await api?.replicate.generate(params)
@@ -246,6 +262,53 @@ export function VideoGenPage() {
       reset()
     } catch (err) { console.error('Video generation failed:', err) }
   }, [reset])
+
+  const handleRecreate = useCallback(async () => {
+    if (!selectedAsset) return
+    try {
+      const p = JSON.parse(selectedAsset.parameters || '{}')
+      const api = (window as any).electronAPI
+      const loadRefs = async (refs: any[]) => {
+        if (!refs?.length) return undefined
+        const ids = refs.map(r => r.assetId).filter(Boolean)
+        if (ids.length > 0) {
+          const results = await api?.assets.readBase64(ids)
+          const map = new Map((results || []).map((r: any) => [r.id, r.base64]))
+          return refs.map(r => ({ ...r, base64: r.assetId ? (map.get(r.assetId) || '') : (r.base64 || '') })).filter((r: any) => r.base64?.length > 20)
+        }
+        return refs.filter((r: any) => r.base64?.length > 50)
+      }
+      const loadImg = async (key: string) => {
+        const assetKey = key === 'imageBase64' ? 'imageAssetId' : key === 'firstFrameBase64' ? 'firstFrameAssetId' : key === 'lastFrameBase64' ? 'lastFrameAssetId' : (key + 'AssetId')
+        const assetId = p[assetKey] || p[key + 'AssetId']
+        if (assetId) { const r = await api?.assets.readBase64([assetId]); return r?.[0]?.base64 || undefined }
+        if (typeof p[key] === 'string' && p[key].length > 50) return p[key]
+        return undefined
+      }
+      composerRef.current?.loadFromParams({
+        prompt: selectedAsset.prompt || '',
+        model: selectedAsset.modelUsed || '',
+        aspectRatio: p.aspectRatio || p.aspect_ratio || undefined,
+        resolution: p.resolution || undefined,
+        duration: p.duration ?? undefined,
+        fps: p.fps ?? undefined,
+        sound: p.sound ?? undefined,
+        draft: p.draft ?? undefined,
+        imageBase64: await loadImg('imageBase64'),
+        imageMime: p.imageMime || 'image/png',
+        imageRefs: await loadRefs(p.imageRefs),
+        videoRefs: await loadRefs(p.videoRefs),
+        audioRefs: await loadRefs(p.audioRefs),
+        firstFrameBase64: await loadImg('firstFrameBase64'),
+        lastFrameBase64: await loadImg('lastFrameBase64'),
+        multiShots: p.multiShots,
+        multiPrompt: p.multiPrompt,
+      })
+    } catch (err) {
+      console.error('Recreate failed:', err)
+    }
+    setSelectedAsset(null)
+  }, [selectedAsset])
 
   const lastSelectedRef = useRef<string | null>(null)
 
@@ -277,6 +340,21 @@ export function VideoGenPage() {
     setShowBulkDelete(false)
     clearSelection()
     reset()
+  }, [selectedIds, clearSelection, reset])
+
+  const handleBulkArchive = useCallback(async () => {
+    const api = (window as any).electronAPI
+    const count = selectedIds.size
+    if (count === 0) return
+    try {
+      await api?.assets.archiveMultiple(Array.from(selectedIds), true)
+      toast.success(`${count} ${count === 1 ? 'video archivado' : 'videos archivados'}`)
+      clearSelection()
+      reset()
+    } catch (err) {
+      console.error('[VideoGenPage] Bulk archive failed:', err)
+      toast.error('Error al archivar videos')
+    }
   }, [selectedIds, clearSelection, reset])
 
   const handleBulkAddTags = useCallback(async (tags: string[]) => {
@@ -339,67 +417,79 @@ export function VideoGenPage() {
           <div ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {assets.map((asset: any) => {
               const isSel = selectedIds.has(asset.id)
+              const isError = asset.filePath?.startsWith('__error__')
+              const isLoading = asset.modelUsed && asset.modelUsed !== 'import' && !isError
               return (
               <div key={asset.id} data-asset-card={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={(e) => { if (e.shiftKey) { toggleSelect(asset.id, true) } else { setSelectedAsset(asset) } }} onMouseEnter={() => handleMouseEnter(asset.id)} onMouseLeave={() => handleMouseLeave(asset.id)}>
                 <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
                   {(() => {
                     const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
                     if (src) return <video ref={(el) => { if (el) { videoRefs.current.set(asset.id, el); el.muted = true } else videoRefs.current.delete(asset.id) }} data-video-id={asset.id} src={srcUrl(src)} className="w-full h-full object-cover" preload="auto" loop playsInline />
-                    if (asset.filePath?.startsWith('__error__')) return (
-                      <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
-                        <AlertCircle size={20} />
-                        <span className="text-[10px] text-center text-red-400/80 line-clamp-3">{asset.filePath.replace('__error__:', '')}</span>
+                    if (isError) return (
+                      <div className="flex flex-col items-center justify-center gap-1.5 text-red-400 p-3 text-center w-full h-full">
+                        <AlertCircle size={20} className="flex-shrink-0" />
+                        <span className="text-[10px] text-red-400/80 line-clamp-3 leading-tight">{asset.filePath.replace('__error__:', '')}</span>
                       </div>
                     )
-                    if (asset.modelUsed && asset.modelUsed !== 'import') return (
-                      <div className="flex flex-col items-center gap-2 text-accent-400">
-                        <Loader size={24} className="animate-spin" />
-                        <span className="text-xs text-surface-500 px-2 text-center line-clamp-2">{asset.prompt}</span>
-                      </div>
-                    )
+                    if (isLoading) {
+                      return (
+                        <ImageGeneration
+                          status="generating"
+                          size="fill"
+                          showStatus={false}
+                          prompt={undefined}
+                          resolution={undefined}
+                          className="w-full h-full"
+                        />
+                      )
+                    }
                     return <div className="text-surface-600 text-sm">No preview</div>
                   })()}
                 </div>
-                <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
-                  {!asset.localPath && asset.filePath?.startsWith('http') && (
-                    <div className="bg-black/60 rounded-md p-1">
-                      <Cloud size={12} className="text-blue-400" />
-                    </div>
-                  )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleToggleFavorite(asset.id) }}
-                    title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
-                    className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
-                  >
-                    <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
-                  </button>
-                </div>
+                {!isLoading && (
+                  <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+                    {!asset.localPath && asset.filePath?.startsWith('http') && (
+                      <div className="bg-black/60 rounded-md p-1">
+                        <Cloud size={12} className="text-blue-400" />
+                      </div>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleToggleFavorite(asset.id) }}
+                      title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
+                      className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+                    >
+                      <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id, e.shiftKey) }}
                   className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
                 >
                   {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
                 </button>
-                <div className="absolute bottom-2 right-2 flex items-center gap-1">
-                  {(() => {
-                    try {
-                      const p = JSON.parse(asset.parameters || '{}')
-                      return (
-                        <>
-                          {p.aspectRatio && <AssetBadge value={p.aspectRatio} />}
-                          {(p.generationTime || p.generationTimeSeconds || p.costTime) && (
-                            <AssetBadge
-                              value={p.generationTime || (p.generationTimeSeconds ? `${p.generationTimeSeconds}s` : `${p.costTime}s`)}
-                              icon={<Clock size={10} className="text-surface-300" />}
-                            />
-                          )}
-                        </>
-                      )
-                    } catch {}
-                    return null
-                  })()}
-                  {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
-                </div>
+                {!isLoading && (
+                  <div className="absolute bottom-2 right-2 flex items-center gap-1">
+                    {(() => {
+                      try {
+                        const p = JSON.parse(asset.parameters || '{}')
+                        return (
+                          <>
+                            {p.aspectRatio && <AssetBadge value={p.aspectRatio} />}
+                            {(p.generationTime || p.generationTimeSeconds || p.costTime) && (
+                              <AssetBadge
+                                value={p.generationTime || (p.generationTimeSeconds ? `${p.generationTimeSeconds}s` : `${p.costTime}s`)}
+                                icon={<Clock size={10} className="text-surface-300" />}
+                              />
+                            )}
+                          </>
+                        )
+                      } catch {}
+                      return null
+                    })()}
+                    {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
+                  </div>
+                )}
               </div>
             )})}
           </div>
@@ -426,13 +516,22 @@ export function VideoGenPage() {
         </div>
       </div>
 
-      <PromptComposer ref={composerRef} onGenerate={handleGenerate} mode="video" floating />
+      <PromptComposer
+        ref={composerRef}
+        onGenerate={handleGenerate}
+        mode="video"
+        onModeChange={(m) => {
+          if (m === 'image') setPage('image')
+        }}
+        floating
+      />
 
       <BulkActionBar
         selectedCount={selectedIds.size}
         selectedIds={Array.from(selectedIds)}
         onAddTags={() => setShowBulkTag(true)}
         onDelete={() => setShowBulkDelete(true)}
+        onArchive={handleBulkArchive}
         onAddToComposer={handleBulkAddToComposer}
         onClearSelection={clearSelection}
         onAssetsMoved={handleAssetsMoved}
@@ -459,7 +558,7 @@ export function VideoGenPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setSelectedAsset(null)}>
           <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Video */}
-            <div className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative">
+            <div className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative overflow-hidden">
               {assets.findIndex((a: any) => a.id === selectedAsset.id) > 0 && (
                 <button
                   onClick={(e) => { e.stopPropagation(); const idx = assets.findIndex((a: any) => a.id === selectedAsset.id); setSelectedAsset(assets[idx - 1]) }}
@@ -486,8 +585,35 @@ export function VideoGenPage() {
               )}
               {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__'))) ? (
                 <AutoPlayVideo key={selectedAsset.id} src={srcUrl(selectedAsset.localPath || selectedAsset.filePath)} className="max-w-full max-h-[90vh] object-contain" />
+              ) : selectedAsset.filePath?.startsWith('__error__') ? (
+                <div className="flex flex-col items-center justify-center gap-3 text-red-400 p-8 text-center max-w-lg">
+                  <AlertCircle size={36} className="flex-shrink-0" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-red-400">Error en la generación</p>
+                    <p className="text-xs text-red-400/90 leading-relaxed font-mono bg-red-950/30 border border-red-900/40 rounded-lg p-3 max-w-md">
+                      {selectedAsset.filePath.replace('__error__:', '')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRecreate}
+                    className="mt-2 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-surface-200 bg-surface-800 hover:bg-surface-700 border border-surface-700 transition-colors"
+                  >
+                    <RotateCcw size={14} className="text-accent-400" />
+                    Reintentar generación
+                  </button>
+                </div>
               ) : (
-                <div className="text-surface-600">No preview</div>
+                <div className="absolute inset-0 w-full h-full">
+                  <ImageGeneration
+                    status="generating"
+                    size="fill"
+                    showStatus={false}
+                    prompt={undefined}
+                    resolution={undefined}
+                    className="w-full h-full"
+                  />
+                </div>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); handleToggleFavorite(selectedAsset.id) }}
@@ -589,49 +715,7 @@ export function VideoGenPage() {
                 />
               </div>
               <div className="pt-2 border-t border-surface-800 grid grid-cols-2 gap-1.5">
-                <button onClick={async () => {
-                  try {
-                    const p = JSON.parse(selectedAsset.parameters || '{}')
-                    const api = (window as any).electronAPI
-                    const loadRefs = async (refs: any[]) => {
-                      if (!refs?.length) return undefined
-                      const ids = refs.map(r => r.assetId).filter(Boolean)
-                      if (ids.length > 0) {
-                        const results = await api?.assets.readBase64(ids)
-                        const map = new Map((results || []).map((r: any) => [r.id, r.base64]))
-                        return refs.map(r => ({ ...r, base64: r.assetId ? (map.get(r.assetId) || '') : (r.base64 || '') })).filter((r: any) => r.base64?.length > 20)
-                      }
-                      return refs.filter((r: any) => r.base64?.length > 50)
-                    }
-                    const loadImg = async (key: string) => {
-                      const assetKey = key === 'imageBase64' ? 'imageAssetId' : key === 'firstFrameBase64' ? 'firstFrameAssetId' : key === 'lastFrameBase64' ? 'lastFrameAssetId' : (key + 'AssetId')
-                      const assetId = p[assetKey] || p[key + 'AssetId']
-                      if (assetId) { const r = await api?.assets.readBase64([assetId]); return r?.[0]?.base64 || undefined }
-                      if (typeof p[key] === 'string' && p[key].length > 50) return p[key]
-                      return undefined
-                    }
-                    composerRef.current?.loadFromParams({
-                      prompt: selectedAsset.prompt || '',
-                      model: selectedAsset.modelUsed || '',
-                      aspectRatio: p.aspectRatio || p.aspect_ratio || undefined,
-                      resolution: p.resolution || undefined,
-                      duration: p.duration ?? undefined,
-                      fps: p.fps ?? undefined,
-                      sound: p.sound ?? undefined,
-                      draft: p.draft ?? undefined,
-                      imageBase64: await loadImg('imageBase64'),
-                      imageMime: p.imageMime || 'image/png',
-                      imageRefs: await loadRefs(p.imageRefs),
-                      videoRefs: await loadRefs(p.videoRefs),
-                      audioRefs: await loadRefs(p.audioRefs),
-                      firstFrameBase64: await loadImg('firstFrameBase64'),
-                      lastFrameBase64: await loadImg('lastFrameBase64'),
-                      multiShots: p.multiShots,
-                      multiPrompt: p.multiPrompt,
-                    })
-                  } catch (err) { console.error('Recreate failed:', err) }
-                  setSelectedAsset(null)
-                }} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
+                <button onClick={handleRecreate} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
                   <RotateCcw size={12} /> Recreate
                 </button>
                 <button onClick={handleSaveAs} disabled={saveState === 'saving'} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">

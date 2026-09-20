@@ -166,10 +166,109 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
       content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
     }))
 
-    // 1. Try KIE.ai Chat API with current KIE credentials
+    // 1. Try KIE.ai API with current KIE credentials
     if (kieApiKey) {
+      const isClaude = requestedModel.toLowerCase().includes('claude')
+      let lastError = ''
+
+      // For Claude models (Claude Opus 4.7, Claude Opus 4.8, Claude Fable 5, Claude 3.7 Sonnet),
+      // prioritize the official KIE Claude Messages endpoint
+      if (isClaude) {
+        const sysMsg = formattedMessages.find((m: any) => m.role === 'system')?.content || ''
+        const userMsgs = formattedMessages.filter((m: any) => m.role !== 'system')
+        const messagesPayload = userMsgs.length > 0 ? userMsgs : [{ role: 'user', content: 'Hola' }]
+
+        const claudeUrls = [
+          'https://api.kie.ai/claude/v1/messages',
+          `https://api.kie.ai/${requestedModel}/v1/messages`,
+          'https://api.kie.ai/claude-3-7-sonnet/v1/messages',
+        ]
+
+        for (const cUrl of claudeUrls) {
+          try {
+            const bodyPayload: Record<string, any> = {
+              model: requestedModel,
+              messages: messagesPayload,
+              max_tokens: 4096,
+              stream: !!params?.stream,
+              thinkingFlag: true,
+            }
+            if (sysMsg) {
+              bodyPayload.system = sysMsg
+            }
+
+            const res = await fetch(cUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${kieApiKey}`,
+                'X-Api-Key': kieApiKey,
+                'anthropic-version': '2023-06-01',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(bodyPayload),
+            })
+
+            if (res.ok) {
+              const contentType = res.headers.get('content-type') || ''
+              if (contentType.includes('text/event-stream') || params?.stream) {
+                const rawStreamText = await res.text()
+                let accumulated = ''
+                const lines = rawStreamText.split('\n')
+                for (const line of lines) {
+                  const trimmed = line.trim()
+                  if (!trimmed.startsWith('data:')) continue
+                  const dataStr = trimmed.slice(5).trim()
+                  if (dataStr === '[DONE]') continue
+                  try {
+                    const parsed = JSON.parse(dataStr)
+                    const deltaText =
+                      parsed.delta?.text ||
+                      parsed.delta?.content ||
+                      parsed.content_block?.text ||
+                      parsed.choices?.[0]?.delta?.content ||
+                      ''
+                    if (deltaText) {
+                      accumulated += deltaText
+                      if (_e?.sender && !(_e.sender as any).isDestroyed?.()) {
+                        _e.sender.send('openfield:agent:chunk', { delta: deltaText, content: accumulated })
+                      }
+                    }
+                  } catch {}
+                }
+                if (accumulated) {
+                  return {
+                    content: accumulated,
+                    message: { role: 'assistant', content: accumulated },
+                  }
+                }
+              }
+
+              const data = await res.json()
+              const text =
+                data.content?.[0]?.text ||
+                data.choices?.[0]?.message?.content ||
+                data.text ||
+                ''
+              if (text) {
+                return {
+                  content: text,
+                  message: { role: 'assistant', content: text },
+                }
+              }
+            } else {
+              const errBody = await res.text()
+              lastError = `[HTTP ${res.status}] ${errBody.slice(0, 160)}`
+              console.warn(`[KIE Claude Messages] ${cUrl} error (${res.status}):`, errBody)
+            }
+          } catch (err: any) {
+            lastError = err?.message || String(err)
+            console.warn(`[KIE Claude Messages] ${cUrl} connection error:`, err)
+          }
+        }
+      }
+
+      // OpenAI-compatible Chat Completions endpoints
       const sanitizedModel = requestedModel.replace(/\./g, '-').replace(/\//g, '-')
-      
       const endpoints = [
         `https://api.kie.ai/${sanitizedModel}/v1/chat/completions`,
         `https://api.kie.ai/v1/chat/completions`,
@@ -180,13 +279,13 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
         `https://api.kie.ai/grok-4-5/v1/chat/completions`,
       ]
 
-      let lastError = ''
       for (const url of endpoints) {
         try {
           const res = await fetch(url, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${kieApiKey}`,
+              'X-Api-Key': kieApiKey,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -219,46 +318,6 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
         } catch (err: any) {
           lastError = err?.message || String(err)
           console.warn(`[KIE Agent Chat] ${url} connection error:`, err)
-        }
-      }
-
-      // Try KIE Claude Messages endpoint if requested model is Claude
-      if (requestedModel.toLowerCase().includes('claude')) {
-        const claudeUrls = [
-          'https://api.kie.ai/claude/v1/messages',
-          'https://api.kie.ai/claude-3-7-sonnet/v1/messages',
-          'https://api.kie.ai/claude-3-5-sonnet/v1/messages',
-        ]
-        for (const cUrl of claudeUrls) {
-          try {
-            const sysMsg = formattedMessages.find((m: any) => m.role === 'system')?.content || ''
-            const userMsgs = formattedMessages.filter((m: any) => m.role !== 'system')
-            const res = await fetch(cUrl, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${kieApiKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: requestedModel,
-                system: sysMsg,
-                messages: userMsgs.length > 0 ? userMsgs : [{ role: 'user', content: 'Hola' }],
-                max_tokens: 4000,
-              }),
-            })
-            if (res.ok) {
-              const data = await res.json()
-              const text = data.content?.[0]?.text || ''
-              if (text) {
-                return {
-                  content: text,
-                  message: { role: 'assistant', content: text },
-                }
-              }
-            }
-          } catch (err) {
-            console.warn(`[KIE Agent Chat] ${cUrl} error:`, err)
-          }
         }
       }
 

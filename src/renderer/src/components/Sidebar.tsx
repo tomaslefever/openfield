@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppStore, type Page } from '../stores/app-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { WorkspaceSelector } from './WorkspaceSelector'
+import { RestartToUpdateButton } from './RestartToUpdateButton'
 import type { LucideIcon } from 'lucide-react'
 import {
   Sparkles,
@@ -11,7 +12,10 @@ import {
   Search,
   AudioLines,
   Mic,
+  KeyRound,
+  ChevronRight,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   Sidebar,
   SidebarContent,
@@ -34,6 +38,7 @@ const NAV_ITEMS: { page: Page; label: string; icon: LucideIcon }[] = [
 ]
 
 const FOOTER_ITEMS: { page: Page; label: string; icon: LucideIcon }[] = [
+  { page: 'providers', label: 'Providers', icon: KeyRound },
   { page: 'settings', label: 'Settings', icon: Settings },
 ]
 
@@ -96,7 +101,7 @@ function NavGroup({
         {items.map(({ page, label, icon: Icon }) => {
           const isActive = page === currentPage
           return (
-            <SidebarMenuItem key={page}>
+            <SidebarMenuItem key={page} className={collapsed ? 'flex justify-center' : ''}>
               <SidebarMenuButton
                 ref={(el) => {
                   itemRefs.current[page] = el
@@ -107,12 +112,20 @@ function NavGroup({
                 onFocus={() => onHover(page)}
                 onBlur={() => onHover(null)}
                 onClick={() => onSelect(page)}
-                className={`relative z-10 gap-2.5 rounded-[7px] px-2 py-1.5 text-[13px] hover:bg-transparent data-[active=true]:bg-transparent ${
-                  isActive ? 'font-medium text-sidebar-foreground' : 'text-sidebar-foreground/70'
+                className={`relative z-10 gap-3 rounded-[8px] text-[13.5px] transition-colors ${
+                  collapsed
+                    ? `!size-10 !p-0 justify-center ${
+                        isActive
+                          ? 'bg-sidebar-accent font-medium text-sidebar-foreground'
+                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60'
+                      }`
+                    : `px-2.5 py-2 hover:bg-transparent data-[active=true]:bg-transparent ${
+                        isActive ? 'font-medium text-sidebar-foreground' : 'text-sidebar-foreground/70'
+                      }`
                 }`}
               >
                 <Icon />
-                <span>{label}</span>
+                {!collapsed && <span>{label}</span>}
               </SidebarMenuButton>
             </SidebarMenuItem>
           )
@@ -130,14 +143,7 @@ export function AppSidebar() {
   const { state, setOpen } = useSidebar()
   const collapsed = state === 'collapsed'
   const [hovered, setHovered] = useState<string | null>(null)
-  const [appVersion, setAppVersion] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    ;(window as any).electronAPI?.updater?.state?.().then((s: any) => {
-      if (s?.currentVersion) setAppVersion(s.currentVersion)
-    }).catch(() => {})
-  }, [])
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -167,9 +173,22 @@ export function AppSidebar() {
   return (
     <Sidebar
       collapsible="icon"
-      variant="floating"
-      className="[&>[data-sidebar=sidebar]]:bg-sidebar/80 [&>[data-sidebar=sidebar]]:shadow-2xl [&>[data-sidebar=sidebar]]:backdrop-blur-2xl [&>[data-sidebar=sidebar]]:backdrop-saturate-150"
+      variant="sidebar"
+      className="[&>[data-sidebar=sidebar]]:relative [&>[data-sidebar=sidebar]]:bg-sidebar/95 border-r border-sidebar-border/70 backdrop-blur-xl"
     >
+      {/* Sidebar collapse button */}
+      <div className="absolute -right-[15px] top-3.5 z-40">
+        <SidebarTrigger
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="flex h-[26px] w-[26px] items-center justify-center rounded-full border border-surface-700/80 bg-surface-900/95 text-surface-400 shadow-md backdrop-blur transition-all hover:scale-110 hover:bg-surface-800 hover:text-surface-100 cursor-pointer"
+        >
+          <ChevronRight
+            size={13}
+            className={cn('transition-transform duration-200', !collapsed && 'rotate-180')}
+          />
+        </SidebarTrigger>
+      </div>
+
       <SidebarHeader>
         {collapsed ? (
           <WorkspaceSelector collapsed />
@@ -204,30 +223,32 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           {FOOTER_ITEMS.map(({ page, label, icon: Icon }) => (
-            <SidebarMenuItem key={page}>
+            <SidebarMenuItem key={page} className={collapsed ? 'flex justify-center' : ''}>
               <SidebarMenuButton
                 isActive={currentPage === page}
                 tooltip={label}
                 onClick={() => setPage(page)}
-                className={`gap-2.5 rounded-[7px] px-2 py-1.5 text-[13px] ${
-                  currentPage === page ? 'bg-sidebar-accent font-medium text-sidebar-foreground' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60'
+                className={`gap-3 rounded-[8px] text-[13.5px] transition-colors ${
+                  collapsed
+                    ? `!size-10 !p-0 justify-center ${
+                        currentPage === page
+                          ? 'bg-sidebar-accent font-medium text-sidebar-foreground'
+                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60'
+                      }`
+                    : `px-2.5 py-2 ${
+                        currentPage === page
+                          ? 'bg-sidebar-accent font-medium text-sidebar-foreground'
+                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60'
+                      }`
                 }`}
               >
                 <Icon />
-                <span>{label}</span>
+                {!collapsed && <span>{label}</span>}
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
+          <RestartToUpdateButton collapsed={collapsed} />
         </SidebarMenu>
-
-        <div className="flex items-center justify-between gap-2 px-1">
-          <SidebarTrigger title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} />
-          {!collapsed && (
-            <p className="text-[10px] text-sidebar-foreground/50">
-              Openfield {appVersion ? `v${appVersion}` : ''}
-            </p>
-          )}
-        </div>
       </SidebarFooter>
     </Sidebar>
   )

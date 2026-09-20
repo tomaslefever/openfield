@@ -4,7 +4,7 @@
 
 **The Open Desktop Creative Studio for Generative AI**
 
-[![Version](https://img.shields.io/badge/version-0.1.5-blue.svg)](https://github.com/tomaslefever/openfield/releases)
+[![Version](https://img.shields.io/badge/version-0.1.6-blue.svg)](https://github.com/tomaslefever/openfield/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/tomaslefever/openfield/releases)
 [![Electron](https://img.shields.io/badge/electron-v39-47848F.svg)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/react-v19-61DAFB.svg)](https://react.dev/)

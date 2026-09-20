@@ -67,6 +67,7 @@ export function Stage1Script() {
   }
 
   const hasGeneratedContent = shots.length > 0
+  const isAuto = !shotsCount || shotsCount <= 0
 
   return (
     <div className="flex flex-col h-full overflow-y-auto p-6 space-y-6">
@@ -235,37 +236,96 @@ export function Stage1Script() {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-[10px] text-surface-500 uppercase tracking-wider">
-                Cantidad de Tomas (4 a 20)
+                Escenas / Tomas
               </label>
               <span className="text-[10px] text-surface-400 font-mono">
-                ~{(shotsCount || 4) * 5}s de video
+                {isAuto ? '✨ Auto (IA)' : `~${(shotsCount || 4) * 5}s`}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={4}
-                max={20}
-                value={shotsCount || 4}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10)
-                  if (!isNaN(val)) {
-                    setMetadata({ shotsCount: Math.max(4, Math.min(20, val)) })
-                  }
-                }}
-                className="input-field text-xs w-16 font-mono text-center px-1.5 py-1"
-              />
-              <input
-                type="range"
-                min={4}
-                max={20}
-                value={shotsCount || 4}
-                onChange={(e) => setMetadata({ shotsCount: parseInt(e.target.value, 10) })}
-                className="flex-1 accent-accent-500 cursor-pointer h-1.5 bg-surface-800 rounded-lg appearance-none"
-              />
-              <span className="text-xs font-semibold text-accent-400 font-mono min-w-[55px] text-right">
-                {shotsCount || 4} tomas
-              </span>
+
+            <div className="space-y-1.5">
+              {/* Segmented Toggle: Auto vs Libre */}
+              <div className="flex items-center p-0.5 bg-surface-900 rounded-lg border border-surface-800">
+                <button
+                  type="button"
+                  onClick={() => setMetadata({ shotsCount: 0 })}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-xs font-medium transition-all ${
+                    isAuto
+                      ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30 shadow-sm font-semibold'
+                      : 'text-surface-400 hover:text-surface-200'
+                  }`}
+                  title="El modelo de IA decidirá la cantidad óptima de escenas"
+                >
+                  <Sparkles size={11} className={isAuto ? 'text-accent-400' : 'text-surface-400'} />
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const fallback = shotsCount && shotsCount > 0 ? shotsCount : 4
+                    setMetadata({ shotsCount: fallback })
+                  }}
+                  className={`flex-1 py-1 px-2 rounded-md text-xs font-medium transition-all ${
+                    !isAuto
+                      ? 'bg-surface-800 text-surface-100 border border-surface-700 shadow-sm font-semibold'
+                      : 'text-surface-400 hover:text-surface-200'
+                  }`}
+                  title="Define libremente una cantidad exacta de escenas"
+                >
+                  Libre
+                </button>
+              </div>
+
+              {/* Input for Libre Mode or Hint for Auto Mode */}
+              {!isAuto ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = shotsCount && shotsCount > 0 ? shotsCount : 4
+                      setMetadata({ shotsCount: Math.max(1, current - 1) })
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded bg-surface-800 hover:bg-surface-700 text-surface-300 hover:text-surface-100 transition-colors text-xs font-bold shrink-0 border border-surface-700/50"
+                    title="Disminuir escenas"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    value={shotsCount && shotsCount > 0 ? shotsCount : ''}
+                    placeholder="Ej. 6"
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10)
+                      if (!isNaN(val)) {
+                        setMetadata({ shotsCount: Math.max(1, val) })
+                      } else if (e.target.value === '') {
+                        setMetadata({ shotsCount: 1 })
+                      }
+                    }}
+                    className="input-field text-xs flex-1 font-mono text-center px-1.5 py-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = shotsCount && shotsCount > 0 ? shotsCount : 4
+                      setMetadata({ shotsCount: current + 1 })
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded bg-surface-800 hover:bg-surface-700 text-surface-300 hover:text-surface-100 transition-colors text-xs font-bold shrink-0 border border-surface-700/50"
+                    title="Aumentar escenas"
+                  >
+                    +
+                  </button>
+                  <span className="text-xs font-semibold text-accent-400 font-mono shrink-0 pl-0.5">
+                    tomas
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded bg-accent-500/5 border border-accent-500/10 text-[10px] text-surface-400 text-center">
+                  <span className="text-accent-400/80">✨</span>
+                  <span>Definida por la IA según la narrativa</span>
+                </div>
+              )}
             </div>
           </div>
 

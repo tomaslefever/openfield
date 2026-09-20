@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
-import { Sparkles, Settings2, X, Wand2, ChevronDown, ChevronUp, Coins, Upload, Video, Image as ImageIcon, Plus, Music, AlertCircle, AlertTriangle, ArrowLeftRight, Cpu, UserCircle, User, Mountain, Box, Check, Camera, Library, Maximize2, Minimize2, Shapes } from 'lucide-react'
+import { Sparkles, Settings2, X, Wand2, ChevronDown, ChevronUp, Coins, Upload, Video, Image as ImageIcon, Plus, Music, AlertCircle, AlertTriangle, ArrowLeftRight, UserCircle, User, Mountain, Box, Check, Camera, Library, Maximize2, Minimize2, Shapes } from 'lucide-react'
 import { StreamDuration } from './StreamDuration'
 import { useElementsStore, type ElementKind, type StudioElement, KIND_CONFIG } from '../stores/elements-store'
 import { useShortDramaStore } from '../stores/short-drama-store'
+import { useAppStore } from '../stores/app-store'
 import { RichPromptInput, type RichPromptInputHandle } from './RichPromptInput'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { AspectRatio, ASPECT_RATIOS } from './aspect-ratios'
@@ -12,6 +13,7 @@ import {
   IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS, PIXVERSE_T2V_PRICES, PIXVERSE_REF_PRICES,
   calcCost, calcVideoCost, type ModelPricing,
 } from '../lib/models'
+import { useProvidersStore, isModelConfigured } from '../stores/providers-store'
 import { srcUrl } from '../services/file-url'
 import {
   CameraControl,
@@ -26,6 +28,8 @@ import {
   parseCameraBlock,
   formatCameraBlock,
 } from './CameraControl'
+import { SelectorOption } from './ui/SelectorOption'
+import { ProviderLogo, getProviderForModel } from './icons/ProviderLogos'
 
 const EMPTY_MODEL: ModelPricing = { name: '', category: '', unit: 'img', prices: [] }
 
@@ -48,7 +52,8 @@ export interface PromptComposerHandle {
     lastFrameBase64?: string
     multiShots?: boolean
     multiPrompt?: { prompt: string; duration: number }[]
-    provider?: 'kie' | 'replicate' | 'fal'
+    provider?: 'kie' | 'replicate' | 'fal' | 'machgen' | 'higgsfield'
+    enhancePrompt?: boolean
     voice?: string
     voiceLanguage?: string
     draft?: boolean
@@ -67,6 +72,7 @@ interface PromptComposerProps {
     duration?: number
     fps?: number
     sound?: boolean
+    enhancePrompt?: boolean
     imageBase64?: string
     imageMime?: string
     imageRefs?: { base64: string; mime: string; name?: string; refType?: string }[]
@@ -83,7 +89,7 @@ interface PromptComposerProps {
     voiceId?: string
     engine?: string
     kind?: 'voice' | 'music'
-    provider?: 'kie' | 'replicate' | 'fal'
+    provider?: 'kie' | 'replicate' | 'fal' | 'machgen' | 'higgsfield'
     voice?: string
     voiceLanguage?: string
     draft?: boolean
@@ -300,6 +306,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     setInternalMode(newMode)
     onModeChange?.(newMode)
 
+    const appPage = useAppStore.getState().currentPage
+    if (newMode === 'video' && appPage === 'image') {
+      useAppStore.getState().setPage('video')
+    } else if (newMode === 'image' && appPage === 'video') {
+      useAppStore.getState().setPage('image')
+    }
+
     const ws = useWorkspaceStore.getState().workspaces.find((w) => w.id === activeWorkspaceId)
     const cfg = ws?.config || {}
     const savedModel = cfg[`${newMode}:model`]
@@ -387,6 +400,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const [dragOver, setDragOver] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showModels, setShowModels] = useState(false)
+  const [modelSearchQuery, setModelSearchQuery] = useState('')
   const [showRatios, setShowRatios] = useState(false)
   const [showAttach, setShowAttach] = useState(false)
   const [showRes, setShowRes] = useState(false)
@@ -425,6 +439,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const [replicateLanguage, setReplicateLanguage] = useState('English (US)')
   const [pVideoFps, setPVideoFps] = useState(24)
   const [pVideoDraft, setPVideoDraft] = useState(false)
+  const [machgenEnhancePrompt, setMachgenEnhancePrompt] = useState(true)
   const [showRefsModal, setShowRefsModal] = useState(false)
   const [showAtMenu, setShowAtMenu] = useState(false)
   const [atMenuFilter, setAtMenuFilter] = useState('')
@@ -436,23 +451,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const insertFileRef = useRef<HTMLInputElement>(null)
   const [badgePopover, setBadgePopover] = useState<{ elementName: string; rect: DOMRect } | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [localModels, setLocalModels] = useState<ModelPricing[]>([])
-  const localModelsRef = useRef(localModels)
-  localModelsRef.current = localModels
-  const [serverStatus, setServerStatus] = useState<string>('stopped')
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [activatedProviders, setActivatedProviders] = useState<{ kie: boolean; elevenlabs: boolean; local: boolean }>({ kie: false, elevenlabs: false, local: false })
-
-  useEffect(() => {
-    const api = (window as any).electronAPI
-    api?.settings?.getAll?.().then((s: any) => {
-      setActivatedProviders({
-        kie: !!(s?.openfieldApiKey),
-        elevenlabs: !!(s?.elevenlabsApiKey),
-        local: s?.enableLocalModels === true || s?.enableLocalModels === 'true',
-      })
-    }).catch(() => {})
-  }, [])
+  const configuredProviders = useProvidersStore((s) => s.configuredProviders)
 
   useEffect(() => { firstFrameRef.current = firstFrameBase64 }, [firstFrameBase64])
   useEffect(() => { lastFrameRef.current = lastFrameBase64 }, [lastFrameBase64])
@@ -556,104 +556,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     }
   }, [errorMessage])
 
-  // Load local models
-  const loadLocalModels = useCallback(() => {
-    const api = (window as any).electronAPI
-    if (mode === 'audio') {
-      // Music mode never uses local TTS voices; listing Kokoro voices would boot the
-      // local Python server (and the GPU) just to populate models that get filtered out.
-      if (subMode === 'music') {
-        setLocalModels([])
-        return
-      }
-      // Piper TTS voices (local)
-      api?.local?.piperGetVoices?.().then(async (voices: any[]) => {
-        if (!voices || voices.length === 0) { setLocalModels([]); return }
-        const installed = await api?.local?.piperIsInstalled?.().catch(() => false)
-        if (!installed) { setLocalModels([]); return }
-        const downloaded: any[] = []
-        for (const v of voices) {
-          const ok = await api?.local?.piperIsVoiceDownloaded?.(v.id).catch(() => false)
-          if (ok) downloaded.push(v)
-        }
-        const mapped: ModelPricing[] = downloaded.map((v: any) => ({
-          name: `Piper · ${v.id}`,
-          category: 'Local',
-          unit: 'img' as const,
-          prices: [{ resolution: 'clip', cost: 0 }],
-          local: true,
-          kind: 'voice' as const,
-          modelId: v.id,
-          voiceId: v.id,
-          t2aId: v.id,
-        }))
-        setLocalModels(mapped)
-      }).catch(() => setLocalModels([]))
 
-      // Kokoro TTS voices (local, from marketplace download)
-      api?.local?.kokoroIsInstalled?.().then(async (installed: boolean) => {
-        if (!installed) return
-        const voices = await api?.local?.kokoroGetVoices?.() || []
-        if (!voices || voices.length === 0) return
-        const mapped: ModelPricing[] = voices.map((v: any) => ({
-          name: `Kokoro · ${v.id}`,
-          category: 'Local',
-          unit: 'img' as const,
-          prices: [{ resolution: 'clip', cost: 0 }],
-          local: true,
-          kind: 'voice' as const,
-          modelId: v.id,
-          voiceId: v.id,
-          t2aId: v.id,
-          engine: 'kokoro',
-        }))
-        setLocalModels(prev => [...prev, ...mapped])
-      }).catch(() => {})
-      return
-    }
-    const tag = mode === 'video' ? 'text-to-video' : 'text-to-image'
-    console.log('[PromptComposer] loadLocalModels tag:', tag)
-    api?.models?.listByPipeline?.().then((byPipeline: any) => {
-      console.log('[PromptComposer] byPipeline:', byPipeline)
-      const list = byPipeline?.[tag] || []
-      console.log('[PromptComposer] local models list:', list.length, list)
-      const mapped: ModelPricing[] = list.map((m: any) => ({
-        name: m.displayName,
-        category: 'Local',
-        unit: 'img' as const,
-        prices: [{ resolution: mode === 'image' ? '1K' : '720p', cost: 0 }],
-        local: true,
-        modelId: m.id,
-        t2iId: m.id,
-        i2iId: m.id,
-      }))
-      console.log('[PromptComposer] mapped models:', mapped)
-      setLocalModels(mapped)
-    }).catch((err: any) => {
-      console.error('[PromptComposer] loadLocalModels failed:', err)
-      setLocalModels([])
-    })
-  }, [mode, subMode])
-
-  useEffect(() => {
-    loadLocalModels()
-
-    const api = (window as any).electronAPI
-    api?.local?.serverStatus?.().then((s: any) => setServerStatus(s?.status || 'stopped'))
-    const int = setInterval(() => {
-      api?.local?.serverStatus?.().then((s: any) => setServerStatus(s?.status || 'stopped'))
-    }, 5000)
-
-    // Refresh local models when a download completes
-    const cleanup = api?.on?.('models:download:completed', () => {
-      loadLocalModels()
-    })
-
-    return () => {
-      clearInterval(int)
-      cleanup?.()
-    }
-  }, [loadLocalModels])
 
   const showError = (msg: string) => setErrorMessage(msg)
 
@@ -744,13 +647,9 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     return () => window.removeEventListener('paste', onPaste)
   }, [])
 
-  const models = [...(mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS), ...localModels]
+  const models = (mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS)
     .filter(m => mode === 'audio' && subMode ? m.kind === subMode : true)
-    .filter(m => mode === 'audio' ? (
-      m.local ? activatedProviders.local
-        : m.provider === 'elevenlabs' ? activatedProviders.elevenlabs
-        : activatedProviders.kie
-    ) : true)
+    .filter(m => isModelConfigured(m, configuredProviders))
   // Before the activated providers resolve (or when none are configured) the filtered
   // list is empty. Fall back to an empty model so every derived value stays null-safe;
   // the UI shows the "no provider" notice via `hasModel`.
@@ -769,8 +668,9 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const hasVideoRef = refs.some(r => r.mime.startsWith('video/'))
   const hasImageSupport = !!(currentModel.i2iId || currentModel.editId || currentModel.i2vId || currentModel.fflfId)
   const isKling = !!(currentModel.t2vId?.startsWith('kling') || currentModel.i2vId?.startsWith('kling'))
-  const isKling30 = !!(currentModel.t2vId?.startsWith('kling-3') || currentModel.i2vId?.startsWith('kling-3'))
-  const isSeedance = !!(currentModel.t2vId?.startsWith('bytedance/') || currentModel.i2vId?.startsWith('bytedance/'))
+  const isKling30 = !!(currentModel.t2vId?.startsWith('kling-3') || currentModel.i2vId?.startsWith('kling-3') || currentModel.t2vId?.includes('kling-video/v3'))
+  const isHiggsfield = currentModel.provider === 'higgsfield'
+  const isSeedance = !!(currentModel.t2vId?.startsWith('bytedance/') || currentModel.i2vId?.startsWith('bytedance/')) && !isHiggsfield
   const isPixverseV6 = !!(currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.fflfId?.startsWith('pixverse-v6/'))
   const isGrok = !!(currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/')) || currentModel.extendId?.startsWith('grok-imagine/')
   const isMinimaxH3 = !!(currentModel.t2vId?.startsWith('minimax-h3/') || currentModel.i2vId?.startsWith('minimax-h3/'))
@@ -863,6 +763,36 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (hasImages) return currentModel.refId || ''
       return currentModel.t2vId || ''
     }
+    if (isMachgen) {
+      const hasImages = !!(imageBase64 || hasImageRef || imageRefEntries.some(e => e.base64))
+      const hasAudio = refs.some(r => r.mime.startsWith('audio/'))
+
+      // MiniMax-H3 (MachGen)
+      if (currentModel.t2vId?.includes('MiniMax-H3')) {
+        if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || currentModel.i2vId || ''
+        if (hasVideoRef || hasAudio) return currentModel.refId || ''
+        if (hasImages) {
+          const imgCount = (imageBase64 ? 1 : 0) + refs.filter(r => r.mime.startsWith('image/')).length + imageRefEntries.filter(e => e.base64).length
+          return imgCount > 1 ? (currentModel.refId || currentModel.i2vId || '') : (currentModel.i2vId || '')
+        }
+        return currentModel.t2vId || ''
+      }
+
+      // LTX-2.3-Pro (MachGen)
+      if (currentModel.t2vId?.includes('LTX-2.3-Pro')) {
+        if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || currentModel.i2vId || ''
+        if (hasImages) return currentModel.i2vId || ''
+        return currentModel.t2vId || ''
+      }
+
+      // Wan2.2-A14B (MachGen)
+      if (currentModel.t2vId?.includes('Wan2.2-A14B')) {
+        if (hasImages || firstFrameBase64) return currentModel.i2vId || ''
+        return currentModel.t2vId || ''
+      }
+
+      return currentModel.t2vId || ''
+    }
     if (isGrok) {
       // Single Grok Imagine model: route by attachments. Video → extend, image → image-to-video, else text-to-video.
       if (hasVideoRef) return currentModel.extendId || ''
@@ -879,7 +809,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     if ((firstFrameBase64 || lastFrameBase64) && (currentModel.fflfId || isKling)) return currentModel.fflfId || (imageBase64 ? (currentModel.i2vId || '') : (currentModel.t2vId || ''))
     return currentModel.t2vId || ''
   }
-  const isFFLF = Boolean((currentModel.fflfId || isKling || mode === 'video') && seedanceMode === 'fflf')
+  const isFFLF = Boolean((currentModel.fflfId || isKling || (mode === 'video' && !isHiggsfield)) && seedanceMode === 'fflf')
   const isFFLFRef = useRef(isFFLF)
   isFFLFRef.current = isFFLF
 
@@ -895,13 +825,15 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     })
   }, [isFFLF, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, refs, onMediaStateChange])
 
-  const isRefMode = (!!(currentModel.fflfId) && seedanceMode === 'ref') || currentModel.provider === 'fal'
+  const isRefMode = (!!(currentModel.fflfId) && seedanceMode === 'ref') || currentModel.provider === 'fal' || (currentModel.provider === 'machgen' && seedanceMode === 'ref')
   const isOmniHuman = currentModel.t2vId === 'omnihuman-1-5'
   const isReplicate = currentModel.provider === 'replicate'
   const isPVideo = currentModel.t2vId === 'prunaai/p-video'
   const isReplicateAvatar = currentModel.t2vId === 'prunaai/p-video-avatar'
   const hasReplicateAudio = isReplicate && refs.some(r => r.mime.startsWith('audio/'))
   const isFal = currentModel.provider === 'fal'
+  const isMachgen = currentModel.provider === 'machgen'
+  const isMachgenWan = isMachgen && !!currentModel.t2vId?.includes('Wan2.2-A14B')
 
   // Reset Replicate voice/language when switching to a Replicate model
   useEffect(() => {
@@ -920,6 +852,60 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     }
   }, [isPVideo, aspectRatio, currentModel?.name])
 
+  // Reset parameters when switching MachGen models
+  useEffect(() => {
+    if (isMachgen && currentModel.aspectRatios?.length && !currentModel.aspectRatios.includes(aspectRatio)) {
+      setAspectRatio(currentModel.aspectRatios[0] || '16:9')
+    }
+  }, [isMachgen, currentModel.name, currentModel.aspectRatios, aspectRatio])
+
+  useEffect(() => {
+    if (isMachgen && currentModel.resolutions?.length && !currentModel.resolutions.includes(resolution)) {
+      setResolution(currentModel.resolutions[0])
+    }
+  }, [isMachgen, currentModel.name, currentModel.resolutions, resolution])
+
+  useEffect(() => {
+    if (isMachgen && currentModel.durationOptions?.length && !currentModel.durationOptions.includes(String(duration))) {
+      setDuration(Number(currentModel.durationOptions[0]) || 5)
+    }
+  }, [isMachgen, currentModel.name, currentModel.durationOptions, duration])
+
+  useEffect(() => {
+    if (isMachgen) {
+      if (isMachgenWan) {
+        setFps(16)
+      } else {
+        setFps(24)
+      }
+    }
+  }, [isMachgen, isMachgenWan, currentModel.name])
+
+  // Reset parameters when switching Higgsfield models
+  useEffect(() => {
+    if (isHiggsfield && currentModel.aspectRatios?.length && !currentModel.aspectRatios.includes(aspectRatio)) {
+      setAspectRatio(currentModel.aspectRatios[0] || '16:9')
+    }
+  }, [isHiggsfield, currentModel.name, currentModel.aspectRatios, aspectRatio])
+
+  useEffect(() => {
+    if (isHiggsfield && currentModel.resolutions?.length && !currentModel.resolutions.includes(resolution)) {
+      setResolution(currentModel.resolutions[0] || '720p')
+    }
+  }, [isHiggsfield, currentModel.name, currentModel.resolutions, resolution])
+
+  useEffect(() => {
+    if (isHiggsfield && currentModel.durationOptions?.length && !currentModel.durationOptions.includes(String(duration))) {
+      setDuration(Number(currentModel.durationOptions[0]) || 5)
+    }
+  }, [isHiggsfield, currentModel.name, currentModel.durationOptions, duration])
+
+  useEffect(() => {
+    if (isHiggsfield) {
+      setFps(24)
+    }
+  }, [isHiggsfield, currentModel.name])
+
   // Multi-shot is only supported by Kling 3.0: disable it on any other model
   useEffect(() => {
     if (!isKling30) {
@@ -934,7 +920,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   }, [seedanceMode])
 
   useEffect(() => { lastFrameRef.current = lastFrameBase64 }, [lastFrameBase64])
-  const effectiveResolution = (soundEnabled && isKling && resolution !== '4k') ? resolution + '-audio' : (soundEnabled && isPixverseV6) ? resolution + '-audio' : resolution
+  const effectiveResolution = (soundEnabled && isKling && !isHiggsfield && resolution !== '4k') ? resolution + '-audio' : (soundEnabled && isPixverseV6) ? resolution + '-audio' : resolution
   // PixVerse V6 routes to a single model: use the price table of the routed mode
   const activeModelId = getActiveModelId()
   const activePixversePrices = isPixverseV6 ? (activeModelId === 'pixverse-v6/reference-to-video' ? PIXVERSE_REF_PRICES : PIXVERSE_T2V_PRICES) : undefined
@@ -943,6 +929,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   // unit price × resolved duration + model-specific surcharges (MiniMax H3 video input / images, etc.)
   const { perUnitCredits, totalCredits, perUnitDollars, totalDollars } = calcVideoCost(costModel, {
     resolution: effectiveResolution,
+    aspectRatio,
     requestedSeconds: duration,
     audioRefSeconds: refs.find(r => r.mime.startsWith('audio/'))?.duration || 0,
     wordCount: prompt.trim().split(/\s+/).filter(Boolean).length,
@@ -1225,8 +1212,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         setPrompt(stripCameraBlock(params.prompt))
       }
       if (params.model) {
-  const cloudModels = mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS
-  const models = [...cloudModels, ...localModelsRef.current]
+        const models = mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS
         for (const m of models) {
           if (m.t2iId === params.model || m.i2iId === params.model || m.editId === params.model ||
               m.t2vId === params.model || m.i2vId === params.model || m.fflfId === params.model ||
@@ -1245,6 +1231,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (params.draft != null) setPVideoDraft(params.draft)
       if (params.voice) setReplicateVoice(params.voice)
       if (params.voiceLanguage) setReplicateLanguage(params.voiceLanguage)
+      if (params.enhancePrompt != null) setMachgenEnhancePrompt(params.enhancePrompt)
       if (params.multiShots) {
         setMultiShots(true)
         if (params.multiPrompt && params.multiPrompt.length > 0) {
@@ -1363,7 +1350,6 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         prompt: prompt.trim(),
         model: activeAudioId,
         duration: currentModel.kind === 'music' ? duration : undefined,
-        local: currentModel.local,
         modelId: currentModel.modelId,
         voiceId: currentModel.voiceId,
         engine: currentModel.engine,
@@ -1482,7 +1468,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       mode,
       prompt: finalPrompt,
       model: activeId,
-      provider: isReplicate ? 'replicate' : isFal ? 'fal' : undefined,
+      provider: isReplicate ? 'replicate' : isFal ? 'fal' : isMachgen ? 'machgen' : isHiggsfield ? 'higgsfield' : undefined,
       voice: isReplicate && !isPVideo ? replicateVoice : undefined,
       voiceLanguage: isReplicate && !isPVideo ? replicateLanguage : undefined,
       aspectRatio: aspectRatio,
@@ -1493,6 +1479,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       fps: mode === 'video' && activeId !== 'omnihuman-1-5' && (!isReplicate || isPVideo) ? (isPVideo ? pVideoFps : fps) : undefined,
       draft: isPVideo ? pVideoDraft : undefined,
       sound: mode === 'video' && !isReplicate ? soundEnabled : undefined,
+      enhancePrompt: isMachgen ? machgenEnhancePrompt : undefined,
       // In image mode imageBase64 duplicates imageRefs[0] (same image by construction) and the
       // API only uses refs when present, so skip it to keep stored parameters clean.
       // Video models that ignore imageRefs still need imageBase64.
@@ -1507,7 +1494,6 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       lastFrameUrl: isFFLF ? (lastFrameUrl || undefined) : undefined,
       multiShots: !isReplicate && multiShots ? multiShots : undefined,
       multiPrompt: !isReplicate && multiShots && multiPrompt.length > 0 ? multiPrompt : undefined,
-      local: currentModel.local,
       modelId: currentModel.modelId,
     })
     if (!embedded) {
@@ -1527,7 +1513,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       setShowRefsModal(false)
       setImageRefEntries([])
     }
-  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, showRefsModal, imageRefEntries, elements, isReplicate, isPVideo, pVideoFps, pVideoDraft, replicateVoice, replicateLanguage, cameraEnabled, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting, filmLook, cameraSpeed, embedded])
+  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, showRefsModal, imageRefEntries, elements, isReplicate, isFal, isMachgen, isHiggsfield, machgenEnhancePrompt, isPVideo, pVideoFps, pVideoDraft, replicateVoice, replicateLanguage, cameraEnabled, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting, filmLook, cameraSpeed, embedded])
 
   const ffImageSrc = firstFrameUrl
     ? srcUrl(firstFrameUrl)
@@ -1578,10 +1564,42 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         </div>
       )}
       <div ref={composerRootRef} className={embedded ? `w-full relative ${className || ''}` : `${floating ? 'absolute inset-x-0 bottom-0' : 'sticky bottom-0'} z-40 px-4 pb-4 pt-2 pointer-events-none`}>
-        <div className={embedded ? 'w-full' : 'max-w-5xl mx-auto pointer-events-auto'}>
+        <div className={embedded ? 'w-full' : 'max-w-5xl mx-auto pointer-events-auto flex items-end gap-2.5'}>
+          {/* Floating mode switcher (Image / Video) oriented vertically */}
+          {!embedded && mode !== 'audio' && (
+            <div className="flex flex-col p-1.5 bg-sidebar/95 border border-white/20 rounded-2xl shadow-2xl shadow-black/50 backdrop-blur-2xl backdrop-saturate-150 gap-1.5 shrink-0 self-end mb-0.5">
+              <button
+                type="button"
+                onClick={() => switchMode('image')}
+                className={`group flex flex-col items-center justify-center w-[68px] h-[66px] rounded-xl transition-all duration-200 active:scale-95 cursor-pointer select-none ${
+                  mode === 'image'
+                    ? 'bg-accent-600 text-white shadow-lg shadow-accent-600/35 font-semibold ring-1 ring-white/20'
+                    : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/80'
+                }`}
+                title="Modo Imagen"
+              >
+                <ImageIcon size={24} className="shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                <span className="text-[11px] font-medium leading-none mt-1.5 tracking-tight">Imagen</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMode('video')}
+                className={`group flex flex-col items-center justify-center w-[68px] h-[66px] rounded-xl transition-all duration-200 active:scale-95 cursor-pointer select-none ${
+                  mode === 'video'
+                    ? 'bg-accent-600 text-white shadow-lg shadow-accent-600/35 font-semibold ring-1 ring-white/20'
+                    : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/80'
+                }`}
+                title="Modo Video"
+              >
+                <Video size={24} className="shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                <span className="text-[11px] font-medium leading-none mt-1.5 tracking-tight">Video</span>
+              </button>
+            </div>
+          )}
+
           <div
             ref={cardRef}
-            className={`relative ${embedded ? 'bg-black/60 border border-white/10 rounded-xl shadow-lg' : 'bg-sidebar/90 border border-white/20 rounded-2xl shadow-2xl shadow-black/40'} backdrop-blur-xl backdrop-saturate-150 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}
+            className={`flex-1 min-w-0 relative ${embedded ? 'bg-black/60 border border-white/10 rounded-xl shadow-lg' : 'bg-sidebar/90 border border-white/20 rounded-2xl shadow-2xl shadow-black/40'} backdrop-blur-xl backdrop-saturate-150 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}
           >
             {/* Maximize/Minimize toggle button anchored to the top-right corner of PromptComposer */}
             <button
@@ -2060,45 +2078,139 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               {/* Model */}
               {!embedded && (
               <div className="relative" ref={modelsRef}>
-                <button onClick={() => setShowModels(!showModels)}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors">
-                  <Wand2 size={11} /> {currentModel.name}
-                  {currentModel.provider === 'replicate' ? <span className="text-[9px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-400 font-semibold">REPLICATE</span>
-                    : currentModel.provider === 'fal' ? <span className="text-[9px] px-1 py-0.5 rounded bg-sky-500/20 text-sky-400 font-semibold">FAL</span>
-                    : currentModel.local ? <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-500/80 font-semibold flex items-center gap-0.5"><Cpu size={9} />LOCAL</span>
-                    : <span className="text-[9px] px-1 py-0.5 rounded bg-accent-500/20 text-accent-400 font-semibold">KIE</span>}
-                  <ChevronDown size={11} />
+                <button
+                  onClick={() => {
+                    setShowModels(!showModels)
+                    if (!showModels) setModelSearchQuery('')
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-900/90 hover:bg-surface-800/90 border border-surface-700/80 hover:border-surface-600 rounded-lg text-[11px] font-medium text-surface-200 transition-all shadow-sm"
+                >
+                  <span className="flex size-3.5 shrink-0 items-center justify-center">
+                    <ProviderLogo provider={getProviderForModel(currentModel)} size={13} />
+                  </span>
+                  <span className="font-medium text-surface-100">{currentModel.name || (models.length === 0 ? 'Sin proveedor' : 'Seleccionar Modelo')}</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/90 border border-surface-700/60 font-semibold uppercase tracking-wider flex items-center gap-1 text-surface-300">
+                    <ProviderLogo provider={getProviderForModel(currentModel)} size={10} />
+                    <span>{getProviderForModel(currentModel).toUpperCase()}</span>
+                  </span>
+                  <ChevronDown size={11} className={`text-surface-400 transition-transform duration-150 ${showModels ? 'rotate-180 text-surface-200' : ''}`} />
                 </button>
                   {showModels && (() => {
-                    const groups: { label: string; items: ModelPricing[] }[] = [
-                      { label: 'KIE.ai', items: models.filter(m => !m.local && m.provider !== 'replicate' && m.provider !== 'fal' && m.provider !== 'elevenlabs') },
-                      { label: 'ElevenLabs', items: models.filter(m => m.provider === 'elevenlabs') },
-                      { label: 'Replicate', items: models.filter(m => m.provider === 'replicate') },
-                      { label: 'fal.ai', items: models.filter(m => m.provider === 'fal') },
-                      { label: 'Local', items: models.filter(m => m.local) },
+                    const q = modelSearchQuery.toLowerCase().trim()
+                    const filtered = q
+                    ? models.filter(m => m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q) || (m.provider && m.provider.toLowerCase().includes(q)))
+                    : models
+
+                    const groups = [
+                      { id: 'kie', label: 'KIE.ai', provider: 'kie' as const, items: filtered.filter(m => !m.local && m.provider !== 'replicate' && m.provider !== 'fal' && m.provider !== 'elevenlabs' && m.provider !== 'machgen' && m.provider !== 'higgsfield') },
+                      { id: 'higgsfield', label: 'Higgsfield AI', provider: 'higgsfield' as const, items: filtered.filter(m => m.provider === 'higgsfield') },
+                      { id: 'machgen', label: 'MachGen', provider: 'machgen' as const, items: filtered.filter(m => m.provider === 'machgen') },
+                      { id: 'elevenlabs', label: 'ElevenLabs', provider: 'elevenlabs' as const, items: filtered.filter(m => m.provider === 'elevenlabs') },
+                      { id: 'replicate', label: 'Replicate', provider: 'replicate' as const, items: filtered.filter(m => m.provider === 'replicate') },
+                      { id: 'fal', label: 'fal.ai', provider: 'fal' as const, items: filtered.filter(m => m.provider === 'fal') },
+                      { id: 'local', label: 'Local', provider: 'local' as const, items: filtered.filter(m => m.local) },
                     ].filter(g => g.items.length > 0)
+
                     return (
-                    <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[220px] shadow-xl max-h-[280px] overflow-y-auto z-50">
-                      {groups.map((g, gi) => (
-                        <div key={g.label}>
-                          {gi > 0 && <div className="h-px bg-surface-700/60 my-1" />}
-                          <div className="px-3 pt-1.5 pb-0.5 text-[9px] uppercase tracking-wider text-surface-600">{g.label}</div>
-                          {g.items.map((m) => (
-                            <button key={`${g.label}-${m.name}`}
-                              onClick={() => { setModelName(m.name); setShowModels(false); if (m.prices[0]) setResolution(m.prices[0].resolution); if (!m.t2vId?.startsWith('pixverse-v6/') && !m.i2vId?.startsWith('pixverse-v6/')) { setShowRefsModal(false); setImageRefEntries([]) } }}
-                              className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${modelName === m.name ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>
-                              <div>
-                                <span>{m.name}</span>
-                                <span className={`text-[10px] ml-2 ${m.local ? 'text-green-500/70' : 'text-surface-600'}`}>
-                                  {m.local ? <><Cpu size={10} className="inline mr-0.5" />Local</> : m.category}
-                                </span>
-                                {m.refTags && <span className="text-[9px] ml-1.5 px-1 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-semibold">@TAGS</span>}
-                              </div>
-                              <span className="text-amber-400/80 text-[10px]">{m.local ? (serverStatus === 'running' ? 'Ready' : 'Offline') : (m.provider === 'replicate' || m.provider === 'fal' ? `$${(m.prices[0]?.cost || 0).toFixed(3)}/${m.unit === 's' ? 's' : 'img'}` : `${Math.round(m.prices[0]?.cost * 200)} cr`)}</span>
+                    <div className="astryx-selector-popup absolute bottom-full left-0 mb-1.5 bg-surface-900/95 backdrop-blur-xl border border-surface-700/90 rounded-xl p-1 min-w-[280px] w-max max-w-[360px] shadow-2xl max-h-[340px] flex flex-col overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
+                      {/* Astryx Search */}
+                      <div className="p-1.5 border-b border-surface-800 bg-surface-950/50 flex-shrink-0">
+                        <div className="relative flex items-center">
+                          <input
+                            type="text"
+                            value={modelSearchQuery}
+                            onChange={(e) => setModelSearchQuery(e.target.value)}
+                            placeholder="Buscar modelo..."
+                            autoFocus
+                            className="w-full bg-surface-800/90 text-xs text-surface-200 pl-2.5 pr-6 py-1.5 rounded-lg border border-surface-700/80 outline-none focus:border-accent-500 placeholder:text-surface-500 transition-colors"
+                          />
+                          {modelSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setModelSearchQuery('')}
+                              className="absolute right-2 text-surface-500 hover:text-surface-300"
+                            >
+                              <X size={12} />
                             </button>
-                          ))}
+                          )}
                         </div>
-                      ))}
+                      </div>
+
+                      {/* Model list with Astryx SelectorOption */}
+                      <div className="overflow-y-auto max-h-[280px] p-0.5 space-y-0.5 divide-y divide-surface-800/40">
+                        {groups.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-surface-400 space-y-2">
+                            <p>No hay modelos disponibles con proveedor configurado</p>
+                            <button
+                              type="button"
+                              onClick={() => useAppStore.getState().setPage('providers')}
+                              className="text-[11px] text-accent-400 hover:text-accent-300 underline block mx-auto cursor-pointer"
+                            >
+                              Configurar API Keys en Providers →
+                            </button>
+                          </div>
+                        ) : (
+                          groups.map((g) => (
+                            <div key={g.id} className="py-1">
+                              <div className="px-2.5 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-surface-500 font-semibold flex items-center justify-between">
+                                <span className="flex items-center gap-1.5">
+                                  <ProviderLogo provider={g.provider} size={12} />
+                                  <span>{g.label}</span>
+                                </span>
+                                <span className="text-[9px] font-mono text-surface-600">{g.items.length}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                {g.items.map((m) => {
+                                  const isSelected = modelName === m.name
+                                  const costDisplay = m.provider === 'replicate' || m.provider === 'fal' || m.provider === 'machgen' || m.provider === 'higgsfield'
+                                    ? `$${(m.prices[0]?.cost || 0).toFixed(3)}/${m.unit === 's' ? 's' : 'img'}`
+                                    : `${Math.round((m.prices[0]?.cost || 0) * 200)} cr`
+
+                                  const descriptionText = `${m.category}${m.resolutions && m.resolutions.length > 0 ? ` • ${m.resolutions.join(', ')}` : ''}`
+                                  const pId = getProviderForModel(m)
+
+                                  return (
+                                    <SelectorOption
+                                      key={`${g.label}-${m.name}`}
+                                      icon={<ProviderLogo provider={pId} size={15} />}
+                                      label={m.name}
+                                      description={descriptionText}
+                                      layout="stacked"
+                                      selected={isSelected}
+                                      size="sm"
+                                      onClick={() => {
+                                        setModelName(m.name)
+                                        setShowModels(false)
+                                        if (m.prices[0]) setResolution(m.prices[0].resolution)
+                                        if (!m.t2vId?.startsWith('pixverse-v6/') && !m.i2vId?.startsWith('pixverse-v6/')) {
+                                          setShowRefsModal(false)
+                                          setImageRefEntries([])
+                                        }
+                                      }}
+                                      endContent={
+                                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                                          {m.refTags && (
+                                            <span className="text-[8px] px-1 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-semibold">
+                                              @TAGS
+                                            </span>
+                                          )}
+                                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/90 border border-surface-700/60 font-semibold uppercase tracking-wider flex items-center gap-1 text-surface-300">
+                                            <ProviderLogo provider={pId} size={10} />
+                                            <span>{pId.toUpperCase()}</span>
+                                          </span>
+                                          <span className="text-amber-400/90 text-[10px] font-mono">
+                                            {costDisplay}
+                                          </span>
+                                        </div>
+                                      }
+                                    />
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
                     </div>
                     )
                   })()}
@@ -2141,7 +2253,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               )}
 
               {/* Toggles: FF, Multi-shot, Image Refs, Sound */}
-              {(currentModel.fflfId || isKling || mode === 'video') && (
+              {((currentModel.fflfId || isKling || mode === 'video') && !isHiggsfield) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -2193,7 +2305,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   Multi-shot
                 </button>
               )}
-              {(isKling || isSeedance || isPixverseV6 || isWan3) && mode === 'video' && (
+              {(isKling || isSeedance || isPixverseV6 || isWan3 || isHiggsfield) && mode === 'video' && (
                 <button onClick={() => setSoundEnabled(!soundEnabled)}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${soundEnabled ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
                   <Music size={11} />
@@ -2288,7 +2400,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   </button>
                 </>
               )}
-              {!embedded && (isWan3 || currentModel.t2vId?.includes('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') || isMinimaxH3 || isFal || isPVideo) && (
+              {!embedded && (isMachgen || isHiggsfield || isWan3 || currentModel.t2vId?.includes('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') || isMinimaxH3 || isFal || isPVideo) && (
                 <div className="relative" ref={ratiosRef}>
                   <button onClick={() => { if (!grokSingleI2v) setShowRatios(!showRatios) }}
                     disabled={grokSingleI2v}
@@ -2298,7 +2410,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   </button>
                   {showRatios && (
                     <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[100px] shadow-xl z-50">
-                      {(isWan3 ? ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16'] : isPVideo ? (currentModel.pvAspectRatios || ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1']) : isFal ? (currentModel.falAspectRatios || ['adaptive', '16:9']) : currentModel.t2vId?.startsWith('bytedance/') ? ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive'] : currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') ? ['1:1', '16:9', '21:9', '2:3', '3:2', '3:4', '4:3', '9:16'] : currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') ? ['16:9', '9:16', '1:1', '2:3', '3:2'] : isMinimaxH3 ? ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] : ['16:9', '9:16']).map((r) => (
+                      {(((isMachgen || isHiggsfield) && currentModel.aspectRatios) ? currentModel.aspectRatios : isWan3 ? ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16'] : isPVideo ? (currentModel.pvAspectRatios || ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1']) : isFal ? (currentModel.falAspectRatios || ['adaptive', '16:9']) : currentModel.t2vId?.startsWith('bytedance/') ? ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive'] : currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') ? ['1:1', '16:9', '21:9', '2:3', '3:2', '3:4', '4:3', '9:16'] : currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/') ? ['16:9', '9:16', '1:1', '2:3', '3:2'] : isMinimaxH3 ? ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] : ['16:9', '9:16']).map((r) => (
                         <button key={r} onClick={() => { setAspectRatio(r); setShowRatios(false) }}
                           className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${aspectRatio === r ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{r}</button>
                       ))}
@@ -2306,7 +2418,41 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   )}
                 </div>
               )}
-              {mode === 'video' && !isReplicate && !isFal && !(isWan3 || currentModel.t2vId?.includes('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('grok-imagine/') || isKling || isPixverseV6 || isMinimaxH3) && (
+              {mode === 'video' && isMachgen && (
+                <>
+                  <div className="flex items-center gap-1">
+                    <select value={fps} onChange={(e) => setFps(Number(e.target.value))}
+                      title="FPS (fotogramas por segundo)"
+                      className="bg-surface-800/80 border border-surface-700 rounded-lg px-1.5 py-1 text-[11px] text-surface-300 outline-none">
+                      {isMachgenWan ? (
+                        <>
+                          <option value={16}>16 fps</option>
+                          <option value={24}>24 fps</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value={24}>24 fps</option>
+                          <option value={25}>25 fps</option>
+                          <option value={30}>30 fps</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMachgenEnhancePrompt(!machgenEnhancePrompt)}
+                    title="MachGen Prompt Enhancement: reescribe y optimiza el prompt automáticamente con IA"
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                      machgenEnhancePrompt
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'
+                    }`}
+                  >
+                    <Sparkles size={10} /> Enhance
+                  </button>
+                </>
+              )}
+              {mode === 'video' && !isReplicate && !isFal && !isMachgen && !isHiggsfield && !(isWan3 || currentModel.t2vId?.includes('gemini-omni') || currentModel.t2vId?.startsWith('bytedance/') || currentModel.t2vId?.startsWith('grok-imagine/') || isKling || isPixverseV6 || isMinimaxH3) && (
                 <div className="flex items-center gap-1">
                   <select value={fps} onChange={(e) => setFps(Number(e.target.value))}
                     className="bg-surface-800/80 border border-surface-700 rounded-lg px-1.5 py-1 text-[11px] text-surface-300 outline-none">
@@ -2319,18 +2465,18 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             </div>
               </div>
 
-              {/* Right side: Generate button on top, Mode switch (Image / Video) directly under it */}
-              <div className="self-end flex flex-col items-center gap-1 shrink-0">
-                <button onClick={handleGenerate} disabled={disabled || (mode === 'audio' ? !prompt.trim() : (showRefsModal ? !prompt.trim() || (!imageRefEntries.some(e => e.base64) && !imageBase64 && refs.length === 0) : (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? !prompt.trim() && !firstFrameBase64 : (isReplicate ? (isPVideo ? !prompt.trim() : (!prompt.trim() && !imageBase64 && !refs.some(r => r.mime.startsWith('audio/')) && !refs.some(r => r.mime.startsWith('video/')))) : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0)))))}
-                  className={`flex-shrink-0 aspect-square flex flex-col items-center justify-center gap-0.5 ${iconOnlyGenerate ? 'w-10 h-10 p-0' : 'w-16 h-16 p-1'} bg-accent-600 hover:bg-accent-500 disabled:bg-accent-600/50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all active:scale-[0.97]`}
+              {/* Right side: Generate button */}
+              <div className="self-end shrink-0">
+                <button onClick={handleGenerate} disabled={disabled || (mode === 'audio' ? !prompt.trim() : (showRefsModal ? !prompt.trim() || (!imageRefEntries.some(e => e.base64) && !imageBase64 && refs.length === 0) : (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? (!prompt.trim() && !firstFrameBase64 && !(isMachgen && lastFrameBase64)) : (isHiggsfield ? !prompt.trim() : (isReplicate ? (isPVideo ? !prompt.trim() : (!prompt.trim() && !imageBase64 && !refs.some(r => r.mime.startsWith('audio/')) && !refs.some(r => r.mime.startsWith('video/')))) : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0))))))}
+                  className={`flex-shrink-0 aspect-square flex flex-col items-center justify-center gap-0.5 ${iconOnlyGenerate ? 'w-10 h-10 p-0' : 'w-16 h-16 p-1'} bg-accent-600 hover:bg-accent-500 disabled:bg-accent-600/50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all active:scale-[0.97] cursor-pointer`}
                   title="Generar">
                   {iconOnlyGenerate ? (
                     <Sparkles size={16} />
                   ) : (
                     <>
                       <span className="flex items-center justify-center gap-1 leading-none">
-                        {currentModel.local ? <Cpu size={14} /> : <Sparkles size={13} />}
-                        <span className="text-xs font-semibold leading-none">{currentModel.local ? 'Local' : totalCredits}</span>
+                        <Sparkles size={13} />
+                        <span className="text-xs font-semibold leading-none">{totalCredits}</span>
                       </span>
                       <span className="text-[10px] opacity-80 leading-none">
                         ${totalDollars.toFixed(2)}
@@ -2338,36 +2484,6 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                     </>
                   )}
                 </button>
-
-                {/* Mode switch tabs (Image / Video) - only icons, under generate button */}
-                {mode !== 'audio' && (
-                  <div className={`flex items-center p-0.5 bg-surface-800/80 border border-surface-700/60 rounded-xl gap-0.5 ${iconOnlyGenerate ? 'w-10' : 'w-16'} justify-between`}>
-                    <button
-                      type="button"
-                      onClick={() => switchMode('image')}
-                      className={`flex-1 py-1 rounded-lg transition-all flex items-center justify-center ${
-                        mode === 'image'
-                          ? 'bg-accent-600 text-white shadow-sm'
-                          : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/50'
-                      }`}
-                      title="Imagen"
-                    >
-                      <ImageIcon size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => switchMode('video')}
-                      className={`flex-1 py-1 rounded-lg transition-all flex items-center justify-center ${
-                        mode === 'video'
-                          ? 'bg-accent-600 text-white shadow-sm'
-                          : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/50'
-                      }`}
-                      title="Video"
-                    >
-                      <Video size={13} />
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           </div>

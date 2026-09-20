@@ -647,8 +647,6 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
 
   const ALL_ENGINES: Engine[] = [
     { id: 'elevenlabs', name: 'ElevenLabs', provider: 'ElevenLabs', local: false, keyName: 'elevenlabsApiKey' },
-    { id: 'piper', name: 'Piper', provider: 'Local', local: true, keyName: 'enableLocalModels' },
-    { id: 'kokoro', name: 'Kokoro', provider: 'Local', local: true, keyName: 'enableLocalModels' },
   ]
 
   const engines = ALL_ENGINES.filter(e => activatedKeys[e.keyName || '__never__'])

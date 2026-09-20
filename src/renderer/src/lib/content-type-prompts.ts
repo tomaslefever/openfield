@@ -372,6 +372,11 @@ export function getMasterSystemPrompt(
     ? `- ESTILO VISUAL COHERENTE OBLIGATORIO: "${visualStyle.trim()}"\n  * Aplica rigurosamente este estilo visual a TODOS los visualPrompts de personajes, locaciones, props y keyframePrompts de las tomas para garantizar una coherencia estética absoluta en toda la producción.`
     : `- ESTILO VISUAL COHERENTE OBLIGATORIO: "Fotorealismo cinematográfico, iluminación dramática de claroscuro, 8k"\n  * Aplica este estilo visual a todos los visualPrompts y keyframePrompts para mantener coherencia.`
 
+  const isAutoShots = !shotsCount || shotsCount <= 0
+  const shotsCountDirective = isAutoShots
+    ? `- CANTIDAD DE ESCENAS / TOMAS AUTOMÁTICA: Analiza la premisa, guión o idea y define libremente la cantidad óptima de escenas y tomas que mejor desarrollen la narrativa (sin límite prefijado, el modelo decide la cantidad adecuada según la historia).`
+    : `- Genera exactamente ${shotsCount} tomas.`
+
   const assetsDirectives = `
 REGLAS OBLIGATORIAS PARA PERSONAJES, LOCACIONES Y PROPS:
 - PERSONAJES (CASTING):
@@ -439,7 +444,7 @@ ${durationDirective}
   * Toma 3 (The Verdict & CTA): Creador recomendando con entusiasmo genuino el tip/producto y compartiendo la llamada a probarlo.
 - Cámara: Smartphone en mano (handheld selfie), ligero movimiento natural, luz de ventana o aro de luz suave.
 - Diálogo: Lenguaje coloquial, natural, enérgico ("No van a creer esto...", "Miren lo que encontré...").
-- Genera exactamente ${shotsCount} tomas.
+${shotsCountDirective}
 - keyframePrompt debe ser el FOTOGRAMA INICIAL (Frame 0) en inglés.
 - actionPrompt debe describir el desarrollo de la toma en español.
 - En los prompts incluye sonido ambiental (SFX) pero NUNCA música de fondo.
@@ -462,7 +467,7 @@ ${durationDirective}
   * Toma 4 (Brand Tagline & Closing): Cierre aspiracional con locución en off (V.O.) memorable y profunda.
 - Cámara: Movimientos suaves de grúa, dolly o gimbal, lentes anamórficos (16:9), paleta de color cinematográfica.
 - Diálogo: Locución en off reflexiva, poética y memorable (Narrador V.O.).
-- Genera exactamente ${shotsCount} tomas.
+${shotsCountDirective}
 - keyframePrompt describe únicamente el Frame 0 en inglés.
 - actionPrompt describe la acción en español.
 - SFX diegéticos de alta fidelidad, estrictamente sin música de fondo.
@@ -485,7 +490,7 @@ ${durationDirective}
   * Toma 4 (Direct CTA & Urgency): Llamado a la acción enérgico para comprar, descargar o probar ahora mismo.
 - Cámara: Cortes dinámicos, planos medios y primeros planos de impacto, iluminación vibrante.
 - Diálogo: Claro, persuasivo, directo al beneficio y llamado a la acción.
-- Genera exactamente ${shotsCount} tomas.
+${shotsCountDirective}
 - keyframePrompt (Frame 0 en inglés) y actionPrompt (español).
 - Sin música de fondo (se añade en ensamble).
 
@@ -505,7 +510,7 @@ ${durationDirective}
   * Toma 2 (Rapid Story / Pattern Interrupt): Revelación rápida de información con cambio de ángulo dinámico para sostener la curva de retención al 100%.
   * Toma 3 (Punchline & Loopable Finish): Cierre con remate sorprendente o final diseñado para loopear fluidamente hacia el inicio.
 - Cámara: Push-in veloz, whip pan, planos dinámicos, expresiones faciales vivas y expresivas.
-- Genera exactamente ${shotsCount} tomas.
+${shotsCountDirective}
 - keyframePrompt (Frame 0 en inglés) y actionPrompt (español).
 - Sin música de fondo.
 
@@ -526,7 +531,7 @@ ${durationDirective}
   * Toma 3 (Macro Texture & Fabric Details): Primer plano macro de las costuras, textura del tejido, botones o detalles de confección de alta calidad.
   * Toma 4 (Styling & Pose Finale): Pose editorial final destacando el conjunto y accesorios.
 - Cámara: Lentes de retrato 85mm, iluminación ciclorama softbox suave de estudio, fidelidad de color de la tela en 8k.
-- Genera exactamente ${shotsCount} tomas.
+${shotsCountDirective}
 - keyframePrompt (Frame 0 en inglés) y actionPrompt (español).
 - Sin música de fondo.
 
@@ -546,7 +551,7 @@ ${durationDirective}
   * Toma 2 (The Reveal & Peeling the Seal): Manos abriendo la caja y desprendiendo el precinto protector con placer táctil (ASMR visual).
   * Toma 3 (Product First Look & Macro Detail): Extracción del producto, primer plano macro en ángulo bajo mostrando acabados, materiales y primera impresión.
 - Cámara: Enfoque macro en manos y producto, iluminación cálida de escritorio con fondo desenfocado (bokeh suave).
-- Genera exactamente ${shotsCount} tomas.
+${shotsCountDirective}
 - keyframePrompt (Frame 0 en inglés) y actionPrompt (español).
 - Sonido foley diegético (crujido de cartón, despegue de cinta), sin música de fondo.
 
@@ -576,7 +581,7 @@ DIRECTIVAS GENERALES:
 ${styleDirective}
 ${durationDirective}
 ${assetsDirectives}
-- Genera exactamente ${shotsCount} tomas (o la cantidad adecuada indicada en la premisa/guía).
+${shotsCountDirective}
 - Asegúrate de que los personajes, locaciones y objetos clave queden debidamente identificados con nombres consistentes.
 - Para cada toma:
   * cameraMovement: Tipo de plano o ángulo (ej. Plano General, Primer Plano, Macro).
@@ -607,7 +612,7 @@ ${assetsDirectives}
 - NARRACIÓN / LOCUCIÓN (V.O.):
   * Todo el texto hablado debe ser narración en off reflexiva, impactante y magnética.
   * En cada toma con audio, dialogueSpeaker DEBE ser "Narrador" o "V.O.".
-- Genera exactamente ${shotsCount} tomas.
+${shotsCountDirective}
 - keyframePrompt debe ser el FOTOGRAMA INICIAL (Frame 0) en inglés, con descripciones ultra detalladas de b-roll cinemático SIN ROSTROS HUMANOS.
 - actionPrompt debe describir el desarrollo de la toma en español.
 - Sin música de fondo.
@@ -630,7 +635,7 @@ ${assetsDirectives}
   * Tensión, conflictos entre personajes, secretos/traiciones, confrontaciones directas y cliffhanger en el último segundo.
 - Cámara: Planos medios y primeros planos expresivos, iluminación dramática de claroscuro (chiaroscuro), lentes anamórficos.
 - Diálogo: Líneas de diálogo incisivas con subtexto entre personajes.
-- Genera exactamente ${shotsCount} tomas.
+${shotsCountDirective}
 - keyframePrompt debe ser el FOTOGRAMA INICIAL (Frame 0) en inglés.
 - actionPrompt debe describir el desarrollo de la toma en español.
 - Sin música de fondo.

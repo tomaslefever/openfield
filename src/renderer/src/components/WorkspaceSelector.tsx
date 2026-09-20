@@ -23,18 +23,18 @@ export function WorkspaceSelector({ collapsed }: { collapsed: boolean }) {
           <img
             src={srcUrl(active.lastImageUrl)}
             alt=""
-            className="size-8 shrink-0 rounded-lg object-cover ring-1 ring-white/10 group-hover:opacity-20 transition-opacity"
+            className="size-9 shrink-0 rounded-lg object-cover ring-1 ring-white/10 group-hover:opacity-20 transition-opacity"
           />
         ) : (
           <span
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-semibold text-white shadow-sm group-hover:opacity-20 transition-opacity"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-[14px] font-semibold text-white shadow-sm group-hover:opacity-20 transition-opacity"
             style={{ backgroundColor: active?.color || '#6366f1' }}
           >
             {(active?.name || 'W').charAt(0).toUpperCase()}
           </span>
         )}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-sidebar-foreground">
-          <ArrowLeft size={16} />
+          <ArrowLeft size={18} />
         </div>
       </button>
     )
@@ -51,19 +51,16 @@ export function WorkspaceSelector({ collapsed }: { collapsed: boolean }) {
           <img
             src={srcUrl(active.lastImageUrl)}
             alt=""
-            className="size-8 rounded-lg object-cover ring-1 ring-white/10 group-hover:opacity-25 transition-opacity"
+            className="size-8 rounded-lg object-cover ring-1 ring-white/10 transition-opacity"
           />
         ) : (
           <span
-            className="flex size-8 items-center justify-center rounded-lg text-[13px] font-semibold text-white shadow-sm group-hover:opacity-25 transition-opacity"
+            className="flex size-8 items-center justify-center rounded-lg text-[13px] font-semibold text-white shadow-sm transition-opacity"
             style={{ backgroundColor: active?.color || '#6366f1' }}
           >
             {(active?.name || 'W').charAt(0).toUpperCase()}
           </span>
         )}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-sidebar-foreground">
-          <ArrowLeft size={15} />
-        </div>
       </div>
 
       <div className="min-w-0 flex-1">

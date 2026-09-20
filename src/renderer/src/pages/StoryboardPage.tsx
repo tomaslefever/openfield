@@ -354,6 +354,7 @@ function SceneCard({
 }
 
 import { IMAGE_MODELS, VIDEO_MODELS, calcCost, calcVideoCost, costCredits } from '../lib/models'
+import { useProvidersStore, isModelConfigured } from '../stores/providers-store'
 
 function getImageModelCost(modelId: string): number {
   const m = IMAGE_MODELS.find(m => m.t2iId === modelId || m.i2iId === modelId)
@@ -378,6 +379,11 @@ export function StoryboardPage() {
   const [showTransitionModels, setShowTransitionModels] = useState(false)
   const [showAr, setShowAr] = useState(false)
   const [showRes, setShowRes] = useState(false)
+  const configuredProviders = useProvidersStore((s) => s.configuredProviders)
+  const availableVideoModels = useMemo(
+    () => VIDEO_MODELS.filter((m) => isModelConfigured(m, configuredProviders)),
+    [configuredProviders]
+  )
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [editNameId, setEditNameId] = useState<string | null>(null)
   const [editNameValue, setEditNameValue] = useState('')
@@ -794,21 +800,26 @@ export function StoryboardPage() {
         {/* Video model selector */}
         <div className="relative">
           <button onClick={() => setShowVideoModels(!showVideoModels)}
-            className="text-[10px] px-2 py-1 rounded-lg bg-surface-800 text-surface-300 hover:text-surface-100 border border-surface-700 flex items-center gap-1.5">
+            disabled={availableVideoModels.length === 0}
+            className="text-[10px] px-2 py-1 rounded-lg bg-surface-800 text-surface-300 hover:text-surface-100 border border-surface-700 flex items-center gap-1.5 disabled:opacity-50">
             <Video size={12} className="text-blue-400" />
-            {VIDEO_MODELS.find(m => m.t2vId === videoModelId || m.i2vId === videoModelId)?.name || 'Select'}
+            {availableVideoModels.find(m => m.t2vId === videoModelId || m.i2vId === videoModelId)?.name || (availableVideoModels.length === 0 ? 'Sin proveedor' : 'Select')}
           </button>
           {showVideoModels && (
             <div className="absolute top-full mt-1 bg-surface-800 border border-surface-700 rounded-lg py-1 z-50 min-w-[180px] shadow-xl max-h-60 overflow-y-auto"
               onMouseLeave={() => setShowVideoModels(false)}>
-              {VIDEO_MODELS.map(m => (
-                <button key={m.t2vId}
-                  onClick={() => { store.setVideoModelId(m.t2vId!); store.saveSettings(); setShowVideoModels(false) }}
-                  className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${(videoModelId === m.t2vId || videoModelId === m.i2vId) ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
-                  <span>{m.name}</span>
-                  <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
-                </button>
-              ))}
+              {availableVideoModels.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-surface-400">Sin proveedores configurados</div>
+              ) : (
+                availableVideoModels.map(m => (
+                  <button key={m.t2vId}
+                    onClick={() => { store.setVideoModelId(m.t2vId!); store.saveSettings(); setShowVideoModels(false) }}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${(videoModelId === m.t2vId || videoModelId === m.i2vId) ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
+                    <span>{m.name}</span>
+                    <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>
@@ -816,21 +827,26 @@ export function StoryboardPage() {
         {/* Transition model selector */}
         <div className="relative">
           <button onClick={() => setShowTransitionModels(!showTransitionModels)}
-            className="text-[10px] px-2 py-1 rounded-lg bg-surface-800 text-surface-300 hover:text-surface-100 border border-surface-700 flex items-center gap-1.5">
+            disabled={availableVideoModels.filter(m => m.fflfId).length === 0}
+            className="text-[10px] px-2 py-1 rounded-lg bg-surface-800 text-surface-300 hover:text-surface-100 border border-surface-700 flex items-center gap-1.5 disabled:opacity-50">
             <ArrowRight size={12} className="text-amber-400" />
-            {VIDEO_MODELS.find(m => m.fflfId === transitionModelId || m.t2vId === transitionModelId)?.name || 'Select'}
+            {availableVideoModels.find(m => m.fflfId === transitionModelId || m.t2vId === transitionModelId)?.name || (availableVideoModels.filter(m => m.fflfId).length === 0 ? 'Sin proveedor' : 'Select')}
           </button>
           {showTransitionModels && (
             <div className="absolute top-full mt-1 bg-surface-800 border border-surface-700 rounded-lg py-1 z-50 min-w-[180px] shadow-xl max-h-60 overflow-y-auto"
               onMouseLeave={() => setShowTransitionModels(false)}>
-              {VIDEO_MODELS.filter(m => m.fflfId).map(m => (
-                <button key={m.fflfId}
-                  onClick={() => { store.setTransitionModelId(m.fflfId!); store.saveSettings(); setShowTransitionModels(false) }}
-                  className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${transitionModelId === m.fflfId ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
-                  <span>{m.name}</span>
-                  <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
-                </button>
-              ))}
+              {availableVideoModels.filter(m => m.fflfId).length === 0 ? (
+                <div className="px-3 py-2 text-xs text-surface-400">Sin proveedores configurados</div>
+              ) : (
+                availableVideoModels.filter(m => m.fflfId).map(m => (
+                  <button key={m.fflfId}
+                    onClick={() => { store.setTransitionModelId(m.fflfId!); store.saveSettings(); setShowTransitionModels(false) }}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${transitionModelId === m.fflfId ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
+                    <span>{m.name}</span>
+                    <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>

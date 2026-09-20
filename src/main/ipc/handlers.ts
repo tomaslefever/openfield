@@ -17,6 +17,8 @@ import { registerLocalModelsHandlers } from './local-models'
 import { registerBridgeHandlers } from './bridge'
 import { registerReplicateHandlers } from './replicate'
 import { registerFalHandlers } from './fal'
+import { registerMachgenHandlers } from './machgen'
+import { registerHiggsfieldHandlers } from './higgsfield'
 import { registerBalancesHandlers } from './balances'
 import { registerElevenLabsHandlers } from './elevenlabs'
 import { registerUpdaterHandlers } from './updater'
@@ -44,6 +46,8 @@ export function registerIpcHandlers() {
   registerBridgeHandlers(ctx)
   registerReplicateHandlers(ctx)
   registerFalHandlers(ctx)
+  registerMachgenHandlers(ctx)
+  registerHiggsfieldHandlers(ctx)
   registerBalancesHandlers(ctx)
   registerElevenLabsHandlers(ctx)
   registerUpdaterHandlers(ctx)

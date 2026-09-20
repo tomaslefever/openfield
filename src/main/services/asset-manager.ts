@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs/promises'
+import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { getRawDb, getAssetsDir } from '../db'
@@ -36,6 +36,7 @@ export interface AssetQuery {
   tags?: string[]
   modelUsed?: string
   isFavorite?: boolean
+  isArchived?: boolean
   aspectRatio?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -83,6 +84,12 @@ export class AssetManager {
       query.types.forEach(t => params.push(t))
     }
     if (query.isFavorite !== undefined) { parts.push('is_favorite = ?'); params.push(query.isFavorite ? 1 : 0) }
+    if (query.isArchived !== undefined) {
+      parts.push('is_archived = ?')
+      params.push(query.isArchived ? 1 : 0)
+    } else {
+      parts.push('(is_archived = 0 OR is_archived IS NULL)')
+    }
     if (query.aspectRatio) { parts.push('aspect_ratio = ?'); params.push(query.aspectRatio) }
     if (query.tags && query.tags.length > 0) {
       const tagClauses = query.tags.map(() => `(',' || tags || ',' LIKE ?)`)
@@ -113,7 +120,7 @@ export class AssetManager {
 
   getRecentAssets(limit = 20, workspaceId?: string) {
     const ws = workspaceId || getActiveWorkspaceId()
-    return getRawDb().prepare('SELECT * FROM assets WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?').all(ws, limit)
+    return getRawDb().prepare('SELECT * FROM assets WHERE workspace_id = ? AND (is_archived = 0 OR is_archived IS NULL) ORDER BY created_at DESC LIMIT ?').all(ws, limit)
   }
 
   getAllTags(workspaceId?: string): string[] {
@@ -269,6 +276,25 @@ export class AssetManager {
       count++
     }
     return count
+  }
+
+  archiveAssets(ids: string[], archive = true): number {
+    const raw = getRawDb()
+    let count = 0
+    const now = Date.now()
+    const val = archive ? 1 : 0
+    for (const id of ids) {
+      const res = raw.prepare('UPDATE assets SET is_archived = ?, updated_at = ? WHERE id = ?').run(val, now, id)
+      if (res.changes > 0) count++
+    }
+    return count
+  }
+
+  archiveAsset(id: string, archive = true) {
+    const raw = getRawDb()
+    const val = archive ? 1 : 0
+    raw.prepare('UPDATE assets SET is_archived = ?, updated_at = ? WHERE id = ?').run(val, Date.now(), id)
+    return this.getAsset(id)
   }
 
   // Moves assets to another workspace: updates workspace_id and physically

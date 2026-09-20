@@ -6,6 +6,7 @@ export interface PagedAssetsOptions {
   types?: ('image' | 'video' | 'audio')[]
   search?: string
   isFavorite?: boolean
+  isArchived?: boolean
   aspectRatio?: string | null
   pageSize?: number
   excludeUploads?: boolean
@@ -13,7 +14,7 @@ export interface PagedAssetsOptions {
 
 // Paginated + lazily loaded asset list. Attach `sentinelRef` to a div rendered after
 // the grid; a new page (pageSize items) is fetched when it becomes visible.
-export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, pageSize = 20, excludeUploads = false }: PagedAssetsOptions) {
+export function usePagedAssets({ type, types, search, isFavorite, isArchived, aspectRatio, pageSize = 20, excludeUploads = false }: PagedAssetsOptions) {
   const [assets, setAssets] = useState<any[]>([])
   const [total, setTotal] = useState(0)
   const [hasMore, setHasMore] = useState(true)
@@ -42,6 +43,7 @@ export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, p
         ...(memoizedTypes && memoizedTypes.length > 0 ? { types: memoizedTypes } : {}),
         search: search || undefined,
         ...(isFavorite ? { isFavorite: true } : {}),
+        ...(isArchived !== undefined ? { isArchived } : {}),
         ...(aspectRatio ? { aspectRatio } : {}),
         limit: pageSize,
         offset: pageNum * pageSize,
@@ -64,7 +66,7 @@ export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, p
         else setInitialLoading(false)
       }
     }
-  }, [type, typesKey, search, isFavorite, aspectRatio, pageSize, excludeUploads])
+  }, [type, typesKey, search, isFavorite, isArchived, aspectRatio, pageSize, excludeUploads])
 
   const reset = useCallback(() => {
     reqRef.current++
@@ -84,19 +86,23 @@ export function usePagedAssets({ type, types, search, isFavorite, aspectRatio, p
   }, [fetchPage])
 
   // Patch a single asset in place without refetching the list. When the favorites
-  // filter is active and the asset stops being a favorite, it is removed instead.
+  // or archived filter is active and the asset status changes, it is removed instead.
   const updateAsset = useCallback((updated: any) => {
     if (!updated?.id) return
     if (isFavorite && !updated.isFavorite) setTotal(t => Math.max(0, t - 1))
+    if (isArchived === true && !updated.isArchived) setTotal(t => Math.max(0, t - 1))
+    if (!isArchived && updated.isArchived) setTotal(t => Math.max(0, t - 1))
     setAssets(prev => {
       const idx = prev.findIndex(a => a.id === updated.id)
       if (idx < 0) return prev
       const next = prev.slice()
       if (isFavorite && !updated.isFavorite) next.splice(idx, 1)
+      else if (isArchived === true && !updated.isArchived) next.splice(idx, 1)
+      else if (!isArchived && updated.isArchived) next.splice(idx, 1)
       else next[idx] = updated
       return next
     })
-  }, [isFavorite])
+  }, [isFavorite, isArchived])
 
   // Remove assets from the list in-place (no refetch) — used after moving
   // assets to another workspace so the grid reflows without a reload.

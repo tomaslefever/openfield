@@ -69,38 +69,18 @@ export function ShortDramaApp({ onClose }: Props) {
   if (viewMode === 'hub') {
     return (
       <div className="flex flex-col h-full bg-surface-950 text-surface-100 overflow-hidden">
-        {/* Top Navbar */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-surface-800 bg-surface-900/80 backdrop-blur-md flex-shrink-0 z-10">
-          <div className="flex items-center gap-3">
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="text-surface-400 hover:text-surface-100 p-1.5 rounded-lg hover:bg-surface-800 transition-colors"
-                title="Cerrar y volver al catálogo de Apps"
-              >
-                <ChevronLeft size={18} />
-              </button>
-            )}
-
-            <div className="w-8 h-8 rounded-xl bg-accent-500/10 border border-accent-500/20 flex items-center justify-center flex-shrink-0">
-              <Clapperboard size={16} className="text-accent-400" />
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-sm text-surface-100">
-                  Content Studio
-                </h1>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-500/10 text-accent-400 border border-accent-500/20 font-mono">
-                  Multi-Formato AI
-                </span>
-              </div>
-              <p className="text-[11px] text-surface-500">
-                Producción integral de Microdramas, UGC, Ads, TVC, Reels, Try On y Unboxing
-              </p>
-            </div>
+        {onClose && (
+          <div className="flex items-center px-6 py-2 border-b border-surface-800 bg-surface-900/80 flex-shrink-0">
+            <button
+              onClick={onClose}
+              className="text-surface-400 hover:text-surface-100 p-1.5 rounded-lg hover:bg-surface-800 transition-colors flex items-center gap-1.5 text-xs"
+              title="Cerrar y volver al catálogo de Apps"
+            >
+              <ChevronLeft size={16} />
+              <span>Volver a Apps</span>
+            </button>
           </div>
-        </div>
+        )}
 
         {/* Projects Dashboard */}
         <div className="flex-1 overflow-y-auto p-6">

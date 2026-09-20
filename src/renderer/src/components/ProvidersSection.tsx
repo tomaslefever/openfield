@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { KeyRound, Check, Loader, ExternalLink, Zap, User, DollarSign, Cloud, AudioLines } from 'lucide-react'
+import { KeyRound, Check, Loader, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
+import { ProviderLogo } from './icons/ProviderLogos'
 
 interface ProviderStatus {
-  provider: 'kie' | 'replicate' | 'fal' | 'hf' | 'elevenlabs'
+  provider: 'kie' | 'replicate' | 'fal' | 'hf' | 'elevenlabs' | 'machgen' | 'higgsfield'
   label: string
   kind: 'credits' | 'account' | 'dollars' | 'token'
   value?: number | string
@@ -24,10 +25,28 @@ interface ProviderDef {
 
 const PROVIDERS: ProviderDef[] = [
   {
+    id: 'machgen',
+    label: 'MachGen',
+    description: 'Dollar balance via MachGen API',
+    icon: <ProviderLogo provider="machgen" size={18} />,
+    keyName: 'machgenApiKey',
+    keyPlaceholder: 'MGA_... (MachGen API key)',
+    helperUrl: 'https://www.machgen.ai',
+  },
+  {
+    id: 'higgsfield',
+    label: 'Higgsfield AI',
+    description: 'Seedance 2.0 via Higgsfield API',
+    icon: <ProviderLogo provider="higgsfield" size={18} />,
+    keyName: 'higgsfieldApiKey',
+    keyPlaceholder: 'KEY_ID:KEY_SECRET (Higgsfield key)',
+    helperUrl: 'https://console.higgsfield.ai',
+  },
+  {
     id: 'kie',
     label: 'KIE.ai',
     description: 'Credits balance via KIE API',
-    icon: <Zap size={16} />,
+    icon: <ProviderLogo provider="kie" size={18} />,
     keyName: 'openfieldApiKey',
     keyPlaceholder: 'Enter your KIE.ai API key',
     helperUrl: 'https://app.kie.ai',
@@ -36,7 +55,7 @@ const PROVIDERS: ProviderDef[] = [
     id: 'replicate',
     label: 'Replicate',
     description: 'Account username via Replicate API',
-    icon: <User size={16} />,
+    icon: <ProviderLogo provider="replicate" size={18} className="text-surface-100" />,
     keyName: 'replicateApiKey',
     keyPlaceholder: 'r8_... (Replicate token)',
     helperUrl: 'https://replicate.com/account/api-tokens',
@@ -45,7 +64,7 @@ const PROVIDERS: ProviderDef[] = [
     id: 'fal',
     label: 'fal.ai',
     description: 'Dollar balance via fal.ai API',
-    icon: <DollarSign size={16} />,
+    icon: <ProviderLogo provider="fal" size={18} />,
     keyName: 'falApiKey',
     keyPlaceholder: 'FAL_KEY (fal.ai key)',
     helperUrl: 'https://fal.ai/dashboard/keys',
@@ -54,7 +73,7 @@ const PROVIDERS: ProviderDef[] = [
     id: 'hf',
     label: 'HuggingFace',
     description: 'Token for gated models (FLUX...)',
-    icon: <Cloud size={16} />,
+    icon: <ProviderLogo provider="hf" size={18} />,
     keyName: 'hfToken',
     keyPlaceholder: 'hf_... (HuggingFace token)',
     helperUrl: 'https://huggingface.co/settings/tokens',
@@ -63,7 +82,7 @@ const PROVIDERS: ProviderDef[] = [
     id: 'elevenlabs',
     label: 'ElevenLabs',
     description: 'AI voice synthesis (TTS)',
-    icon: <AudioLines size={16} />,
+    icon: <ProviderLogo provider="elevenlabs" size={18} className="text-surface-100" />,
     keyName: 'elevenlabsApiKey',
     keyPlaceholder: 'sk_... (ElevenLabs API key)',
     helperUrl: 'https://elevenlabs.io/app/settings/api-keys',
@@ -166,7 +185,7 @@ export function ProvidersSection() {
             <Card key={p.id} className="bg-surface-900 border-surface-800">
               <CardContent className="p-4 flex flex-col gap-3">
                 <div className="flex items-center gap-2.5">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent-600/15 text-accent-400">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-950 border border-surface-700/60 p-1 shadow-sm">
                     {p.icon}
                   </span>
                   <div className="min-w-0 flex-1">

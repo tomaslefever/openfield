@@ -35,7 +35,7 @@ export interface ModelPricing {
   local?: boolean
   modelId?: string
   engine?: string
-  provider?: 'kie' | 'replicate' | 'fal' | 'elevenlabs'
+  provider?: 'kie' | 'replicate' | 'fal' | 'elevenlabs' | 'machgen' | 'higgsfield'
   replicateVoices?: string[]
   replicateLanguages?: string[]
   falAspectRatios?: string[]
@@ -156,6 +156,35 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '480p', cost: 0.019 }, { resolution: '720p', cost: 0.041 }], durationMax: 15,
     durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
+  { name: 'Seedance 2.0 (Higgsfield)', category: 'ByteDance', unit: 's', provider: 'higgsfield',
+    t2vId: 'bytedance/seedance-2.0/text-to-video',
+    prices: [
+      { resolution: '480p', cost: 0.135 },
+      { resolution: '720p', cost: 0.302 },
+      { resolution: '1080p', cost: 0.680 },
+      { resolution: '4k', cost: 1.555 },
+    ],
+    durationMax: 15,
+    durationOptions: ['4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
+    resolutions: ['480p', '720p', '1080p', '4k'],
+    aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] },
+  { name: 'Seedance 2.5 (Higgsfield)', category: 'ByteDance', unit: 's', provider: 'higgsfield',
+    t2vId: 'bytedance/seedance-2.5/text-to-video',
+    prices: [
+      { resolution: '480p', cost: 0.206 },
+      { resolution: '720p', cost: 0.462 },
+    ],
+    durationMax: 30,
+    durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20', '30'],
+    resolutions: ['480p', '720p'],
+    aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] },
+  { name: 'Kling 3.0 Standard (Higgsfield)', category: 'Kling', unit: 's', provider: 'higgsfield',
+    t2vId: 'kling-video/v3.0/std/text-to-video',
+    prices: [{ resolution: 'std', cost: 0.07 }],
+    durationMax: 15,
+    durationOptions: ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
+    resolutions: ['std'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Wan 2.7', category: 'Wan', unit: 's', t2vId: 'wan-2-7-text-to-video', i2vId: 'wan-2-7-image-to-video',
     prices: [{ resolution: 's', cost: 0.04 }], durationMax: 10 },
   { name: 'Wan 3.0', category: 'Wan', unit: 's',
@@ -235,6 +264,23 @@ export const VIDEO_MODELS: ModelPricing[] = [
     supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: 'Image %d', video: 'Video %d', audio: 'Audio %d' },
     falAspectRatios: ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] },
+  // MachGen models (https://www.machgen.ai/docs/rest_api)
+  { name: 'MiniMax H3 (MachGen)', category: 'MiniMax', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/MiniMax-H3/t2v', i2vId: 'machgen/MiniMax-H3/i2v', fflfId: 'machgen/MiniMax-H3/fflf', refId: 'machgen/MiniMax-H3/ref',
+    prices: [{ resolution: '480p', cost: 0.035 }, { resolution: '768p', cost: 0.04 }, { resolution: '1440p', cost: 0.10 }],
+    durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['480p', '768p', '1440p'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'] },
+  { name: 'LTX-2.3-Pro (MachGen)', category: 'Lightricks', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/LTX-2.3-Pro/t2v', i2vId: 'machgen/LTX-2.3-Pro/i2v', fflfId: 'machgen/LTX-2.3-Pro/fflf',
+    prices: [{ resolution: '540p', cost: 0.008 }, { resolution: '720p', cost: 0.015 }, { resolution: '1080p', cost: 0.03 }],
+    durationMax: 10, durationOptions: ['5', '6', '8', '10'], resolutions: ['540p', '720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
+  { name: 'Wan2.2-A14B (MachGen)', category: 'Wan', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Wan2.2-A14B/t2v', i2vId: 'machgen/Wan2.2-A14B/i2v',
+    prices: [{ resolution: '480p', cost: 0.018 }, { resolution: '720p', cost: 0.036 }],
+    durationMax: 10, durationOptions: ['5', '6', '8', '10'], resolutions: ['480p', '720p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
 ]
 
 // ─── Audio models ──────────────────────────────────────────────────────────
@@ -278,6 +324,7 @@ export function costCredits(model: ModelPricing, resolution?: string): number {
 
 export interface CostContext {
   resolution?: string
+  aspectRatio?: string
   requestedSeconds?: number
   audioRefSeconds?: number
   wordCount?: number
@@ -285,6 +332,47 @@ export interface CostContext {
   imageCount?: number
   inputVideoSeconds?: number
   batchSize?: number
+}
+
+export function getSeedance20Dimensions(resolution: string = '720p', aspectRatio: string = '16:9'): { width: number; height: number } {
+  const res = resolution.toLowerCase()
+  const ar = aspectRatio.toLowerCase()
+
+  const dims: Record<string, Record<string, { width: number; height: number }>> = {
+    '480p': {
+      '16:9': { width: 854, height: 480 },
+      '4:3': { width: 640, height: 480 },
+      '1:1': { width: 480, height: 480 },
+      '3:4': { width: 480, height: 640 },
+      '9:16': { width: 480, height: 854 },
+      '21:9': { width: 1120, height: 480 },
+    },
+    '720p': {
+      '16:9': { width: 1280, height: 720 },
+      '4:3': { width: 960, height: 720 },
+      '1:1': { width: 720, height: 720 },
+      '3:4': { width: 720, height: 960 },
+      '9:16': { width: 720, height: 1280 },
+      '21:9': { width: 1680, height: 720 },
+    },
+    '1080p': {
+      '16:9': { width: 1920, height: 1080 },
+      '4:3': { width: 1440, height: 1080 },
+      '1:1': { width: 1080, height: 1080 },
+      '3:4': { width: 1080, height: 1440 },
+      '9:16': { width: 1080, height: 1920 },
+      '21:9': { width: 2520, height: 1080 },
+    },
+    '4k': {
+      '16:9': { width: 3840, height: 2160 },
+      '4:3': { width: 2880, height: 2160 },
+      '1:1': { width: 2160, height: 2160 },
+      '3:4': { width: 2160, height: 2880 },
+      '9:16': { width: 2160, height: 3840 },
+      '21:9': { width: 5040, height: 2160 },
+    },
+  }
+  return dims[res]?.[ar] || dims['720p']?.['16:9'] || { width: 1280, height: 720 }
 }
 
 // The billed duration depends on the model:
@@ -301,7 +389,7 @@ export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {})
     }
     return ctx.requestedSeconds || 0
   }
-  if (model.t2vId?.startsWith('kling-3') && ctx.multiSceneSeconds && ctx.multiSceneSeconds.length > 0) {
+  if ((model.t2vId?.startsWith('kling-3') || model.t2vId?.startsWith('kling-video/v3')) && ctx.multiSceneSeconds && ctx.multiSceneSeconds.length > 0) {
     return ctx.multiSceneSeconds.reduce((s, x) => s + x, 0)
   }
   return ctx.requestedSeconds || 0
@@ -315,7 +403,43 @@ export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {})
 // - fal.ai MiniMax H3 / H3 Max: first 5/4 reference images free, +$0.08/$0.02 per extra image
 // - KIE MiniMax H3: Total = Unit Price × (Generated + Input Video Duration) + Additional Image Cost
 //   (first 5 images free, +$0.02 per extra image; audio input free)
+// - Seedance 2.5 (Higgsfield): Token-metered pricing.
+//   Billable video tokens = ceil((input video seconds + generated video seconds) × output width × output height × 24 fps / 1024).
+//   At 480p or 720p: $0.0214 per 1,000 video tokens.
+// - Seedance 2.0 (Higgsfield): Token-metered pricing.
+//   Billable video tokens = ceil(generated video seconds × output width × output height × 24 fps / 1024).
+//   Per 1,000 video tokens: 480p/720p/1080p $0.014, 4K $0.008.
 export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
+  if (model.t2vId === 'bytedance/seedance-2.5/text-to-video') {
+    const dur = ctx.requestedSeconds || 5
+    const totalSeconds = dur + (ctx.inputVideoSeconds || 0)
+    const { width, height } = getSeedance20Dimensions(ctx.resolution, ctx.aspectRatio)
+    const billableTokens = Math.ceil((totalSeconds * width * height * 24) / 1024)
+    const baseDollars = (billableTokens / 1000) * 0.0214
+    const totalDollars = baseDollars * (ctx.batchSize || 1)
+    return {
+      perUnitCredits: Math.round(baseDollars * CREDITS_PER_DOLLAR),
+      totalCredits: Math.round(totalDollars * CREDITS_PER_DOLLAR),
+      perUnitDollars: baseDollars,
+      totalDollars,
+    }
+  }
+
+  if (model.t2vId === 'bytedance/seedance-2.0/text-to-video') {
+    const dur = ctx.requestedSeconds || 5
+    const { width, height } = getSeedance20Dimensions(ctx.resolution, ctx.aspectRatio)
+    const billableTokens = Math.ceil((dur * width * height * 24) / 1024)
+    const ratePer1k = ctx.resolution?.toLowerCase() === '4k' ? 0.008 : 0.014
+    const baseDollars = (billableTokens / 1000) * ratePer1k
+    const totalDollars = baseDollars * (ctx.batchSize || 1)
+    return {
+      perUnitCredits: Math.round(baseDollars * CREDITS_PER_DOLLAR),
+      totalCredits: Math.round(totalDollars * CREDITS_PER_DOLLAR),
+      perUnitDollars: baseDollars,
+      totalDollars,
+    }
+  }
+
   if (model.t2vId === 'google/gemini-omni-flash-1-1' || model.t2vId === 'gemini-omni-video') {
     const dur = ctx.requestedSeconds || 6
     const extraSteps = Math.max(0, (dur - 4) / 2)
@@ -362,6 +486,30 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
 // ─── LLM / Chat models ───────────────────────────────────────────────────
 
 export const LLM_MODELS: ModelPricing[] = [
+  {
+    name: 'Claude Opus 4.7 (KIE)',
+    category: 'Anthropic',
+    unit: 'img',
+    modelId: 'claude-opus-4-7',
+    prices: [{ resolution: 'default', cost: 0.025 }],
+    provider: 'kie',
+  },
+  {
+    name: 'Claude Opus 4.8 (KIE)',
+    category: 'Anthropic',
+    unit: 'img',
+    modelId: 'claude-opus-4-8',
+    prices: [{ resolution: 'default', cost: 0.03 }],
+    provider: 'kie',
+  },
+  {
+    name: 'Claude Fable 5 (KIE)',
+    category: 'Anthropic',
+    unit: 'img',
+    modelId: 'claude-fable-5',
+    prices: [{ resolution: 'default', cost: 0.035 }],
+    provider: 'kie',
+  },
   {
     name: 'Claude 3.7 Sonnet (KIE)',
     category: 'Anthropic',
