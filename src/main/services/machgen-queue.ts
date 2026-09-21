@@ -22,6 +22,8 @@ function logRun(raw: any, taskId: string, step: string, message: string, payload
 export class MachgenQueue extends EventEmitter {
   private apiClient: MachgenApiClient
   private processing = new Set<string>()
+  private coolingDown = new Set<string>()
+  private uploadCache = new Map<string, string>()
   private maxConcurrent = 2
 
   constructor(apiKey: string) {
@@ -72,67 +74,94 @@ export class MachgenQueue extends EventEmitter {
     const raw = getRawDb()
     const pending = raw.prepare('SELECT * FROM tasks WHERE provider = ? AND status = ? ORDER BY created_at ASC').all('machgen', 'pending')
     for (const task of pending) {
+      const taskId = task.taskId || task.task_id
       if (this.processing.size >= this.maxConcurrent) break
-      if (!this.processing.has(task.taskId)) this.processTask(task)
+      if (this.coolingDown.has(taskId)) continue
+      if (!this.processing.has(taskId)) this.processTask(task)
     }
   }
 
-  public buildInput(payload: any): MachgenTaskInput {
+  public async buildInput(payload: any): Promise<MachgenTaskInput> {
     const raw = getRawDb()
     const rawModel = payload?.model || ''
     const modelDef = getMachgenModel(rawModel)
     const modelId = modelDef?.id || rawModel.replace(/^machgen\//, '').replace(/\/(t2v|i2v|fflf|ref|upscale|t2i|i2i|t2s|t2d|t2sfx|t2m)$/, '').trim()
 
-    // Helper for Data URI
-    const toDataUri = (b64: string, mime: string) =>
-      b64.startsWith('data:') || b64.startsWith('http') ? b64 : `data:${mime || 'image/png'};base64,${b64}`
+    // Resolves a media source (base64, local path, assetId, file://, data:) to an uploaded MachGen @input/... reference or URL
+    const resolveSource = async (source?: string, assetId?: string, defaultMime = 'image/png'): Promise<string | null> => {
+      let resolvedSource = source
+      let mime = defaultMime
 
-    const resolveBase64 = (b64?: string, assetId?: string) => {
-      if (b64 && b64.length > 50) return b64
-      if (assetId) {
+      if (!resolvedSource && assetId) {
         try {
-          const asset = raw.prepare('SELECT local_path FROM assets WHERE id = ?').get(assetId) as any
+          const asset = raw.prepare('SELECT local_path, mime_type FROM assets WHERE id = ?').get(assetId) as any
           if (asset?.local_path && syncFs.existsSync(asset.local_path)) {
-            return syncFs.readFileSync(asset.local_path).toString('base64')
+            resolvedSource = asset.local_path
+            mime = asset.mime_type || defaultMime
           }
         } catch {}
       }
-      return b64 || ''
+
+      if (!resolvedSource) return null
+
+      // Check upload cache
+      const cacheKey = assetId || (resolvedSource.length < 500 ? resolvedSource : null)
+      if (cacheKey && this.uploadCache.has(cacheKey)) {
+        return this.uploadCache.get(cacheKey)!
+      }
+
+      const trimmed = resolvedSource.trim()
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('@input/')) {
+        return trimmed
+      }
+
+      const inputRef = await this.apiClient.uploadSource(resolvedSource, mime)
+      if (cacheKey) {
+        this.uploadCache.set(cacheKey, inputRef)
+      }
+      return inputRef
     }
 
-    const firstFrame = resolveBase64(payload.firstFrameBase64, payload.firstFrameAssetId)
-    const lastFrame = resolveBase64(payload.lastFrameBase64, payload.lastFrameAssetId)
-    const imageBase64 = resolveBase64(payload.imageBase64, payload.imageAssetId)
+    const firstFrameUrl = await resolveSource(payload.firstFrameUrl || payload.firstFrameBase64, payload.firstFrameAssetId, 'image/png')
+    const lastFrameUrl = await resolveSource(payload.lastFrameUrl || payload.lastFrameBase64, payload.lastFrameAssetId, 'image/png')
+    const imageBase64Url = await resolveSource(payload.imageUrl || payload.imageBase64, payload.imageAssetId, payload.imageMime || 'image/png')
 
     // Collect image URLs
     const srcImageUrls: string[] = []
     let keyframeIndices: (0 | -1)[] | null = null
 
     // Check payload image inputs
-    if (firstFrame && lastFrame && modelDef?.supportsEndFrame) {
-      srcImageUrls.push(toDataUri(firstFrame, 'image/png'))
-      srcImageUrls.push(toDataUri(lastFrame, 'image/png'))
+    if (firstFrameUrl && lastFrameUrl && modelDef?.supportsEndFrame) {
+      srcImageUrls.push(firstFrameUrl)
+      srcImageUrls.push(lastFrameUrl)
       keyframeIndices = [0, -1]
-    } else if (lastFrame && !firstFrame && (modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo')) {
+    } else if (lastFrameUrl && !firstFrameUrl && (modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo')) {
       // Lone end frame uniquely supported by MiniMax-H3 and MiniMax-H3-Turbo
-      srcImageUrls.push(toDataUri(lastFrame, 'image/png'))
+      srcImageUrls.push(lastFrameUrl)
       keyframeIndices = [-1]
-    } else if (firstFrame) {
-      srcImageUrls.push(toDataUri(firstFrame, 'image/png'))
+    } else if (firstFrameUrl) {
+      srcImageUrls.push(firstFrameUrl)
       keyframeIndices = [0]
     } else if (payload.imageRefs && payload.imageRefs.length > 0) {
-      const ref0 = resolveBase64(payload.imageRefs[0].base64, payload.imageRefs[0].assetId) || payload.imageRefs[0].url
-      if (payload.imageRefs.length > 1 && modelDef?.supportsEndFrame) {
-        const ref1 = resolveBase64(payload.imageRefs[1].base64, payload.imageRefs[1].assetId) || payload.imageRefs[1].url
-        srcImageUrls.push(toDataUri(ref0, payload.imageRefs[0].mime || 'image/png'))
-        srcImageUrls.push(toDataUri(ref1, payload.imageRefs[1].mime || 'image/png'))
-        keyframeIndices = [0, -1]
-      } else {
-        srcImageUrls.push(toDataUri(ref0, payload.imageRefs[0].mime || 'image/png'))
-        keyframeIndices = [0]
+      const ref0Url = await resolveSource(payload.imageRefs[0].url || payload.imageRefs[0].base64 || payload.imageRefs[0].localPath, payload.imageRefs[0].assetId, payload.imageRefs[0].mime || 'image/png')
+      if (ref0Url) {
+        if (payload.imageRefs.length > 1 && modelDef?.supportsEndFrame) {
+          const ref1Url = await resolveSource(payload.imageRefs[1].url || payload.imageRefs[1].base64 || payload.imageRefs[1].localPath, payload.imageRefs[1].assetId, payload.imageRefs[1].mime || 'image/png')
+          if (ref1Url) {
+            srcImageUrls.push(ref0Url)
+            srcImageUrls.push(ref1Url)
+            keyframeIndices = [0, -1]
+          } else {
+            srcImageUrls.push(ref0Url)
+            keyframeIndices = [0]
+          }
+        } else {
+          srcImageUrls.push(ref0Url)
+          keyframeIndices = [0]
+        }
       }
-    } else if (imageBase64) {
-      srcImageUrls.push(toDataUri(imageBase64, payload.imageMime || 'image/png'))
+    } else if (imageBase64Url) {
+      srcImageUrls.push(imageBase64Url)
       keyframeIndices = [0]
     }
 
@@ -167,16 +196,14 @@ export class MachgenQueue extends EventEmitter {
       // Video model
       if (rawModel.endsWith('/upscale') || (modelDef?.supportsUpscale && !modelDef.supportsT2V && !modelDef.supportsI2V && !modelDef.supportsR2V)) {
         taskType = 'UPSCALE'
-      } else if (rawModel.endsWith('/ref') || (modelDef?.supportsR2V && !modelDef.supportsT2V && !modelDef.supportsI2V)) {
-        taskType = 'R2V'
-      } else if (rawModel.endsWith('/fflf') || rawModel.endsWith('/i2v')) {
+      } else if (rawModel.endsWith('/ref') || payload.inputMode === 'ref') {
+        taskType = modelDef?.supportsR2V ? 'R2V' : (modelDef?.supportsI2V ? 'I2V' : 'T2V')
+      } else if (rawModel.endsWith('/fflf') || rawModel.endsWith('/i2v') || payload.inputMode === 'ff' || payload.inputMode === 'fflf') {
         taskType = modelDef?.supportsI2V ? 'I2V' : (modelDef?.supportsR2V ? 'R2V' : 'T2V')
-      } else if (payload.videoRefs?.length > 0 || (payload.audioRefs?.length > 0 && modelDef?.supportsAudioRef)) {
-        taskType = modelDef?.supportsR2V ? 'R2V' : 'T2V'
-      } else if (srcImageUrls.length > 1 && modelDef?.supportsR2V && !modelDef?.supportsEndFrame) {
+      } else if ((payload.videoRefs?.length > 0 || (payload.audioRefs?.length > 0 && modelDef?.supportsAudioRef)) && modelDef?.supportsR2V) {
         taskType = 'R2V'
-      } else if (srcImageUrls.length > 0) {
-        taskType = modelDef?.supportsI2V ? 'I2V' : (modelDef?.supportsR2V ? 'R2V' : 'T2V')
+      } else if (srcImageUrls.length > 0 && modelDef?.supportsI2V) {
+        taskType = 'I2V'
       } else {
         taskType = modelDef?.supportsT2V ? 'T2V' : (modelDef?.supportsI2V ? 'I2V' : (modelDef?.supportsR2V ? 'R2V' : 'T2V'))
       }
@@ -233,21 +260,21 @@ export class MachgenQueue extends EventEmitter {
       }
     }
 
-    // Collect video URLs
+    // Collect video URLs (R2V reference input only)
     const srcVideoUrls: string[] = []
     if (payload.videoRefs && Array.isArray(payload.videoRefs)) {
       for (const v of payload.videoRefs) {
-        if (v.url) srcVideoUrls.push(v.url)
-        else if (v.base64) srcVideoUrls.push(toDataUri(v.base64, v.mime || 'video/mp4'))
+        const vUrl = await resolveSource(v.url || v.base64 || v.localPath, v.assetId, v.mime || 'video/mp4')
+        if (vUrl) srcVideoUrls.push(vUrl)
       }
     }
 
-    // Collect audio URLs
+    // Collect audio URLs (R2V reference input only)
     const srcAudioUrls: string[] = []
     if (payload.audioRefs && Array.isArray(payload.audioRefs)) {
       for (const a of payload.audioRefs) {
-        if (a.url) srcAudioUrls.push(a.url)
-        else if (a.base64) srcAudioUrls.push(toDataUri(a.base64, a.mime || 'audio/mpeg'))
+        const aUrl = await resolveSource(a.url || a.base64 || a.localPath, a.assetId, a.mime || 'audio/mpeg')
+        if (aUrl) srcAudioUrls.push(aUrl)
       }
     }
 
@@ -255,6 +282,31 @@ export class MachgenQueue extends EventEmitter {
     let enhancePrompt = payload.enhancePrompt
     if (enhancePrompt === undefined) {
       enhancePrompt = modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo' || modelId === 'LTX-2.3-Pro' ? true : null
+    }
+
+    const isR2V = taskType === 'R2V'
+    const isI2V = taskType === 'I2V'
+
+    // I2V only accepts FF or FF-LF (keyframe indices [0] or [0, -1] / [-1]).
+    // For R2V, if reference images are present, pass them as reference image inputs without keyframe indices.
+    let finalImageUrls: string[] | null = null
+    let finalKeyframeIndices: (0 | -1)[] | null = null
+
+    if (isI2V) {
+      finalImageUrls = srcImageUrls.length > 0 ? srcImageUrls : null
+      finalKeyframeIndices = keyframeIndices
+    } else if (isR2V) {
+      if (payload.imageRefs && Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0) {
+        const refUrls: string[] = []
+        for (const img of payload.imageRefs) {
+          const imgUrl = await resolveSource(img.url || img.base64 || img.localPath, img.assetId, img.mime || 'image/png')
+          if (imgUrl) refUrls.push(imgUrl)
+        }
+        finalImageUrls = refUrls.length > 0 ? refUrls : (srcImageUrls.length > 0 ? srcImageUrls : null)
+      } else {
+        finalImageUrls = srcImageUrls.length > 0 ? srcImageUrls : null
+      }
+      finalKeyframeIndices = null
     }
 
     const input: MachgenTaskInput = {
@@ -266,16 +318,16 @@ export class MachgenQueue extends EventEmitter {
       seed: payload.seed != null ? Number(payload.seed) : null,
       optimization_level: payload.optimizationLevel || null,
       adapter: payload.adapter || null,
-      src_image_urls: srcImageUrls.length > 0 ? srcImageUrls : null,
-      keyframe_indices: keyframeIndices,
-      src_video_urls: srcVideoUrls.length > 0 ? srcVideoUrls : null,
-      src_audio_urls: srcAudioUrls.length > 0 ? srcAudioUrls : null,
-      src_task_ids: payload.srcTaskIds || null,
-      reference_video_operation: payload.referenceVideoOperation || null,
-      reference_video_start_secs: payload.referenceVideoStartSecs || null,
-      subject_to_image_ids: payload.subjectToImageIds || null,
-      subject_to_video_ids: payload.subjectToVideoIds || null,
-      subject_to_audio_ids: payload.subjectToAudioIds || null,
+      src_image_urls: finalImageUrls,
+      keyframe_indices: finalKeyframeIndices,
+      src_video_urls: isR2V && srcVideoUrls.length > 0 ? srcVideoUrls : null,
+      src_audio_urls: isR2V && srcAudioUrls.length > 0 ? srcAudioUrls : null,
+      src_task_ids: isR2V ? (payload.srcTaskIds || null) : null,
+      reference_video_operation: isR2V ? (payload.referenceVideoOperation || null) : null,
+      reference_video_start_secs: isR2V ? (payload.referenceVideoStartSecs || null) : null,
+      subject_to_image_ids: isR2V ? (payload.subjectToImageIds || null) : null,
+      subject_to_video_ids: isR2V ? (payload.subjectToVideoIds || null) : null,
+      subject_to_audio_ids: isR2V ? (payload.subjectToAudioIds || null) : null,
       video_config: videoConfig,
       upscale_config: taskType === 'UPSCALE' ? { factor: payload.upscaleFactor || 2 } : null,
     }
@@ -284,37 +336,38 @@ export class MachgenQueue extends EventEmitter {
   }
 
   private async processTask(task: any) {
-    this.processing.add(task.taskId)
+    const taskId = task.taskId || task.task_id
+    this.processing.add(taskId)
     const raw = getRawDb()
 
-    logRun(raw, task.taskId, 'processing', 'MachGen task started processing')
+    logRun(raw, taskId, 'processing', 'MachGen task started processing')
 
     raw.prepare('UPDATE tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
-      .run('processing', Date.now(), Date.now(), task.taskId)
+      .run('processing', Date.now(), Date.now(), taskId)
 
-    this.emit('task:started', { taskId: task.taskId })
+    this.emit('task:started', { taskId })
 
     try {
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : task.payload
-      const input = this.buildInput(payload)
+      const input = await this.buildInput(payload)
 
-      logRun(raw, task.taskId, 'submit', `Submitting to MachGen: model=${input.model}, task_type=${input.task_type}`, input)
+      logRun(raw, taskId, 'submit', `Submitting to MachGen: model=${input.model}, task_type=${input.task_type}`, input)
 
       const submitRes = await this.apiClient.generate(input)
       const machgenTaskId = submitRes.task_id
 
-      logRun(raw, task.taskId, 'submitted', `MachGen task_id assigned: ${machgenTaskId}`)
+      logRun(raw, taskId, 'submitted', `MachGen task_id assigned: ${machgenTaskId}`)
 
       raw.prepare('UPDATE tasks SET request_id = ?, external_id = ?, updated_at = ? WHERE task_id = ?')
-        .run(machgenTaskId, machgenTaskId, Date.now(), task.taskId)
+        .run(machgenTaskId, machgenTaskId, Date.now(), taskId)
 
-      const finalStatus = await this.pollTask(task.taskId, machgenTaskId)
+      const finalStatus = await this.pollTask(taskId, machgenTaskId)
       await this.handleSuccess(task, finalStatus)
     } catch (err: any) {
-      logRun(raw, task.taskId, 'error', `Task failed: ${err.message}`, null, 'error')
+      logRun(raw, taskId, 'error', `Task failed: ${err.message}`, null, 'error')
       await this.handleFailure(task, err.message)
     } finally {
-      this.processing.delete(task.taskId)
+      this.processing.delete(taskId)
       this.processQueue()
     }
   }
@@ -344,12 +397,13 @@ export class MachgenQueue extends EventEmitter {
 
   private async handleSuccess(task: any, statusRes: MachgenTaskStatusResponse) {
     const raw = getRawDb()
+    const taskId = task.taskId || task.task_id
     const taskPayload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
     const assetId = crypto.randomUUID()
     const remoteUrl = statusRes.task_output?.audio || statusRes.task_output?.video || statusRes.task_output?.image || null
 
     const updatePlaceholder = (fields: Record<string, any>) => {
-      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
+      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(taskId) as any
       if (!placeholder) return null
       const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ')
       raw.prepare(`UPDATE assets SET ${sets}, updated_at = ? WHERE id = ?`)
@@ -365,12 +419,12 @@ export class MachgenQueue extends EventEmitter {
       const ext = isAudio ? 'mp3' : isImage ? 'png' : 'mp4'
       const mime = isAudio ? 'audio/mpeg' : isImage ? 'image/png' : 'video/mp4'
       const fileName = `${assetId}.${ext}`
-      const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
+      const taskWs = task.workspace_id || getTaskWorkspace(taskId)
       const subDir = workspaceAssetSubDir(isAudio ? 'audio' : isImage ? 'image' : 'video', taskWs)
       const localPath = `${subDir}/${fileName}`
 
       try {
-        logRun(raw, task.taskId, 'download', `Downloading asset: ${remoteUrl.substring(0, 80)}...`)
+        logRun(raw, taskId, 'download', `Downloading asset: ${remoteUrl.substring(0, 80)}...`)
         const buffer = await this.apiClient.downloadAsset(remoteUrl)
         await fs.mkdir(subDir, { recursive: true })
         await fs.writeFile(localPath, buffer)
@@ -394,7 +448,7 @@ export class MachgenQueue extends EventEmitter {
           file_size: fileSize,
         })
       } catch (err: any) {
-        logRun(raw, task.taskId, 'download-error', `Download failed: ${err.message}`, null, 'error')
+        logRun(raw, taskId, 'download-error', `Download failed: ${err.message}`, null, 'error')
         console.error('[MachgenQueue] Failed to download asset:', err.message)
         localAssetId = updatePlaceholder({
           file_path: remoteUrl,
@@ -421,37 +475,56 @@ export class MachgenQueue extends EventEmitter {
 
     raw.prepare(
       'UPDATE tasks SET status = ?, result_asset_id = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
-    ).run('completed', localAssetId, Date.now(), Date.now(), task.taskId)
+    ).run('completed', localAssetId, Date.now(), Date.now(), taskId)
     raw.save()
 
-    logRun(raw, task.taskId, 'completed', 'MachGen task completed successfully', { assetId: localAssetId })
-    this.emit('task:completed', { taskId: task.taskId, assetId: localAssetId, result: statusRes })
+    logRun(raw, taskId, 'completed', 'MachGen task completed successfully', { assetId: localAssetId })
+    this.emit('task:completed', { taskId, assetId: localAssetId, result: statusRes })
   }
 
   private async handleFailure(task: any, errorMessage: string) {
     const raw = getRawDb()
-    const retryCount = (task.retry_count || 0) + 1
+    const taskId = task.taskId || task.task_id
+    const retryCount = (task.retryCount ?? task.retry_count ?? 0) + 1
 
-    if (retryCount < MAX_RETRIES && !errorMessage.includes('HTTP 400') && !errorMessage.includes('401') && !errorMessage.includes('403')) {
-      logRun(raw, task.taskId, 'retry', `Retrying task (attempt ${retryCount}/${MAX_RETRIES}): ${errorMessage}`, null, 'warn')
+    const isNonRetryable =
+      errorMessage.includes('400') ||
+      errorMessage.includes('401') ||
+      errorMessage.includes('403') ||
+      errorMessage.includes('404') ||
+      errorMessage.includes('422') ||
+      errorMessage.toLowerCase().includes('not accept') ||
+      errorMessage.toLowerCase().includes('validation') ||
+      errorMessage.toLowerCase().includes('incorrect') ||
+      errorMessage.toLowerCase().includes('unsupported') ||
+      errorMessage.toLowerCase().includes('invalid')
+
+    if (retryCount <= MAX_RETRIES && !isNonRetryable) {
+      logRun(raw, taskId, 'retry', `Retrying task (attempt ${retryCount}/${MAX_RETRIES}): ${errorMessage}`, null, 'warn')
       raw.prepare(
         'UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
-      ).run('pending', retryCount, errorMessage, Date.now(), task.taskId)
+      ).run('pending', retryCount, errorMessage, Date.now(), taskId)
       raw.save()
-      this.emit('task:retrying', { taskId: task.taskId, retryCount, error: errorMessage })
+      this.emit('task:retrying', { taskId, retryCount, error: errorMessage })
+
+      this.coolingDown.add(taskId)
+      setTimeout(() => {
+        this.coolingDown.delete(taskId)
+        this.processQueue()
+      }, 5000 * retryCount)
     } else {
-      logRun(raw, task.taskId, 'failed', `Task failed permanently: ${errorMessage}`, null, 'error')
+      logRun(raw, taskId, 'failed', `Task failed permanently: ${errorMessage}`, null, 'error')
       raw.prepare(
         'UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
-      ).run('failed', errorMessage, Date.now(), task.taskId)
+      ).run('failed', errorMessage, Date.now(), taskId)
 
       // Delete optimistic placeholder
       try {
-        raw.prepare('DELETE FROM assets WHERE task_id = ? AND (file_path = "" OR file_path IS NULL)').run(task.taskId)
+        raw.prepare('DELETE FROM assets WHERE task_id = ? AND (file_path = "" OR file_path IS NULL)').run(taskId)
       } catch {}
       raw.save()
 
-      this.emit('task:failed', { taskId: task.taskId, error: errorMessage })
+      this.emit('task:failed', { taskId, error: errorMessage })
     }
   }
 

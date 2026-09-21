@@ -31,6 +31,7 @@ function modelName(modelId: string): string {
 export class ReplicateQueue extends EventEmitter {
   private apiClient: ReplicateApiClient
   private processing = new Set<string>()
+  private coolingDown = new Set<string>()
   private maxConcurrent = 2
 
   constructor(apiKey: string) {
@@ -49,24 +50,22 @@ export class ReplicateQueue extends EventEmitter {
     const now = Date.now()
     const wsId = getActiveWorkspaceId()
 
-    logRun(raw, taskId, 'enqueue', `Replicate task enqueued: model=${payload?.model}, hasImage=${!!payload?.imageBase64}`, undefined, 'info', wsId)
+    logRun(raw, taskId, 'enqueue', `Replicate task enqueued: model=${modelName(payload?.model)}`, undefined, 'info', wsId)
 
     raw.prepare(
-      'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'replicate', 'pending', type, JSON.stringify(payload), wsId, now, now)
+      'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, \'replicate\', ?, ?, ?, ?, ?, ?)'
+    ).run(taskId, 'pending', type, JSON.stringify(payload), wsId, now, now)
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
-    const isImage = type === 'image'
-    const isAudio = type === 'audio'
-    const assetType = isImage ? 'image' : isAudio ? 'audio' : 'video'
-    const mimeType = isImage ? 'image/png' : isAudio ? 'audio/mpeg' : 'video/mp4'
+    const assetKind = type === 'image' ? 'image' : type === 'audio' ? 'audio' : 'video'
+    const defaultMime = assetKind === 'image' ? 'image/png' : assetKind === 'audio' ? 'audio/mpeg' : 'video/mp4'
 
     raw.prepare(
       `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      assetId, assetType, '', '', `pending-${taskId}`, mimeType,
+      assetId, assetKind, '', '', `pending-${taskId}`, defaultMime,
       payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
       0, taskId, wsId, now, now
     )
@@ -80,10 +79,12 @@ export class ReplicateQueue extends EventEmitter {
   private async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
-    const pending = raw.prepare('SELECT * FROM tasks WHERE provider = ? AND status = ? ORDER BY created_at ASC').all('replicate', 'pending')
+    const pending = raw.prepare('SELECT * FROM tasks WHERE provider = \'replicate\' AND status = ? ORDER BY created_at ASC').all('pending')
     for (const task of pending) {
+      const taskId = task.taskId || task.task_id
       if (this.processing.size >= this.maxConcurrent) break
-      if (!this.processing.has(task.taskId)) this.processTask(task)
+      if (this.coolingDown.has(taskId)) continue
+      if (!this.processing.has(taskId)) this.processTask(task)
     }
   }
 
@@ -321,20 +322,36 @@ export class ReplicateQueue extends EventEmitter {
 
   private async handleError(task: any, error: Error) {
     const raw = getRawDb()
-    const retryCount = (task.retryCount || 0) + 1
+    const taskId = task.taskId || task.task_id
+    const retryCount = (task.retryCount ?? task.retry_count ?? 0) + 1
 
     raw.prepare('UPDATE assets SET file_path = ?, updated_at = ? WHERE task_id = ? AND file_path = ?')
-      .run(`__error__:${error.message}`, Date.now(), task.taskId, '')
+      .run(`__error__:${error.message}`, Date.now(), taskId, '')
 
-    if (retryCount <= MAX_RETRIES) {
+    const isNonRetryable =
+      error.message.includes('400') ||
+      error.message.includes('401') ||
+      error.message.includes('403') ||
+      error.message.includes('404') ||
+      error.message.includes('422') ||
+      error.message.toLowerCase().includes('validation') ||
+      error.message.toLowerCase().includes('not supported') ||
+      error.message.toLowerCase().includes('incorrect') ||
+      error.message.toLowerCase().includes('invalid')
+
+    if (retryCount <= MAX_RETRIES && !isNonRetryable) {
       raw.prepare('UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
-        .run('pending', retryCount, error.message, Date.now(), task.taskId)
-      this.emit('task:retry', { taskId: task.taskId, attempt: retryCount, error: error.message })
-      setTimeout(() => this.processQueue(), 5000 * retryCount)
+        .run('pending', retryCount, error.message, Date.now(), taskId)
+      this.emit('task:retry', { taskId, attempt: retryCount, error: error.message })
+      this.coolingDown.add(taskId)
+      setTimeout(() => {
+        this.coolingDown.delete(taskId)
+        this.processQueue()
+      }, 5000 * retryCount)
     } else {
       raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
-        .run('failed', error.message, Date.now(), task.taskId)
-      this.emit('task:failed', { taskId: task.taskId, error: error.message })
+        .run('failed', error.message, Date.now(), taskId)
+      this.emit('task:failed', { taskId, error: error.message })
     }
     raw.save()
   }

@@ -1,8 +1,11 @@
 import * as fs from 'fs/promises';
+import * as syncFs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { spawn, execSync } from 'child_process';
+import { getRawDb } from '../db';
+import { getActiveWorkspaceId, workspaceAssetSubDir } from './workspace-service';
 
 export interface MediaInfo {
   format: string;
@@ -39,6 +42,18 @@ export interface ThumbnailOptions {
   width?: number;
   height?: number;
   quality?: number;
+}
+
+function formatSrtTimestamp(sec: number): string {
+  const totalMs = Math.max(0, Math.floor(sec * 1000));
+  const ms = totalMs % 1000;
+  const totalSec = Math.floor(totalMs / 1000);
+  const s = totalSec % 60;
+  const totalMin = Math.floor(totalSec / 60);
+  const m = totalMin % 60;
+  const h = Math.floor(totalMin / 60);
+  const pad = (n: number, z = 2) => String(n).padStart(z, '0');
+  return `${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
 }
 
 export class FFmpegService {
@@ -376,8 +391,21 @@ constructor(ffmpegPath?: string) {
   }
 
   async assembleDramaVideo(options: {
-    videoPaths: string[];
-    outputPath: string;
+    videoPaths?: string[];
+    shots?: Array<{
+      videoPath?: string;
+      videoUrl?: string;
+      videoAssetId?: string;
+      audioPath?: string;
+      audioUrl?: string;
+      audioAssetId?: string;
+      dialogue?: string;
+      speaker?: string;
+      duration?: number;
+    }>;
+    title?: string;
+    aspectRatio?: string;
+    outputPath?: string;
     width?: number;
     height?: number;
     fps?: number;
@@ -385,42 +413,153 @@ constructor(ffmpegPath?: string) {
     bgMusicPath?: string;
     bgMusicVolume?: number;
     subtitlesSrt?: string;
-  }): Promise<string> {
-    const {
-      videoPaths,
-      outputPath,
-      width = 1080,
-      height = 1920,
-      fps = 30,
-      subtitlesSrt,
-      bgMusicPath,
-      bgMusicVolume = 0.25,
-    } = options;
+    includeSubtitles?: boolean;
+    workspaceId?: string;
+  }): Promise<{ success: boolean; outputPath: string; duration?: number; assetId?: string; error?: string }> {
+    const raw = getRawDb();
+    const resolvedShots: Array<{
+      videoPath: string;
+      dialogue?: string;
+      speaker?: string;
+      duration?: number;
+    }> = [];
 
-    if (!videoPaths || videoPaths.length === 0) {
+    const resolveLocalPath = (filePath?: string, fileUrl?: string, assetId?: string): string | undefined => {
+      if (filePath && syncFs.existsSync(filePath)) return filePath;
+      if (fileUrl && fileUrl.startsWith('file://')) {
+        const decoded = decodeURIComponent(fileUrl.replace(/^file:\/\/\/?/, '')).replace(/^\/([a-zA-Z]:)/, '$1');
+        if (syncFs.existsSync(decoded)) return decoded;
+      }
+      if (assetId) {
+        try {
+          const asset = raw.prepare('SELECT local_path FROM assets WHERE id = ?').get(assetId) as any;
+          if (asset?.local_path && syncFs.existsSync(asset.local_path)) return asset.local_path;
+        } catch {}
+      }
+      return undefined;
+    };
+
+    if (options.shots && Array.isArray(options.shots) && options.shots.length > 0) {
+      for (const s of options.shots) {
+        const vPath = resolveLocalPath(s.videoPath, s.videoUrl, s.videoAssetId);
+        if (vPath) {
+          resolvedShots.push({
+            videoPath: vPath,
+            dialogue: s.dialogue,
+            speaker: s.speaker,
+            duration: s.duration,
+          });
+        }
+      }
+    } else if (options.videoPaths && options.videoPaths.length > 0) {
+      for (const vp of options.videoPaths) {
+        const resolved = resolveLocalPath(vp);
+        if (resolved) {
+          resolvedShots.push({ videoPath: resolved });
+        }
+      }
+    }
+
+    if (resolvedShots.length === 0) {
       throw new Error('No video clips provided for assembly');
+    }
+
+    // Determine target dimensions
+    let targetWidth = options.width;
+    let targetHeight = options.height;
+
+    if (!targetWidth || !targetHeight) {
+      const ratio = options.aspectRatio || '9:16';
+      switch (ratio) {
+        case '16:9':
+          targetWidth = 1920; targetHeight = 1080; break;
+        case '9:16':
+          targetWidth = 1080; targetHeight = 1920; break;
+        case '1:1':
+          targetWidth = 1080; targetHeight = 1080; break;
+        case '4:3':
+          targetWidth = 1440; targetHeight = 1080; break;
+        case '3:4':
+          targetWidth = 1080; targetHeight = 1440; break;
+        case '21:9':
+          targetWidth = 2560; targetHeight = 1080; break;
+        default:
+          targetWidth = 1080; targetHeight = 1920; break;
+      }
+    }
+
+    const fps = options.fps || 30;
+
+    let finalOutputPath = options.outputPath;
+    if (!finalOutputPath) {
+      const safeTitle = (options.title || 'microserie').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_') || 'microserie';
+      const wsId = options.workspaceId || getActiveWorkspaceId();
+      const videosDir = workspaceAssetSubDir('video', wsId);
+      await fs.mkdir(videosDir, { recursive: true });
+      finalOutputPath = path.join(videosDir, `${safeTitle}_assembled_${Date.now()}.mp4`).replace(/\\/g, '/');
     }
 
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openfield-drama-'));
 
     try {
-      // 1. Normalize each video clip to consistent resolution, aspect ratio, fps & audio
+      // 1. Normalize each video clip
       const normalizedPaths: string[] = [];
-      for (let i = 0; i < videoPaths.length; i++) {
-        const inputClip = videoPaths[i];
+      let totalTime = 0;
+      const srtEntries: string[] = [];
+      let srtIndex = 1;
+
+      for (let i = 0; i < resolvedShots.length; i++) {
+        const shot = resolvedShots[i];
         const normalizedClip = path.join(tmpDir, `norm_${i}_${crypto.randomUUID().slice(0, 8)}.mp4`);
-        
+        const info = await this.probe(shot.videoPath).catch(() => null);
+        const clipDuration = info?.duration || shot.duration || 5;
+        const hasVideoAudio = info?.streams?.some(s => s.codecType === 'audio') ?? false;
+
+        // Collect subtitle
+        if (options.includeSubtitles && shot.dialogue && shot.dialogue.trim()) {
+          const startTime = formatSrtTimestamp(totalTime + 0.1);
+          const endTime = formatSrtTimestamp(totalTime + Math.max(0.5, clipDuration - 0.1));
+          const line = shot.speaker ? `${shot.speaker}: ${shot.dialogue.trim()}` : shot.dialogue.trim();
+          srtEntries.push(`${srtIndex++}\n${startTime} --> ${endTime}\n${line}\n`);
+        }
+        totalTime += clipDuration;
+
+        const vf = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}`;
+
         await new Promise<void>((resolve, reject) => {
-          const vf = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}`;
-          const args = [
-            '-i', inputClip,
-            '-vf', vf,
-            '-c:v', 'libx264',
-            '-preset', 'fast',
-            '-pix_fmt', 'yuv420p',
-            '-an', // remove audio from individual silent clips for clean audio mixing
-            '-y', normalizedClip,
-          ];
+          let args: string[];
+
+          if (hasVideoAudio) {
+            // Keep native video audio
+            args = [
+              '-i', shot.videoPath,
+              '-filter_complex', `[0:v]${vf}[v];[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`,
+              '-map', '[v]',
+              '-map', '[a]',
+              '-c:v', 'libx264',
+              '-preset', 'fast',
+              '-pix_fmt', 'yuv420p',
+              '-c:a', 'aac',
+              '-b:a', '192k',
+              '-y', normalizedClip,
+            ];
+          } else {
+            // Silent audio track fallback so concat stream matches
+            args = [
+              '-i', shot.videoPath,
+              '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+              '-filter_complex', `[0:v]${vf}[v]`,
+              '-map', '[v]',
+              '-map', '1:a',
+              '-c:v', 'libx264',
+              '-preset', 'fast',
+              '-pix_fmt', 'yuv420p',
+              '-c:a', 'aac',
+              '-b:a', '192k',
+              '-shortest',
+              '-y', normalizedClip,
+            ];
+          }
 
           const proc = spawn(this.ffmpegPath, args);
           let stderr = '';
@@ -435,7 +574,7 @@ constructor(ffmpegPath?: string) {
         normalizedPaths.push(normalizedClip);
       }
 
-      // 2. Concat normalized video clips
+      // 2. Concat normalized clips
       const concatVideoPath = path.join(tmpDir, `concat_${crypto.randomUUID().slice(0, 8)}.mp4`);
       const fileListPath = path.join(tmpDir, 'concat_list.txt');
       const concatContent = normalizedPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
@@ -459,51 +598,46 @@ constructor(ffmpegPath?: string) {
         proc.on('error', reject);
       });
 
-      // 3. Final pass: add background music or subtitles if provided, otherwise export
       let currentVideo = concatVideoPath;
 
-      if (bgMusicPath) {
+      // 3. Background music if provided
+      if (options.bgMusicPath && syncFs.existsSync(options.bgMusicPath)) {
         const audioMergedPath = path.join(tmpDir, `audio_${crypto.randomUUID().slice(0, 8)}.mp4`);
-        await new Promise<void>((resolve, reject) => {
+        await new Promise<void>((resolve) => {
+          const bgVol = options.bgMusicVolume ?? 0.25;
           const args = [
             '-i', currentVideo,
             '-stream_loop', '-1',
-            '-i', bgMusicPath,
-            '-filter_complex', `[1:a]volume=${bgMusicVolume}[bg]`,
+            '-i', options.bgMusicPath!,
+            '-filter_complex', `[0:a][1:a]amix=inputs=2:duration=first:weights=1.0 ${bgVol}[a]`,
             '-map', '0:v',
-            '-map', '[bg]',
+            '-map', '[a]',
             '-c:v', 'copy',
             '-c:a', 'aac',
-            '-shortest',
             '-y', audioMergedPath,
           ];
           const proc = spawn(this.ffmpegPath, args);
           let stderr = '';
           proc.stderr.on('data', (d) => { stderr += d.toString(); });
           proc.on('close', (code) => {
-            if (code === 0) {
-              currentVideo = audioMergedPath;
-              resolve();
-            } else {
-              // Non-fatal: if bg audio fails, continue without music
-              console.warn('[FFmpeg] BG music merge warning:', stderr);
-              resolve();
-            }
+            if (code === 0) currentVideo = audioMergedPath;
+            else console.warn('[FFmpeg] BG music merge warning:', stderr);
+            resolve();
           });
           proc.on('error', () => resolve());
         });
       }
 
-      // 4. Subtitles pass if provided
-      if (subtitlesSrt && subtitlesSrt.trim()) {
+      // 4. Subtitles burning
+      const srtText = options.subtitlesSrt || (srtEntries.length > 0 ? srtEntries.join('\n') : null);
+      if (srtText && srtText.trim()) {
         const srtPath = path.join(tmpDir, 'subtitles.srt');
-        await fs.writeFile(srtPath, subtitlesSrt, 'utf-8');
+        await fs.writeFile(srtPath, srtText, 'utf-8');
         const subtitledPath = path.join(tmpDir, `subtitled_${crypto.randomUUID().slice(0, 8)}.mp4`);
-        
+
         await new Promise<void>((resolve) => {
-          // Format escaped path for ffmpeg subtitles filter on windows
           const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-          const vf = `subtitles='${escapedSrt}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=2,Shadow=1,MarginV=35'`;
+          const vf = `subtitles='${escapedSrt}':force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=2,Shadow=1,MarginV=45'`;
           const args = [
             '-i', currentVideo,
             '-vf', vf,
@@ -516,22 +650,38 @@ constructor(ffmpegPath?: string) {
           let stderr = '';
           proc.stderr.on('data', (d) => { stderr += d.toString(); });
           proc.on('close', (code) => {
-            if (code === 0) {
-              currentVideo = subtitledPath;
-            } else {
-              console.warn('[FFmpeg] Subtitles burn warning:', stderr);
-            }
+            if (code === 0) currentVideo = subtitledPath;
+            else console.warn('[FFmpeg] Subtitles burn warning:', stderr);
             resolve();
           });
           proc.on('error', () => resolve());
         });
       }
 
-      // 5. Copy to final output path
-      await fs.mkdir(path.dirname(outputPath), { recursive: true });
-      await fs.copyFile(currentVideo, outputPath);
+      // 5. Final output
+      await fs.mkdir(path.dirname(finalOutputPath), { recursive: true });
+      await fs.copyFile(currentVideo, finalOutputPath);
 
-      return outputPath;
+      // 6. Register asset
+      const assetId = crypto.randomUUID();
+      const wsId = options.workspaceId || getActiveWorkspaceId();
+      const fileName = path.basename(finalOutputPath);
+      try {
+        raw.prepare(`INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, workspace_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          assetId, 'video', `assets/videos/${fileName}`, finalOutputPath, fileName, 'video/mp4',
+          'ffmpeg-assembly', options.title || '', JSON.stringify({ shotCount: resolvedShots.length, duration: totalTime, aspectRatio: options.aspectRatio }),
+          0, wsId, Date.now(), Date.now()
+        );
+      } catch {}
+
+      return {
+        success: true,
+        outputPath: finalOutputPath,
+        duration: totalTime,
+        assetId,
+      };
     } finally {
       this.cleanupTemp(tmpDir).catch(() => {});
     }

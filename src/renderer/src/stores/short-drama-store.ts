@@ -2575,7 +2575,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
 
     try {
       const api = (window as any).electronAPI
-      const validShots = state.shots.filter((s) => s.videoLocalPath)
+      const validShots = state.shots.filter((s) => s.videoLocalPath || s.videoUrl || s.videoAssetId)
       if (validShots.length === 0) {
         throw new Error('No hay videos generados listos para ensamblar.')
       }
@@ -2585,8 +2585,9 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
       }
 
       const shotsData = validShots.map((s) => ({
-        videoPath: s.videoLocalPath!,
-        audioPath: s.audioLocalPath,
+        videoPath: s.videoLocalPath,
+        videoUrl: s.videoUrl,
+        videoAssetId: s.videoAssetId,
         dialogue: s.dialogueText,
         speaker: s.dialogueSpeaker,
         duration: s.estimatedDuration,

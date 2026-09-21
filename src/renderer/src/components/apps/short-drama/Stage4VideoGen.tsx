@@ -30,23 +30,13 @@ import { GenerationHistoryModal } from './GenerationHistoryModal'
 import { srcUrl } from '../../../services/file-url'
 import { ModelPricing, cleanModelName } from '../../../lib/models'
 
-function getAspectRatioClass(ratio?: string): string {
-  switch (ratio) {
-    case '9:16':
-      return 'aspect-[9/16]'
-    case '16:9':
-      return 'aspect-video'
-    case '1:1':
-      return 'aspect-square'
-    case '4:3':
-      return 'aspect-[4/3]'
-    case '3:4':
-      return 'aspect-[3/4]'
-    case '21:9':
-      return 'aspect-[21/9]'
-    default:
-      return ratio ? `aspect-[${ratio.replace(':', '/')}]` : 'aspect-[9/16]'
+function getAspectRatioStyle(ratio?: string): React.CSSProperties {
+  if (!ratio) return { aspectRatio: '9 / 16' }
+  const parts = ratio.split(':')
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    return { aspectRatio: `${parts[0]} / ${parts[1]}` }
   }
+  return { aspectRatio: '9 / 16' }
 }
 
 export function Stage4VideoGen() {
@@ -520,7 +510,10 @@ function VideoShotCard({
       </div>
 
       {/* ─── MEDIA PREVIEW AREA (PURE VISUALIZATION) ─── */}
-      <div className={`relative ${getAspectRatioClass(aspectRatio)} bg-[#07080c] overflow-hidden flex items-center justify-center border-b border-white/5 transition-all duration-300`}>
+      <div
+        className="relative bg-[#07080c] overflow-hidden flex items-center justify-center border-b border-white/5 transition-all duration-300 w-full"
+        style={getAspectRatioStyle(aspectRatio)}
+      >
         {isCompleted ? (
           <video
             src={srcUrl(shot.videoLocalPath || shot.videoUrl)}

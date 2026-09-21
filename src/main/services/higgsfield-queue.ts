@@ -32,6 +32,7 @@ function logRun(raw: any, taskId: string, step: string, message: string, payload
 export class HiggsfieldQueue extends EventEmitter {
   private apiClient: HiggsfieldApiClient
   private processing = new Set<string>()
+  private coolingDown = new Set<string>()
   private cancelUrls = new Map<string, string>()
   private maxConcurrent = 2
 
@@ -79,8 +80,10 @@ export class HiggsfieldQueue extends EventEmitter {
     const raw = getRawDb()
     const pending = raw.prepare('SELECT * FROM tasks WHERE provider = ? AND status = ? ORDER BY created_at ASC').all('higgsfield', 'pending')
     for (const task of pending) {
+      const taskId = task.taskId || task.task_id
       if (this.processing.size >= this.maxConcurrent) break
-      if (!this.processing.has(task.taskId)) this.processTask(task)
+      if (this.coolingDown.has(taskId)) continue
+      if (!this.processing.has(taskId)) this.processTask(task)
     }
   }
 
@@ -369,26 +372,48 @@ export class HiggsfieldQueue extends EventEmitter {
 
   private async handleFailure(task: any, errorMessage: string) {
     const raw = getRawDb()
-    const currentRetries = task.retry_count || 0
+    const taskId = task.taskId || task.task_id
+    const currentRetries = (task.retryCount ?? task.retry_count ?? 0)
+    const retryCount = currentRetries + 1
 
-    if (currentRetries < MAX_RETRIES && !errorMessage.includes('NSFW') && !errorMessage.includes('canceled') && !errorMessage.includes('API key')) {
-      logRun(raw, task.taskId, 'retry', `Retrying task (${currentRetries + 1}/${MAX_RETRIES}): ${errorMessage}`, null, 'warn')
+    const isNonRetryable =
+      errorMessage.includes('400') ||
+      errorMessage.includes('401') ||
+      errorMessage.includes('403') ||
+      errorMessage.includes('404') ||
+      errorMessage.includes('422') ||
+      errorMessage.includes('NSFW') ||
+      errorMessage.includes('canceled') ||
+      errorMessage.includes('API key') ||
+      errorMessage.toLowerCase().includes('validation') ||
+      errorMessage.toLowerCase().includes('incorrect') ||
+      errorMessage.toLowerCase().includes('unsupported')
+
+    if (currentRetries < MAX_RETRIES && !isNonRetryable) {
+      logRun(raw, taskId, 'retry', `Retrying task (${retryCount}/${MAX_RETRIES}): ${errorMessage}`, null, 'warn')
       raw.prepare(
         'UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
-      ).run('pending', currentRetries + 1, errorMessage, Date.now(), task.taskId)
+      ).run('pending', retryCount, errorMessage, Date.now(), taskId)
+      raw.save()
+
+      this.coolingDown.add(taskId)
+      setTimeout(() => {
+        this.coolingDown.delete(taskId)
+        this.processQueue()
+      }, 5000 * retryCount)
     } else {
-      logRun(raw, task.taskId, 'failed', `Higgsfield task marked as failed: ${errorMessage}`, null, 'error')
+      logRun(raw, taskId, 'failed', `Higgsfield task marked as failed: ${errorMessage}`, null, 'error')
       raw.prepare(
         'UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
-      ).run('failed', errorMessage, Date.now(), task.taskId)
+      ).run('failed', errorMessage, Date.now(), taskId)
 
       // Delete optimistic placeholder
       try {
-        raw.prepare('DELETE FROM assets WHERE task_id = ? AND (file_path = "" OR file_path IS NULL)').run(task.taskId)
+        raw.prepare('DELETE FROM assets WHERE task_id = ? AND (file_path = "" OR file_path IS NULL)').run(taskId)
       } catch {}
       raw.save()
 
-      this.emit('task:failed', { taskId: task.taskId, error: errorMessage })
+      this.emit('task:failed', { taskId, error: errorMessage })
     }
   }
 

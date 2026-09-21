@@ -1,4 +1,7 @@
-import type { MachgenTaskInput, MachgenSubmitResponse, MachgenTaskStatusResponse, MachgenAccountResponse } from './types'
+import * as fs from 'fs/promises'
+import * as syncFs from 'fs'
+import * as path from 'path'
+import type { MachgenTaskInput, MachgenSubmitResponse, MachgenTaskStatusResponse, MachgenAccountResponse, MachgenUploadResponse } from './types'
 
 export class MachgenApiClient {
   private apiKey: string
@@ -58,6 +61,76 @@ export class MachgenApiClient {
 
   async getTaskStatus(taskId: string): Promise<MachgenTaskStatusResponse> {
     return this.request<MachgenTaskStatusResponse>(`/api/v0/tasks/${taskId}`)
+  }
+
+  async uploadSource(source: Buffer | Uint8Array | string, defaultMime = 'image/png'): Promise<string> {
+    if (!source) throw new Error('MachGen uploadSource: no source provided')
+
+    // If already a remote URL or @input reference, return as is
+    if (typeof source === 'string') {
+      const trimmed = source.trim()
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('@input/')) {
+        return trimmed
+      }
+    }
+
+    let buffer: Buffer
+    let filename = 'upload'
+    let mimeType = defaultMime
+
+    if (Buffer.isBuffer(source)) {
+      buffer = source
+    } else if (source instanceof Uint8Array) {
+      buffer = Buffer.from(source)
+    } else if (typeof source === 'string') {
+      const trimmed = source.trim()
+      if (trimmed.startsWith('file://')) {
+        const filePath = decodeURIComponent(trimmed.replace(/^file:\/\/\/?/, '')).replace(/^\/([a-zA-Z]:)/, '$1')
+        buffer = await fs.readFile(filePath)
+        filename = path.basename(filePath)
+      } else if (syncFs.existsSync(trimmed) && syncFs.statSync(trimmed).isFile()) {
+        buffer = await fs.readFile(trimmed)
+        filename = path.basename(trimmed)
+      } else if (trimmed.startsWith('data:')) {
+        const match = trimmed.match(/^data:([^;]+);base64,(.+)$/s)
+        if (match) {
+          mimeType = match[1]
+          buffer = Buffer.from(match[2], 'base64')
+        } else {
+          buffer = Buffer.from(trimmed, 'base64')
+        }
+      } else {
+        // Raw base64
+        buffer = Buffer.from(trimmed, 'base64')
+      }
+    } else {
+      throw new Error('MachGen uploadSource: unsupported source type')
+    }
+
+    if (filename === 'upload') {
+      const ext = mimeType.includes('png') ? '.png'
+        : mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg'
+        : mimeType.includes('webp') ? '.webp'
+        : mimeType.includes('mp4') ? '.mp4'
+        : mimeType.includes('mpeg') || mimeType.includes('mp3') ? '.mp3'
+        : '.bin'
+      filename = `source_${Date.now()}${ext}`
+    }
+
+    const formData = new FormData()
+    const blob = new Blob([new Uint8Array(buffer)], { type: mimeType })
+    formData.append('file', blob, filename)
+
+    const res = await this.request<MachgenUploadResponse>('/api/v0/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!res?.artifact_path) {
+      throw new Error('MachGen upload succeeded but returned no artifact_path')
+    }
+
+    return `@input/${res.artifact_path}`
   }
 
   async getAccount(): Promise<MachgenAccountResponse> {

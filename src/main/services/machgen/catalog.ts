@@ -96,15 +96,15 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsR2V: true,
     supportsUpscale: true, // Accepts 768p outputs, returns 2K
     supportsVideoRef: true,
-    supportsAudioRef: true,
-    allowedHeights: [480, 768, 1440],
+    supportsAudioRef: false,
+    allowedHeights: [480, 768, 1080],
     allowedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'],
     allowedDurations: [5, 6, 8, 10, 12, 15],
     defaultFps: 24,
     prices: [
       { resolution: '480p', height: 480, costPerSec: 0.035 },
       { resolution: '768p', height: 768, costPerSec: 0.04 },
-      { resolution: '1440p', height: 1440, costPerSec: 0.10 },
+      { resolution: '1080p', height: 1080, costPerSec: 0.08 },
     ],
   },
   {
@@ -119,15 +119,15 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsR2V: true,
     supportsUpscale: true,
     supportsVideoRef: true,
-    supportsAudioRef: true,
-    allowedHeights: [480, 768, 1440],
+    supportsAudioRef: false,
+    allowedHeights: [480, 768, 1080],
     allowedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'],
     allowedDurations: [5, 6, 8, 10, 12, 15],
     defaultFps: 24,
     prices: [
       { resolution: '480p', height: 480, costPerSec: 0.015 },
       { resolution: '768p', height: 768, costPerSec: 0.020 },
-      { resolution: '1440p', height: 1440, costPerSec: 0.050 },
+      { resolution: '1080p', height: 1080, costPerSec: 0.040 },
     ],
   },
   {

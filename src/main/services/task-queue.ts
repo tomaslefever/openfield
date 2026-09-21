@@ -141,6 +141,7 @@ function logRun(raw: any, taskId: string, step: string, message: string, payload
 export class TaskQueue extends EventEmitter {
   private apiClient: OpenfieldApiClient
   private processing = new Set<string>()
+  private coolingDown = new Set<string>()
   private maxConcurrent = 3
 
   constructor(apiKey: string) {
@@ -163,7 +164,7 @@ export class TaskQueue extends EventEmitter {
     try {
       const am = getAssetManager()
       if (enrichedPayload.imageBase64 && typeof enrichedPayload.imageBase64 === 'string' && enrichedPayload.imageBase64.length > 100) {
-        const r = await am.importBase64(enrichedPayload.imageBase64, enrichedPayload.imageMime || 'image/png', 'input.png', { modelUsed: 'ref', workspaceId: wsId })
+        const r = await am.importBase64(enrichedPayload.imageBase64, enrichedPayload.imageMime || 'image/png', 'input_image.png', { modelUsed: 'ref', workspaceId: wsId })
         enrichedPayload.imageAssetId = r.id
       }
       if (enrichedPayload.imageRefs && Array.isArray(enrichedPayload.imageRefs)) {
@@ -217,21 +218,24 @@ export class TaskQueue extends EventEmitter {
     const raw = getRawDb()
     const pending = raw.prepare('SELECT * FROM tasks WHERE provider = \'openfield\' AND status = ? ORDER BY created_at ASC').all('pending')
     for (const task of pending) {
+      const taskId = task.taskId || task.task_id
       if (this.processing.size >= this.maxConcurrent) break
-      if (!this.processing.has(task.taskId)) this.processTask(task)
+      if (this.coolingDown.has(taskId)) continue
+      if (!this.processing.has(taskId)) this.processTask(task)
     }
   }
 
   private async processTask(task: any) {
-    this.processing.add(task.taskId)
+    const taskId = task.taskId || task.task_id
+    this.processing.add(taskId)
     const raw = getRawDb()
 
-    logRun(raw, task.taskId, 'processing', 'Task started processing')
+    logRun(raw, taskId, 'processing', 'Task started processing')
 
     raw.prepare('UPDATE tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
-      .run('processing', Date.now(), Date.now(), task.taskId)
+      .run('processing', Date.now(), Date.now(), taskId)
 
-    this.emit('task:started', { taskId: task.taskId })
+    this.emit('task:started', { taskId })
 
     try {
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : task.payload
@@ -449,21 +453,37 @@ export class TaskQueue extends EventEmitter {
 
   private async handleError(task: any, error: Error) {
     const raw = getRawDb()
-    const retryCount = (task.retryCount || 0) + 1
+    const taskId = task.taskId || task.task_id
+    const retryCount = (task.retryCount ?? task.retry_count ?? 0) + 1
 
     // Mark placeholder asset as errored
     raw.prepare('UPDATE assets SET file_path = ?, updated_at = ? WHERE task_id = ? AND file_path = ?')
-      .run(`__error__:${error.message}`, Date.now(), task.taskId, '')
+      .run(`__error__:${error.message}`, Date.now(), taskId, '')
 
-    if (retryCount <= 3) {
+    const isNonRetryable =
+      error.message.includes('400') ||
+      error.message.includes('401') ||
+      error.message.includes('403') ||
+      error.message.includes('404') ||
+      error.message.includes('422') ||
+      error.message.toLowerCase().includes('validation') ||
+      error.message.toLowerCase().includes('not supported') ||
+      error.message.toLowerCase().includes('incorrect') ||
+      error.message.toLowerCase().includes('invalid')
+
+    if (retryCount <= 3 && !isNonRetryable) {
       raw.prepare('UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
-        .run('pending', retryCount, error.message, Date.now(), task.taskId)
-      this.emit('task:retry', { taskId: task.taskId, attempt: retryCount, error: error.message })
-      setTimeout(() => this.processQueue(), 5000 * retryCount)
+        .run('pending', retryCount, error.message, Date.now(), taskId)
+      this.emit('task:retry', { taskId, attempt: retryCount, error: error.message })
+      this.coolingDown.add(taskId)
+      setTimeout(() => {
+        this.coolingDown.delete(taskId)
+        this.processQueue()
+      }, 5000 * retryCount)
     } else {
       raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
-        .run('failed', error.message, Date.now(), task.taskId)
-      this.emit('task:failed', { taskId: task.taskId, error: error.message })
+        .run('failed', error.message, Date.now(), taskId)
+      this.emit('task:failed', { taskId, error: error.message })
     }
     raw.save()
   }

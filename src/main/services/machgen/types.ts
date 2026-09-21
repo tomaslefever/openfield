@@ -92,6 +92,13 @@ export interface MachgenSubmitResponse {
   [key: string]: any
 }
 
+export interface MachgenUploadResponse {
+  artifact_path: string
+  duration_secs?: number | null
+  fps?: number | null
+  frame_count?: number | null
+}
+
 export interface MachgenAccountResponse {
   account_id: string
   balance_micros: number

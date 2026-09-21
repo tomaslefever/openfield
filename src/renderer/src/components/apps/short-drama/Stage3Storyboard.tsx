@@ -44,23 +44,13 @@ import { GenerationHistoryModal } from './GenerationHistoryModal'
 import { srcUrl } from '../../../services/file-url'
 import { copyText } from '../../../lib/clipboard'
 
-function getAspectRatioClass(ratio?: string): string {
-  switch (ratio) {
-    case '9:16':
-      return 'aspect-[9/16]'
-    case '16:9':
-      return 'aspect-video'
-    case '1:1':
-      return 'aspect-square'
-    case '4:3':
-      return 'aspect-[4/3]'
-    case '3:4':
-      return 'aspect-[3/4]'
-    case '21:9':
-      return 'aspect-[21/9]'
-    default:
-      return 'aspect-[9/16]'
+function getAspectRatioStyle(ratio?: string): React.CSSProperties {
+  if (!ratio) return { aspectRatio: '9 / 16' }
+  const parts = ratio.split(':')
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    return { aspectRatio: `${parts[0]} / ${parts[1]}` }
   }
+  return { aspectRatio: '9 / 16' }
 }
 
 export function Stage3Storyboard() {
@@ -989,14 +979,13 @@ function StoryboardShotCard({
           }
         }}
         className={`w-full bg-[#08090d] relative group flex items-center justify-center cursor-pointer transition-all ${
-          getAspectRatioClass(aspectRatio)
-        } ${
           dragOverShotId === shot.id
             ? 'ring-2 ring-accent-500 bg-accent-500/10'
             : ''
         } ${
           shot.keyframeGenerating ? 'animate-pulse' : ''
         }`}
+        style={getAspectRatioStyle(aspectRatio)}
       >
         {shot.keyframeUrl ? (
           <img
