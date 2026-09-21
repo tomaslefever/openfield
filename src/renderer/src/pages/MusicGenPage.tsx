@@ -11,7 +11,9 @@ import { TagEditor } from '../components/ui/TagEditor'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
-import { getAudioKind, MODEL_NAMES, KIND_ICON } from '../lib/audio'
+import { getAudioKind, getAudioProvider, MODEL_NAMES, KIND_ICON, formatAudioModelLabel } from '../lib/audio'
+import { ProviderLogo } from '../components/icons/ProviderLogos'
+import type { ProviderId } from '../lib/models'
 
 function Waveform({ playing }: { playing: boolean }) {
   const bars = [4, 6, 5, 9, 6, 11, 7, 12, 6, 9, 5, 7]
@@ -49,6 +51,7 @@ const AssetCard = memo(function AssetCard({
   const isError = asset.filePath?.startsWith('__error__')
   const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
   const kind = getAudioKind(asset)
+  const provider = getAudioProvider(asset)
   const Icon = kind ? KIND_ICON[kind] : AudioLines
 
   return (
@@ -110,6 +113,11 @@ const AssetCard = memo(function AssetCard({
         {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
       </button>
       <div className="absolute bottom-2 right-2 flex items-center gap-1">
+        {provider && (
+          <div className="p-1 bg-black/60 rounded-md flex items-center" title={`Provider: ${provider}`}>
+            <ProviderLogo provider={provider} size={11} />
+          </div>
+        )}
         {kind && <span className="px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-surface-300 font-medium uppercase tracking-wide">{kind}</span>}
         {asset.creditsUsed > 0 && <AssetBadgeCompat credits={asset.creditsUsed} />}
       </div>
@@ -126,6 +134,15 @@ function AssetBadgeCompat({ credits }: { credits: number }) {
   )
 }
 
+const PROVIDER_FILTERS: { id: string; label: string; provider?: ProviderId }[] = [
+  { id: 'all', label: 'Todos' },
+  { id: 'elevenlabs', label: 'ElevenLabs', provider: 'elevenlabs' },
+  { id: 'kie', label: 'KIE.ai', provider: 'kie' },
+  { id: 'fal', label: 'fal.ai', provider: 'fal' },
+  { id: 'replicate', label: 'Replicate', provider: 'replicate' },
+  { id: 'machgen', label: 'MachGen', provider: 'machgen' },
+]
+
 export function MusicGenPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
@@ -135,6 +152,7 @@ export function MusicGenPage() {
   const [showBulkDelete, setShowBulkDelete] = useState(false)
   const [search, setSearch] = useState('')
   const [showFavorites, setShowFavorites] = useState(false)
+  const [selectedProvider, setSelectedProvider] = useState<string>('all')
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [audioVersion, setAudioVersion] = useState(0)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'done'>('idle')
@@ -167,7 +185,16 @@ export function MusicGenPage() {
     }, 180)
   }
 
-  const musicAssets = useMemo(() => assets.filter((a: any) => getAudioKind(a) === 'music'), [assets])
+  const musicAssets = useMemo(() => {
+    return assets.filter((a: any) => {
+      if (getAudioKind(a) !== 'music') return false
+      if (selectedProvider !== 'all') {
+        const prov = getAudioProvider(a)
+        if (prov !== selectedProvider) return false
+      }
+      return true
+    })
+  }, [assets, selectedProvider])
 
   useEffect(() => {
     setSelectedAsset((prev: any) => {
@@ -204,6 +231,12 @@ export function MusicGenPage() {
     if (!api) return
     const unsubComplete = api.on('openfield:task:completed', () => reset())
     const unsubFailed = api.on('openfield:task:failed', () => reset())
+    const unsubFalComplete = api.on('fal:task:completed', () => reset())
+    const unsubFalFailed = api.on('fal:task:failed', () => reset())
+    const unsubRepComplete = api.on('replicate:task:completed', () => reset())
+    const unsubRepFailed = api.on('replicate:task:failed', () => reset())
+    const unsubMachComplete = api.on('machgen:task:completed', () => reset())
+    const unsubMachFailed = api.on('machgen:task:failed', () => reset())
     const unsubProgress = api.on('local:audio:progress', (p: any) => {
       if (p?.status === 'completed') {
         setAudioStatus(null)
@@ -216,7 +249,18 @@ export function MusicGenPage() {
       setAudioStatus(null)
       setAudioError(e?.message || 'Error generando audio')
     })
-    return () => { unsubComplete?.(); unsubFailed?.(); unsubProgress?.(); unsubError?.() }
+    return () => {
+      unsubComplete?.()
+      unsubFailed?.()
+      unsubFalComplete?.()
+      unsubFalFailed?.()
+      unsubRepComplete?.()
+      unsubRepFailed?.()
+      unsubMachComplete?.()
+      unsubMachFailed?.()
+      unsubProgress?.()
+      unsubError?.()
+    }
   }, [reset])
 
   useEffect(() => {
@@ -274,15 +318,31 @@ export function MusicGenPage() {
     try {
       const api = (window as any).electronAPI
       setAudioError('')
+      const provider = params.provider
+      const model = params.model || ''
+      const isElevenLabs = provider === 'elevenlabs' || params.engine === 'elevenlabs' || model.startsWith('elevenlabs')
+      const isFal = provider === 'fal' || model.startsWith('fal-ai/') || model.includes('cassette-ai') || model.includes('minimax/music') || model.includes('sonilo')
+      const isReplicate = provider === 'replicate' || model.startsWith('replicate/') || model.includes('stable-audio-2.5') || model.includes('musicgen') || model.includes('lyria')
+      const isMachgen = provider === 'machgen'
+
       if (params.local && params.voiceId) {
         setAudioStatus({ status: 'starting', message: 'Iniciando...', pct: 0 })
         await api?.local.audioGenerate({ voiceId: params.voiceId, prompt: params.prompt, engine: params.engine, speed: params.speed })
-      } else if (params.engine === 'elevenlabs' && params.kind === 'music') {
+      } else if (isElevenLabs && (params.kind === 'music' || !params.voiceId)) {
         setAudioStatus({ status: 'starting', message: 'Generando música con ElevenLabs...', pct: 0 })
-        await api?.elevenlabs.music({ prompt: params.prompt, duration: params.duration })
-      } else if (params.engine === 'elevenlabs' && params.voiceId) {
+        await api?.elevenlabs.music({ prompt: params.prompt, duration: params.duration, modelId: params.modelId })
+      } else if (isElevenLabs && params.voiceId) {
         setAudioStatus({ status: 'starting', message: 'Iniciando ElevenLabs...', pct: 0 })
         await api?.elevenlabs.generate({ voiceId: params.voiceId, prompt: params.prompt, speed: params.speed })
+      } else if (isFal) {
+        setAudioStatus({ status: 'starting', message: 'Enviando a fal.ai...', pct: 0 })
+        await api?.fal.generate({ ...params, type: 'audio' })
+      } else if (isReplicate) {
+        setAudioStatus({ status: 'starting', message: 'Enviando a Replicate...', pct: 0 })
+        await api?.replicate.generate({ ...params, type: 'audio' })
+      } else if (isMachgen) {
+        setAudioStatus({ status: 'starting', message: 'Enviando a MachGen...', pct: 0 })
+        await api?.machgen.generate({ ...params, type: 'audio' })
       } else {
         await api?.openfield.generateAudio(params)
       }
@@ -370,7 +430,26 @@ export function MusicGenPage() {
     <div className="flex flex-col h-full relative">
       <div className="flex-1 overflow-y-auto p-4 pb-64">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <div className="flex items-center gap-1 bg-surface-900/60 p-1 rounded-lg border border-surface-800">
+              {PROVIDER_FILTERS.map(f => {
+                const isSelected = selectedProvider === f.id
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() => setSelectedProvider(f.id)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                      isSelected
+                        ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
+                        : 'text-surface-400 hover:text-surface-200 border border-transparent hover:bg-surface-800/50'
+                    }`}
+                  >
+                    {f.provider && <ProviderLogo provider={f.provider} size={12} />}
+                    <span>{f.label}</span>
+                  </button>
+                )
+              })}
+            </div>
             <span className="text-[10px] text-surface-600 ml-auto flex-shrink-0">{musicAssets.length} audios</span>
             <div className="relative w-48 flex-shrink-0">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-500" />
@@ -577,7 +656,14 @@ export function MusicGenPage() {
               </div>
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Model</p>
-                <p className="text-sm text-surface-200">{isLocalVoice ? localVoiceLabel(modelUsed) : (MODEL_NAMES[modelUsed] || modelUsed || '—')}</p>
+                <p className="text-sm text-surface-200">{formatAudioModelLabel(modelUsed)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Provider</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <ProviderLogo provider={getAudioProvider(selectedAsset)} size={14} />
+                  <span className="text-sm text-surface-200 capitalize">{getAudioProvider(selectedAsset) || '—'}</span>
+                </div>
               </div>
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Kind</p>

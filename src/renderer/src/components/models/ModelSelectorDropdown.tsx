@@ -7,6 +7,7 @@ import {
   AUDIO_MODELS,
   LLM_MODELS,
   unitPrice,
+  cleanModelName,
 } from '../../lib/models'
 import { Selector } from '../ui/Selector'
 import { SelectorOption } from '../ui/SelectorOption'
@@ -116,61 +117,13 @@ export function ModelSelectorDropdown({
     onSelect(m, primaryId)
   }
 
-  const renderProviderBadge = (m: ModelPricing) => {
-    const p = getProviderForModel(m)
-    const badgeConfigs: Record<string, { label: string; className: string }> = {
-      replicate: {
-        label: 'Replicate',
-        className: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
-      },
-      fal: {
-        label: 'FAL',
-        className: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-      },
-      machgen: {
-        label: 'MachGen',
-        className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-      },
-      higgsfield: {
-        label: 'Higgsfield',
-        className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-      },
-      elevenlabs: {
-        label: 'ElevenLabs',
-        className: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-      },
-      local: {
-        label: 'LOCAL',
-        className: 'bg-green-500/15 text-green-300 border-green-500/30',
-      },
-      kie: {
-        label: 'KIE',
-        className: 'bg-accent-500/15 text-accent-300 border-accent-500/30',
-      },
-    }
-
-    const cfg = badgeConfigs[p] || badgeConfigs.kie
-
-    return (
-      <span
-        className={cn(
-          'text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider flex items-center gap-1 shrink-0',
-          cfg.className
-        )}
-      >
-        <ProviderLogo provider={p} size={10} />
-        <span>{cfg.label}</span>
-      </span>
-    )
-  }
-
   return (
     <Selector<ModelPricing>
       className={className}
       groups={groups}
       value={selectedModel ? getModelId(selectedModel) : ''}
       getOptionValue={getModelId}
-      getOptionLabel={(m) => m.name}
+      getOptionLabel={(m) => cleanModelName(m.name)}
       onChange={handleSelectModel}
       disabled={disabled}
       dropUp={dropUp}
@@ -200,17 +153,14 @@ export function ModelSelectorDropdown({
               <ProviderLogo provider={getProviderForModel(selectedModel)} size={compact ? 13 : 14} />
             </span>
             <span className="font-medium truncate max-w-[140px] text-surface-100">
-              {selectedModel?.name || (allModels.length === 0 ? 'Sin proveedor' : 'Seleccionar Modelo')}
+              {cleanModelName(selectedModel?.name) || (allModels.length === 0 ? 'Sin proveedor' : 'Seleccionar Modelo')}
             </span>
           </div>
 
-          {/* Provider Badge */}
-          {selectedModel && renderProviderBadge(selectedModel)}
-
-          {/* Cost display */}
+          {/* Cost badge display */}
           {showCost && currentPrice && (
-            <span className="text-[10px] text-surface-400 font-mono hidden sm:inline ml-0.5">
-              ({currentPrice})
+            <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border bg-amber-500/10 border-amber-500/25 text-amber-300 hidden sm:inline-flex items-center shrink-0">
+              {currentPrice}
             </span>
           )}
 
@@ -242,25 +192,17 @@ export function ModelSelectorDropdown({
         return (
           <SelectorOption
             icon={<ProviderLogo provider={providerId} size={15} />}
-            label={m.name}
+            label={cleanModelName(m.name)}
             description={descriptionText}
             layout="stacked"
             selected={active}
             size="sm"
             endContent={
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {m.refTags && (
-                  <span className="text-[8px] px-1 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-semibold">
-                    @TAGS
-                  </span>
-                )}
-                {renderProviderBadge(m)}
-                {costDisplay && (
-                  <span className="text-amber-400/90 text-[10px] font-mono flex-shrink-0 ml-1">
-                    {costDisplay}
-                  </span>
-                )}
-              </div>
+              costDisplay ? (
+                <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border bg-amber-500/10 border-amber-500/25 text-amber-300 shrink-0 shadow-xs">
+                  {costDisplay}
+                </span>
+              ) : null
             }
           />
         )

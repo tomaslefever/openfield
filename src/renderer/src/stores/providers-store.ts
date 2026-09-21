@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ModelPricing } from '../lib/models'
 
-export type ProviderId = 'kie' | 'replicate' | 'fal' | 'elevenlabs' | 'machgen' | 'higgsfield'
+export type ProviderId = 'kie' | 'replicate' | 'fal' | 'elevenlabs' | 'machgen' | 'higgsfield' | 'local'
 
 export interface ProviderStatus {
   provider: ProviderId

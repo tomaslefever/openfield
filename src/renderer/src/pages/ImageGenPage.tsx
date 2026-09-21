@@ -16,6 +16,7 @@ import { ImageGeneration } from '../components/agents/image-generation'
 import { ElementWizard } from '../components/ElementWizard'
 import { copyText, copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
+import { cleanModelName } from '../lib/models'
 
 const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-text-to-image': 'GPT Image 2',
@@ -33,8 +34,8 @@ const MODEL_NAMES: Record<string, string> = {
   'flux2-pro-text-to-image': 'Flux 2 Pro',
   'grok-imagine/text-to-image': 'Grok Imagine',
   'imagen4-fast': 'Imagen 4 Fast',
-  'openai/gpt-image-2': 'GPT Image 2 (Fal)',
-  'openai/gpt-image-2/edit': 'GPT Image 2 Edit (Fal)',
+  'openai/gpt-image-2': 'GPT Image 2',
+  'openai/gpt-image-2/edit': 'GPT Image 2 Edit',
   'fal-ai/nano-banana-pro': 'Nano Banana Pro',
   'fal-ai/nano-banana-pro/edit': 'Nano Banana Pro Edit',
   'fal-ai/recraft/v4/text-to-image': 'Recraft V4',
@@ -603,7 +604,7 @@ export function ImageGenPage() {
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <div>
               <p className="text-[10px] text-surface-500 uppercase tracking-wider">Model</p>
-              <p className="text-xs text-surface-200 truncate">{MODEL_NAMES[selectedAsset.modelUsed] || selectedAsset.modelUsed || '—'}</p>
+              <p className="text-xs text-surface-200 truncate">{cleanModelName(MODEL_NAMES[selectedAsset.modelUsed] || selectedAsset.modelUsed) || '—'}</p>
             </div>
             <div>
               <p className="text-[10px] text-surface-500 uppercase tracking-wider">Credits</p>

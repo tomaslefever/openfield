@@ -5,6 +5,9 @@ export interface PriceEntry {
   cost: number
 }
 
+import type { ProviderId } from '../stores/providers-store'
+export type { ProviderId }
+
 export interface ModelPricing {
   name: string
   category: string
@@ -35,12 +38,21 @@ export interface ModelPricing {
   local?: boolean
   modelId?: string
   engine?: string
-  provider?: 'kie' | 'replicate' | 'fal' | 'elevenlabs' | 'machgen' | 'higgsfield'
+  provider?: ProviderId
   replicateVoices?: string[]
   replicateLanguages?: string[]
   falAspectRatios?: string[]
   pvAspectRatios?: string[]
   aspectRatios?: string[]
+}
+
+/**
+ * Strips provider name in parentheses e.g. " (Higgsfield)", " (KIE)", " (Replicate)", etc.
+ * from model name for clean UI display. The icon already associates the model with the platform.
+ */
+export function cleanModelName(name?: string | null): string {
+  if (!name) return ''
+  return name.replace(/\s*\([a-zA-Z0-9\s._/-]+\)$/, '').trim()
 }
 
 // ─── Image models ──────────────────────────────────────────────────────────
@@ -178,19 +190,55 @@ export const IMAGE_MODELS: ModelPricing[] = [
     prices: [{ resolution: '1K', cost: 0.040 }],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
 
-  // Missing MachGen image models
-  { name: 'FLUX.1 Dev (MachGen)', category: 'Flux', unit: 'img', provider: 'machgen',
-    t2iId: 'machgen/flux-dev',
+  // MachGen image models (https://www.machgen.ai)
+  { name: 'FLUX.2 Dev (MachGen)', category: 'Flux', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/FLUX.2-dev',
+    prices: [{ resolution: '1K', cost: 0.025 }],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
+  { name: 'HiDream-O1-Image (MachGen)', category: 'HiDream', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/HiDream-O1-Image',
+    prices: [{ resolution: '1K', cost: 0.020 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'Topaz-Image-Precision (MachGen)', category: 'Topaz', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/Topaz-Image-Precision/upscale',
+    prices: [{ resolution: '4K', cost: 0.020 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'Topaz-Image-Generative (MachGen)', category: 'Topaz', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/Topaz-Image-Generative/upscale',
+    prices: [{ resolution: '4K', cost: 0.025 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'Grok-Imagine-Image (MachGen)', category: 'xAI', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/Grok-Imagine-Image',
     prices: [{ resolution: '1K', cost: 0.015 }],
-    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
-  { name: 'FLUX.1 Schnell (MachGen)', category: 'Flux', unit: 'img', provider: 'machgen',
-    t2iId: 'machgen/flux-schnell',
-    prices: [{ resolution: '1K', cost: 0.002 }],
-    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
-  { name: 'FLUX.2 Pro (MachGen)', category: 'Flux', unit: 'img', provider: 'machgen',
-    t2iId: 'machgen/flux-2-pro',
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'Grok-Imagine-Image-Quality (MachGen)', category: 'xAI', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/Grok-Imagine-Image-Quality',
+    prices: [{ resolution: '1K', cost: 0.025 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'Nano-Banana-2 (MachGen)', category: 'Google', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/Nano-Banana-2',
+    prices: [{ resolution: '1K', cost: 0.020 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'Nano-Banana-Pro (MachGen)', category: 'Google', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/Nano-Banana-Pro',
+    prices: [{ resolution: '1K', cost: 0.035 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'Seedream-5.0-lite (MachGen)', category: 'ByteDance', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/Seedream-5.0-lite',
+    prices: [{ resolution: '1K', cost: 0.015 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'GPT-Image-2 (MachGen)', category: 'OpenAI', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/GPT-Image-2',
     prices: [{ resolution: '1K', cost: 0.030 }],
-    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] },
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'GPT-Image-2.5-Sunburst (MachGen)', category: 'OpenAI', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/GPT-Image-2.5-Sunburst',
+    prices: [{ resolution: '1K', cost: 0.040 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'GPT-Image-2.5-Flare (MachGen)', category: 'OpenAI', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/GPT-Image-2.5-Flare',
+    prices: [{ resolution: '1K', cost: 0.045 }],
+    aspectRatios: ['1:1', '16:9', '9:16'] },
 
   // Missing Higgsfield image models
   { name: 'Soul Image 2.0 (Higgsfield)', category: 'Higgsfield', unit: 'img', provider: 'higgsfield',
@@ -357,7 +405,27 @@ export const VIDEO_MODELS: ModelPricing[] = [
     supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: 'Image %d', video: 'Video %d', audio: 'Audio %d' },
     falAspectRatios: ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] },
-  // MachGen models (https://www.machgen.ai/docs/rest_api)
+  // MachGen video models (https://www.machgen.ai)
+  { name: 'Wan2.2-A14B (MachGen)', category: 'Wan', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Wan2.2-A14B/t2v', i2vId: 'machgen/Wan2.2-A14B/i2v',
+    prices: [{ resolution: '480p', cost: 0.018 }, { resolution: '720p', cost: 0.036 }],
+    durationMax: 10, durationOptions: ['5', '6', '8', '10'], resolutions: ['480p', '720p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
+  { name: 'LTX-2.3-Pro (MachGen)', category: 'Lightricks', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/LTX-2.3-Pro/t2v', i2vId: 'machgen/LTX-2.3-Pro/i2v', fflfId: 'machgen/LTX-2.3-Pro/fflf',
+    prices: [{ resolution: '540p', cost: 0.008 }, { resolution: '720p', cost: 0.015 }, { resolution: '1080p', cost: 0.03 }],
+    durationMax: 10, durationOptions: ['5', '6', '8', '10'], resolutions: ['540p', '720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
+  { name: 'Vidu-Q3-Turbo (MachGen)', category: 'Vidu', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Vidu-Q3-Turbo/t2v', i2vId: 'machgen/Vidu-Q3-Turbo/i2v', fflfId: 'machgen/Vidu-Q3-Turbo/fflf', refId: 'machgen/Vidu-Q3-Turbo/ref',
+    prices: [{ resolution: '720p', cost: 0.03 }, { resolution: '1080p', cost: 0.06 }],
+    durationMax: 8, durationOptions: ['4', '8'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Vidu-Q3-Pro (MachGen)', category: 'Vidu', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Vidu-Q3-Pro/t2v', i2vId: 'machgen/Vidu-Q3-Pro/i2v', fflfId: 'machgen/Vidu-Q3-Pro/fflf', refId: 'machgen/Vidu-Q3-Pro/ref',
+    prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 8, durationOptions: ['4', '8'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'MiniMax H3 (MachGen)', category: 'MiniMax', unit: 's', provider: 'machgen',
     t2vId: 'machgen/MiniMax-H3/t2v', i2vId: 'machgen/MiniMax-H3/i2v', fflfId: 'machgen/MiniMax-H3/fflf', refId: 'machgen/MiniMax-H3/ref',
     prices: [{ resolution: '480p', cost: 0.035 }, { resolution: '768p', cost: 0.04 }, { resolution: '1440p', cost: 0.10 }],
@@ -370,16 +438,111 @@ export const VIDEO_MODELS: ModelPricing[] = [
     durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['480p', '768p', '1440p'],
     supportsVideoRef: true, supportsAudioRef: true,
     aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'] },
-  { name: 'LTX-2.3-Pro (MachGen)', category: 'Lightricks', unit: 's', provider: 'machgen',
-    t2vId: 'machgen/LTX-2.3-Pro/t2v', i2vId: 'machgen/LTX-2.3-Pro/i2v', fflfId: 'machgen/LTX-2.3-Pro/fflf',
-    prices: [{ resolution: '540p', cost: 0.008 }, { resolution: '720p', cost: 0.015 }, { resolution: '1080p', cost: 0.03 }],
-    durationMax: 10, durationOptions: ['5', '6', '8', '10'], resolutions: ['540p', '720p', '1080p'],
-    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
-  { name: 'Wan2.2-A14B (MachGen)', category: 'Wan', unit: 's', provider: 'machgen',
-    t2vId: 'machgen/Wan2.2-A14B/t2v', i2vId: 'machgen/Wan2.2-A14B/i2v',
-    prices: [{ resolution: '480p', cost: 0.018 }, { resolution: '720p', cost: 0.036 }],
-    durationMax: 10, durationOptions: ['5', '6', '8', '10'], resolutions: ['480p', '720p'],
+  { name: 'Seedance 2.5 (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Seedance-2.5/t2v', i2vId: 'machgen/Seedance-2.5/i2v', fflfId: 'machgen/Seedance-2.5/fflf', refId: 'machgen/Seedance-2.5/ref',
+    prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.09 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
     aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
+  { name: 'Seedance 2.0 (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Seedance-2.0/t2v', i2vId: 'machgen/Seedance-2.0/i2v', fflfId: 'machgen/Seedance-2.0/fflf', refId: 'machgen/Seedance-2.0/ref',
+    prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.07 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Seedance 2.0 Fast (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Seedance-2.0-Fast/t2v', i2vId: 'machgen/Seedance-2.0-Fast/i2v', fflfId: 'machgen/Seedance-2.0-Fast/fflf', refId: 'machgen/Seedance-2.0-Fast/ref',
+    prices: [{ resolution: '720p', cost: 0.025 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Seedance 2.0 Mini (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Seedance-2.0-Mini/t2v', i2vId: 'machgen/Seedance-2.0-Mini/i2v', fflfId: 'machgen/Seedance-2.0-Mini/fflf', refId: 'machgen/Seedance-2.0-Mini/ref',
+    prices: [{ resolution: '720p', cost: 0.02 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling-v3 (MachGen)', category: 'Kling', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Kling-v3/t2v', i2vId: 'machgen/Kling-v3/i2v', fflfId: 'machgen/Kling-v3/fflf',
+    prices: [{ resolution: '720p', cost: 0.06 }, { resolution: '1080p', cost: 0.10 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling-o3 (MachGen)', category: 'Kling', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Kling-o3/t2v', refId: 'machgen/Kling-o3/ref',
+    prices: [{ resolution: '720p', cost: 0.07 }, { resolution: '1080p', cost: 0.12 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Vidu-Q3 (MachGen)', category: 'Vidu', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Vidu-Q3/ref', refId: 'machgen/Vidu-Q3/ref',
+    prices: [{ resolution: '720p', cost: 0.035 }],
+    durationMax: 8, durationOptions: ['4', '8'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Vidu-Q3-Pro-Fast (MachGen)', category: 'Vidu', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Vidu-Q3-Pro-Fast/i2v', i2vId: 'machgen/Vidu-Q3-Pro-Fast/i2v',
+    prices: [{ resolution: '720p', cost: 0.03 }],
+    durationMax: 8, durationOptions: ['4', '8'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Alibaba-Wan-3.0 (MachGen)', category: 'Wan', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Alibaba-Wan-3.0/t2v', i2vId: 'machgen/Alibaba-Wan-3.0/i2v', fflfId: 'machgen/Alibaba-Wan-3.0/fflf', refId: 'machgen/Alibaba-Wan-3.0/ref',
+    prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Veo-3.1 (MachGen)', category: 'Google', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Veo-3.1/t2v',
+    prices: [{ resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.25 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16'] },
+  { name: 'Veo-3.1-Fast (MachGen)', category: 'Google', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Veo-3.1-Fast/t2v',
+    prices: [{ resolution: '720p', cost: 0.09 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16'] },
+  { name: 'Pixverse-V6 (MachGen)', category: 'Pixverse', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Pixverse-V6/t2v', i2vId: 'machgen/Pixverse-V6/i2v', refId: 'machgen/Pixverse-V6/ref',
+    prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 8, durationOptions: ['5', '8'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Pixverse-C1 (MachGen)', category: 'Pixverse', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Pixverse-C1/t2v', i2vId: 'machgen/Pixverse-C1/i2v', refId: 'machgen/Pixverse-C1/ref',
+    prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.09 }],
+    durationMax: 8, durationOptions: ['5', '8'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'HappyHorse-1.1 (MachGen)', category: 'HappyHorse', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/HappyHorse-1.1/t2v', i2vId: 'machgen/HappyHorse-1.1/i2v', refId: 'machgen/HappyHorse-1.1/ref',
+    prices: [{ resolution: '720p', cost: 0.035 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16'] },
+  { name: 'HappyHorse-1.0 (MachGen)', category: 'HappyHorse', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/HappyHorse-1.0/t2v', i2vId: 'machgen/HappyHorse-1.0/i2v', refId: 'machgen/HappyHorse-1.0/ref',
+    prices: [{ resolution: '720p', cost: 0.025 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16'] },
+  { name: 'Grok-Imagine-Video (MachGen)', category: 'xAI', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Grok-Imagine-Video/t2v',
+    prices: [{ resolution: '720p', cost: 0.05 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Grok-Imagine-Video-1.5 (MachGen)', category: 'xAI', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Grok-Imagine-Video-1.5/i2v', i2vId: 'machgen/Grok-Imagine-Video-1.5/i2v',
+    prices: [{ resolution: '720p', cost: 0.06 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Topaz-Video-Precision (MachGen)', category: 'Topaz', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Topaz-Video-Precision/upscale',
+    prices: [{ resolution: '4K', cost: 0.05 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Topaz-Video-Precision-Animation (MachGen)', category: 'Topaz', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Topaz-Video-Precision-Animation/upscale',
+    prices: [{ resolution: '4K', cost: 0.05 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Topaz-Video-Generative (MachGen)', category: 'Topaz', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Topaz-Video-Generative/upscale',
+    prices: [{ resolution: '4K', cost: 0.06 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Topaz-Video-Generative-Fast (MachGen)', category: 'Topaz', unit: 's', provider: 'machgen',
+    t2vId: 'machgen/Topaz-Video-Generative-Fast/upscale',
+    prices: [{ resolution: '4K', cost: 0.04 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
 
   // Missing KIE video models
   { name: 'Sora 2 (KIE)', category: 'OpenAI', unit: 's', provider: 'kie',
@@ -482,17 +645,6 @@ export const VIDEO_MODELS: ModelPricing[] = [
     durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
     falAspectRatios: ['16:9', '9:16', '1:1'] },
 
-  // Missing MachGen video models
-  { name: 'Kling 3.0 (MachGen)', category: 'Kling', unit: 's', provider: 'machgen',
-    t2vId: 'machgen/kling-3-0/t2v', i2vId: 'machgen/kling-3-0/i2v',
-    prices: [{ resolution: '720p', cost: 0.06 }],
-    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
-    aspectRatios: ['16:9', '9:16', '1:1'] },
-  { name: 'Wan 3.0 (MachGen)', category: 'Wan', unit: 's', provider: 'machgen',
-    t2vId: 'machgen/wan-3-0/t2v', i2vId: 'machgen/wan-3-0/i2v',
-    prices: [{ resolution: '720p', cost: 0.035 }],
-    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
-    aspectRatios: ['16:9', '9:16', '1:1'] },
 
   // Missing Higgsfield video models
   { name: 'Wan 3.0 (Higgsfield)', category: 'Wan', unit: 's', provider: 'higgsfield',
@@ -515,9 +667,11 @@ export const VIDEO_MODELS: ModelPricing[] = [
 // ─── Audio models ──────────────────────────────────────────────────────────
 
 export const AUDIO_MODELS: ModelPricing[] = [
-  { name: 'GPT TTS', category: 'OpenAI', unit: 'img', t2aId: 'gpt-tts-1', kind: 'voice',
+  { name: 'ElevenLabs TTS', category: 'ElevenLabs', unit: 'img', t2aId: 'elevenlabs-tts', kind: 'voice', provider: 'elevenlabs', engine: 'elevenlabs',
+    prices: [{ resolution: 'clip', cost: 0.015 }] },
+  { name: 'GPT TTS', category: 'OpenAI', unit: 'img', t2aId: 'gpt-tts-1', kind: 'voice', provider: 'kie',
     prices: [{ resolution: 'clip', cost: 0.004 }] },
-  { name: 'MiniMax TTS', category: 'MiniMax', unit: 'img', t2aId: 'minimax-text-to-speech', kind: 'voice',
+  { name: 'MiniMax TTS', category: 'MiniMax', unit: 'img', t2aId: 'minimax-text-to-speech', kind: 'voice', provider: 'kie',
     prices: [{ resolution: 'clip', cost: 0.003 }] },
   { name: 'ElevenLabs Music', category: 'ElevenLabs', unit: 's', t2aId: 'elevenlabs-music', kind: 'music', provider: 'elevenlabs', engine: 'elevenlabs',
     prices: [{ resolution: 'std', cost: 0.004 }],
@@ -552,10 +706,10 @@ export const AUDIO_MODELS: ModelPricing[] = [
     prices: [{ resolution: 'clip', cost: 0.002 }] },
   { name: 'XTTS v2 (Replicate)', category: 'Coqui', unit: 'img', t2aId: 'lucataco/xtts-v2', kind: 'voice', provider: 'replicate',
     prices: [{ resolution: 'clip', cost: 0.005 }] },
-  { name: 'Kokoro-82M (MachGen)', category: 'Kokoro', unit: 'img', t2aId: 'machgen/kokoro-82m', kind: 'voice', provider: 'machgen',
+  { name: 'Eleven-v3 (MachGen)', category: 'ElevenLabs', unit: 'img', t2aId: 'machgen/Eleven-v3', kind: 'voice', provider: 'machgen',
     prices: [{ resolution: 'clip', cost: 0.005 }] },
-  { name: 'Fish-Speech (MachGen)', category: 'Fish', unit: 'img', t2aId: 'machgen/fish-speech', kind: 'voice', provider: 'machgen',
-    prices: [{ resolution: 'clip', cost: 0.010 }] },
+  { name: 'Eleven-SFX-v2 (MachGen)', category: 'ElevenLabs', unit: 'img', t2aId: 'machgen/Eleven-SFX-v2', kind: 'voice', provider: 'machgen',
+    prices: [{ resolution: 'clip', cost: 0.005 }] },
 
   // Missing Music Generation models
   { name: 'ElevenLabs Music v2.5', category: 'ElevenLabs', unit: 's', t2aId: 'elevenlabs-music-v2-5', kind: 'music', provider: 'elevenlabs', engine: 'elevenlabs',
@@ -586,8 +740,8 @@ export const AUDIO_MODELS: ModelPricing[] = [
     prices: [{ resolution: 'clip', cost: 0.005 }] },
   { name: 'MusicGen (Replicate)', category: 'Meta', unit: 'img', t2aId: 'meta/musicgen', kind: 'music', provider: 'replicate',
     prices: [{ resolution: 'clip', cost: 0.010 }] },
-  { name: 'Stable Audio Open (MachGen)', category: 'Stability', unit: 'img', t2aId: 'machgen/stable-audio', kind: 'music', provider: 'machgen',
-    prices: [{ resolution: 'clip', cost: 0.005 }] },
+  { name: 'Eleven-Music-v2 (MachGen)', category: 'ElevenLabs', unit: 'img', t2aId: 'machgen/Eleven-Music-v2', kind: 'music', provider: 'machgen',
+    prices: [{ resolution: 'clip', cost: 0.008 }] },
 ]
 
 // ─── Cost calculation (single source of truth) ─────────────────────────────

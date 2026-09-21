@@ -28,7 +28,7 @@ import { AspectRatioSelector } from '../../models/AspectRatioSelector'
 import { PromptComposer } from '../../PromptComposer'
 import { GenerationHistoryModal } from './GenerationHistoryModal'
 import { srcUrl } from '../../../services/file-url'
-import { ModelPricing } from '../../../lib/models'
+import { ModelPricing, cleanModelName } from '../../../lib/models'
 
 export function Stage4VideoGen() {
   const {
@@ -487,7 +487,7 @@ function VideoShotCard({
             <RefreshCw size={24} className="animate-spin" />
             <span className="text-xs font-semibold">Renderizando Video...</span>
             <span className="text-[10px] text-surface-400">
-              {shot.videoStatus === 'queued' ? 'En cola...' : `Procesando con ${videoModel.name}`}
+              {shot.videoStatus === 'queued' ? 'En cola...' : `Procesando con ${cleanModelName(videoModel.name)}`}
             </span>
             {shot.videoProgress != null && (
               <div className="w-28 bg-surface-800 rounded-full h-1.5 mt-1 overflow-hidden">

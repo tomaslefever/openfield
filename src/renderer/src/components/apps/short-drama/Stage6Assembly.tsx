@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useShortDramaStore } from '../../../stores/short-drama-store'
 import { srcUrl } from '../../../services/file-url'
+import { cleanModelName } from '../../../lib/models'
 
 export function Stage6Assembly() {
   const {
@@ -187,7 +188,7 @@ export function Stage6Assembly() {
               </div>
               <div className="flex justify-between py-1 text-surface-300">
                 <span className="text-surface-500">Motor de Video:</span>
-                <span className="text-surface-200">{videoModel.name}</span>
+                <span className="text-surface-200">{cleanModelName(videoModel.name)}</span>
               </div>
             </div>
           </div>

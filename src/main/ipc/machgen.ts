@@ -1,7 +1,7 @@
 import type { IpcContext } from './context'
 import { readSetting } from './helpers'
 import { getMachgenQueue } from '../services/machgen-queue'
-import { MACHGEN_MODELS, MachgenApiClient } from '../services/machgen'
+import { MACHGEN_MODELS, MachgenApiClient, getMachgenModel } from '../services/machgen'
 
 export function requireMachgenKey(): string {
   const key = readSetting('machgenApiKey')
@@ -13,7 +13,21 @@ export function registerMachgenHandlers({ raw, handle }: IpcContext) {
   handle('machgen:generate', async (event, params) => {
     const apiKey = requireMachgenKey()
     const queue = getMachgenQueue(apiKey)
-    const type = 'video'
+    const model = getMachgenModel(params?.model)
+    const isAudio =
+      params?.type === 'audio' ||
+      params?.kind === 'music' ||
+      params?.kind === 'voice' ||
+      params?.kind === 'sfx' ||
+      model?.supportedTasks.some(t => ['T2S', 'T2D', 'T2SFX', 'T2M'].includes(t)) ||
+      params?.model?.includes('Eleven-') ||
+      params?.model?.includes('speech') ||
+      params?.model?.includes('audio')
+    const isImage =
+      params?.type === 'image' ||
+      model?.supportedTasks.some(t => ['T2I', 'I2I'].includes(t)) ||
+      (model && !model.supportedTasks.some(t => ['T2V', 'I2V', 'R2V'].includes(t)) && !isAudio)
+    const type = params?.type || (isAudio ? 'audio' : isImage ? 'image' : 'video')
     const taskId = await queue.enqueue(type, params)
     const sender = event.sender
 

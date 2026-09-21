@@ -48,11 +48,14 @@ export class MachgenQueue extends EventEmitter {
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
     const isImage = type === 'image'
+    const isAudio = type === 'audio'
+    const assetType = isImage ? 'image' : isAudio ? 'audio' : 'video'
+    const mimeType = isImage ? 'image/png' : isAudio ? 'audio/mpeg' : 'video/mp4'
     raw.prepare(
       `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      assetId, isImage ? 'image' : 'video', '', '', `pending-${taskId}`, isImage ? 'image/png' : 'video/mp4',
+      assetId, assetType, '', '', `pending-${taskId}`, mimeType,
       payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
       0, taskId, wsId, now, now
     )
@@ -76,61 +79,7 @@ export class MachgenQueue extends EventEmitter {
   public buildInput(payload: any): MachgenTaskInput {
     const rawModel = payload?.model || ''
     const modelDef = getMachgenModel(rawModel)
-    const modelId = modelDef?.id || rawModel.replace(/^machgen\//, '').replace(/\/(t2v|i2v|fflf|ref|upscale)$/, '')
-
-    // Determine task_type based on router/payload:
-    let taskType: MachgenTaskInput['task_type'] = 'T2V'
-    if (payload.taskType) {
-      taskType = payload.taskType
-    } else if (payload.task_type) {
-      taskType = payload.task_type
-    } else if (rawModel.endsWith('/upscale')) {
-      taskType = 'UPSCALE'
-    } else if (rawModel.endsWith('/ref')) {
-      taskType = 'R2V'
-    } else if (rawModel.endsWith('/fflf') || rawModel.endsWith('/i2v')) {
-      taskType = 'I2V'
-    } else if (payload.firstFrameBase64 || payload.lastFrameBase64) {
-      taskType = 'I2V'
-    } else if (payload.videoRefs?.length > 0 || (payload.audioRefs?.length > 0 && modelDef?.supportsAudioRef)) {
-      taskType = 'R2V'
-    } else if (payload.imageRefs?.length > 1 && modelDef?.supportsR2V) {
-      taskType = 'R2V'
-    } else if (payload.imageBase64 || (payload.imageRefs && payload.imageRefs.length > 0)) {
-      taskType = 'I2V'
-    }
-
-    // Resolve height from resolution string
-    let height = 720
-    const resStr = String(payload.resolution || '').toLowerCase()
-    if (resStr.includes('480')) height = 480
-    else if (resStr.includes('540')) height = 540
-    else if (resStr.includes('720')) height = 720
-    else if (resStr.includes('768')) height = 768
-    else if (resStr.includes('1080')) height = 1080
-    else if (resStr.includes('1440') || resStr.includes('2k')) height = 1440
-
-    // Ensure height is in allowedHeights
-    if (modelDef?.allowedHeights && !modelDef.allowedHeights.includes(height)) {
-      height = modelDef.allowedHeights[0]
-    }
-
-    // Resolve duration
-    let duration = Number(payload.duration) || 5
-    if (modelDef?.allowedDurations && !modelDef.allowedDurations.includes(duration)) {
-      duration = modelDef.allowedDurations.reduce((prev, curr) => Math.abs(curr - duration) < Math.abs(prev - duration) ? curr : prev)
-    }
-
-    // Resolve aspect ratio
-    let aspectRatio = payload.aspectRatio || '16:9'
-    if (aspectRatio === 'auto') aspectRatio = '16:9'
-    if (modelDef?.allowedAspectRatios && !modelDef.allowedAspectRatios.includes(aspectRatio)) {
-      aspectRatio = modelDef.allowedAspectRatios[0] || '16:9'
-    }
-
-    // Resolve FPS and infer steps
-    const fps = payload.fps != null ? Number(payload.fps) : (modelDef?.defaultFps || 24)
-    const inferSteps = payload.inferSteps != null ? Number(payload.inferSteps) : modelDef?.defaultInferSteps
+    const modelId = modelDef?.id || rawModel.replace(/^machgen\//, '').replace(/\/(t2v|i2v|fflf|ref|upscale|t2i|i2i|t2s|t2d|t2sfx|t2m)$/, '').trim()
 
     // Helper for Data URI
     const toDataUri = (b64: string, mime: string) =>
@@ -140,39 +89,126 @@ export class MachgenQueue extends EventEmitter {
     const srcImageUrls: string[] = []
     let keyframeIndices: (0 | -1)[] | null = null
 
-    if (taskType === 'I2V') {
-      if (payload.firstFrameBase64 && payload.lastFrameBase64) {
-        srcImageUrls.push(toDataUri(payload.firstFrameBase64, 'image/png'))
-        srcImageUrls.push(toDataUri(payload.lastFrameBase64, 'image/png'))
+    // Check payload image inputs
+    if (payload.firstFrameBase64 && payload.lastFrameBase64 && modelDef?.supportsEndFrame) {
+      srcImageUrls.push(toDataUri(payload.firstFrameBase64, 'image/png'))
+      srcImageUrls.push(toDataUri(payload.lastFrameBase64, 'image/png'))
+      keyframeIndices = [0, -1]
+    } else if (payload.lastFrameBase64 && !payload.firstFrameBase64 && (modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo')) {
+      // Lone end frame uniquely supported by MiniMax-H3 and MiniMax-H3-Turbo
+      srcImageUrls.push(toDataUri(payload.lastFrameBase64, 'image/png'))
+      keyframeIndices = [-1]
+    } else if (payload.firstFrameBase64) {
+      srcImageUrls.push(toDataUri(payload.firstFrameBase64, 'image/png'))
+      keyframeIndices = [0]
+    } else if (payload.imageRefs && payload.imageRefs.length > 0) {
+      if (payload.imageRefs.length > 1 && modelDef?.supportsEndFrame) {
+        srcImageUrls.push(toDataUri(payload.imageRefs[0].base64 || payload.imageRefs[0].url, payload.imageRefs[0].mime || 'image/png'))
+        srcImageUrls.push(toDataUri(payload.imageRefs[1].base64 || payload.imageRefs[1].url, payload.imageRefs[1].mime || 'image/png'))
         keyframeIndices = [0, -1]
-      } else if (payload.lastFrameBase64 && !payload.firstFrameBase64 && (modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo')) {
-        // Lone end frame uniquely supported by MiniMax-H3 and MiniMax-H3-Turbo
-        srcImageUrls.push(toDataUri(payload.lastFrameBase64, 'image/png'))
-        keyframeIndices = [-1]
-      } else if (payload.firstFrameBase64) {
-        srcImageUrls.push(toDataUri(payload.firstFrameBase64, 'image/png'))
-        keyframeIndices = [0]
-      } else if (payload.imageRefs && payload.imageRefs.length > 0) {
-        if (payload.imageRefs.length > 1 && modelDef?.supportsEndFrame) {
-          srcImageUrls.push(toDataUri(payload.imageRefs[0].base64, payload.imageRefs[0].mime || 'image/png'))
-          srcImageUrls.push(toDataUri(payload.imageRefs[1].base64, payload.imageRefs[1].mime || 'image/png'))
-          keyframeIndices = [0, -1]
-        } else {
-          srcImageUrls.push(toDataUri(payload.imageRefs[0].base64, payload.imageRefs[0].mime || 'image/png'))
-          keyframeIndices = [0]
-        }
-      } else if (payload.imageBase64) {
-        srcImageUrls.push(toDataUri(payload.imageBase64, payload.imageMime || 'image/png'))
+      } else {
+        srcImageUrls.push(toDataUri(payload.imageRefs[0].base64 || payload.imageRefs[0].url, payload.imageRefs[0].mime || 'image/png'))
         keyframeIndices = [0]
       }
-    } else if (taskType === 'R2V') {
-      const imgRefs = (payload.imageRefs || []).filter((r: any) => r.base64 || r.url)
-      imgRefs.forEach((r: any) => {
-        if (r.url) srcImageUrls.push(r.url)
-        else if (r.base64) srcImageUrls.push(toDataUri(r.base64, r.mime || 'image/png'))
-      })
-      if (srcImageUrls.length === 0 && payload.imageBase64) {
-        srcImageUrls.push(toDataUri(payload.imageBase64, payload.imageMime || 'image/png'))
+    } else if (payload.imageBase64) {
+      srcImageUrls.push(toDataUri(payload.imageBase64, payload.imageMime || 'image/png'))
+      keyframeIndices = [0]
+    }
+
+    // Determine task_type based on model capabilities and payload
+    let taskType: MachgenTaskInput['task_type'] = 'T2V'
+
+    if (payload.taskType && (!modelDef || modelDef.supportedTasks.includes(payload.taskType))) {
+      taskType = payload.taskType
+    } else if (payload.task_type && (!modelDef || modelDef.supportedTasks.includes(payload.task_type))) {
+      taskType = payload.task_type
+    } else if (modelDef?.supportedTasks.some(t => ['T2S', 'T2D', 'T2SFX', 'T2M'].includes(t))) {
+      // Audio model
+      if (modelDef.supportsT2M || payload.kind === 'music') {
+        taskType = 'T2M'
+      } else if (modelDef.supportsT2SFX || payload.kind === 'sfx') {
+        taskType = 'T2SFX'
+      } else if (modelDef.supportsT2D && (payload.mode === 'dialogue' || (payload.speakers && payload.speakers.length > 1))) {
+        taskType = 'T2D'
+      } else {
+        taskType = 'T2S'
+      }
+    } else if (modelDef?.supportedTasks.some(t => ['T2I', 'I2I'].includes(t)) || (modelDef?.supportsUpscale && modelDef.category === 'Topaz' && !modelDef.id.includes('Video'))) {
+      // Image model
+      if (rawModel.endsWith('/upscale') || (modelDef?.supportsUpscale && !modelDef.supportsT2I && !modelDef.supportsI2I)) {
+        taskType = 'UPSCALE'
+      } else if (srcImageUrls.length > 0 && modelDef?.supportsI2I) {
+        taskType = 'I2I'
+      } else {
+        taskType = 'T2I'
+      }
+    } else {
+      // Video model
+      if (rawModel.endsWith('/upscale') || (modelDef?.supportsUpscale && !modelDef.supportsT2V && !modelDef.supportsI2V && !modelDef.supportsR2V)) {
+        taskType = 'UPSCALE'
+      } else if (rawModel.endsWith('/ref') || (modelDef?.supportsR2V && !modelDef.supportsT2V && !modelDef.supportsI2V)) {
+        taskType = 'R2V'
+      } else if (rawModel.endsWith('/fflf') || rawModel.endsWith('/i2v')) {
+        taskType = modelDef?.supportsI2V ? 'I2V' : (modelDef?.supportsR2V ? 'R2V' : 'T2V')
+      } else if (payload.videoRefs?.length > 0 || (payload.audioRefs?.length > 0 && modelDef?.supportsAudioRef)) {
+        taskType = modelDef?.supportsR2V ? 'R2V' : 'T2V'
+      } else if (srcImageUrls.length > 1 && modelDef?.supportsR2V && !modelDef?.supportsEndFrame) {
+        taskType = 'R2V'
+      } else if (srcImageUrls.length > 0) {
+        taskType = modelDef?.supportsI2V ? 'I2V' : (modelDef?.supportsR2V ? 'R2V' : 'T2V')
+      } else {
+        taskType = modelDef?.supportsT2V ? 'T2V' : (modelDef?.supportsI2V ? 'I2V' : (modelDef?.supportsR2V ? 'R2V' : 'T2V'))
+      }
+    }
+
+    // Safety fallback: ensure taskType is supported by model
+    if (modelDef && !modelDef.supportedTasks.includes(taskType)) {
+      taskType = modelDef.supportedTasks[0]
+    }
+
+    // Video Config resolution (only for video generation tasks)
+    const isVideoTask = ['T2V', 'I2V', 'R2V'].includes(taskType)
+    let videoConfig: MachgenTaskInput['video_config'] = null
+
+    if (isVideoTask) {
+      let height = 720
+      const resStr = String(payload.resolution || '').toLowerCase()
+      if (resStr.includes('480')) height = 480
+      else if (resStr.includes('540')) height = 540
+      else if (resStr.includes('720')) height = 720
+      else if (resStr.includes('768')) height = 768
+      else if (resStr.includes('1080')) height = 1080
+      else if (resStr.includes('1440') || resStr.includes('2k')) height = 1440
+
+      if (modelDef?.allowedHeights && modelDef.allowedHeights.length > 0 && !modelDef.allowedHeights.includes(height)) {
+        height = modelDef.allowedHeights[0]
+      }
+
+      let duration = Number(payload.duration) || 5
+      if (modelDef?.allowedDurations && modelDef.allowedDurations.length > 0 && !modelDef.allowedDurations.includes(duration)) {
+        duration = modelDef.allowedDurations.reduce((prev, curr) => Math.abs(curr - duration) < Math.abs(prev - duration) ? curr : prev)
+      }
+
+      let aspectRatio = payload.aspectRatio || '16:9'
+      if (aspectRatio === 'auto') aspectRatio = '16:9'
+      if (modelDef?.allowedAspectRatios && modelDef.allowedAspectRatios.length > 0 && !modelDef.allowedAspectRatios.includes(aspectRatio)) {
+        aspectRatio = modelDef.allowedAspectRatios[0] || '16:9'
+      }
+
+      const fps = payload.fps != null ? Number(payload.fps) : (modelDef?.defaultFps || 24)
+      const inferSteps = payload.inferSteps != null ? Number(payload.inferSteps) : modelDef?.defaultInferSteps
+
+      videoConfig = {
+        duration_secs: duration,
+        height,
+        width: payload.width || null,
+        aspect_ratio: aspectRatio,
+        fps,
+        infer_steps: inferSteps || null,
+        audio: payload.sound != null ? Boolean(payload.sound) : (payload.audio != null ? Boolean(payload.audio) : null),
+        bitrate_mode: payload.bitrateMode || null,
+        negative_prompt: payload.negativePrompt || null,
+        guidance_scale: payload.guidanceScale != null ? (Array.isArray(payload.guidanceScale) ? payload.guidanceScale : [Number(payload.guidanceScale)]) : null,
       }
     }
 
@@ -194,7 +230,7 @@ export class MachgenQueue extends EventEmitter {
       }
     }
 
-    // enhance_prompt: default true for MiniMax-H3, MiniMax-H3-Turbo and LTX, unless explicitly false
+    // enhance_prompt
     let enhancePrompt = payload.enhancePrompt
     if (enhancePrompt === undefined) {
       enhancePrompt = modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo' || modelId === 'LTX-2.3-Pro' ? true : null
@@ -219,18 +255,7 @@ export class MachgenQueue extends EventEmitter {
       subject_to_image_ids: payload.subjectToImageIds || null,
       subject_to_video_ids: payload.subjectToVideoIds || null,
       subject_to_audio_ids: payload.subjectToAudioIds || null,
-      video_config: {
-        duration_secs: duration,
-        height,
-        width: payload.width || null,
-        aspect_ratio: aspectRatio,
-        fps,
-        infer_steps: inferSteps || null,
-        audio: payload.sound != null ? Boolean(payload.sound) : (payload.audio != null ? Boolean(payload.audio) : null),
-        bitrate_mode: payload.bitrateMode || null,
-        negative_prompt: payload.negativePrompt || null,
-        guidance_scale: payload.guidanceScale != null ? (Array.isArray(payload.guidanceScale) ? payload.guidanceScale : [Number(payload.guidanceScale)]) : null,
-      },
+      video_config: videoConfig,
       upscale_config: taskType === 'UPSCALE' ? { factor: payload.upscaleFactor || 2 } : null,
     }
 
@@ -300,7 +325,7 @@ export class MachgenQueue extends EventEmitter {
     const raw = getRawDb()
     const taskPayload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
     const assetId = crypto.randomUUID()
-    const remoteUrl = statusRes.task_output?.video || statusRes.task_output?.image || null
+    const remoteUrl = statusRes.task_output?.audio || statusRes.task_output?.video || statusRes.task_output?.image || null
 
     const updatePlaceholder = (fields: Record<string, any>) => {
       const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
@@ -314,12 +339,13 @@ export class MachgenQueue extends EventEmitter {
     let localAssetId: string | null = null
 
     if (remoteUrl) {
-      const isImage = task.type === 'image' || !!statusRes.task_output?.image
-      const ext = isImage ? 'png' : 'mp4'
-      const mime = isImage ? 'image/png' : 'video/mp4'
+      const isAudio = task.type === 'audio' || !!statusRes.task_output?.audio
+      const isImage = !isAudio && (task.type === 'image' || !!statusRes.task_output?.image)
+      const ext = isAudio ? 'mp3' : isImage ? 'png' : 'mp4'
+      const mime = isAudio ? 'audio/mpeg' : isImage ? 'image/png' : 'video/mp4'
       const fileName = `${assetId}.${ext}`
       const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
-      const subDir = workspaceAssetSubDir(isImage ? 'image' : 'video', taskWs)
+      const subDir = workspaceAssetSubDir(isAudio ? 'audio' : isImage ? 'image' : 'video', taskWs)
       const localPath = `${subDir}/${fileName}`
 
       try {
@@ -329,7 +355,7 @@ export class MachgenQueue extends EventEmitter {
         await fs.writeFile(localPath, buffer)
 
         let fileSize = buffer.length
-        if (!isImage) {
+        if (!isAudio && !isImage) {
           try {
             const res = await ensurePlayableVideo(localPath)
             fileSize = res.size
@@ -359,10 +385,13 @@ export class MachgenQueue extends EventEmitter {
         })
       }
     } else {
+      const isAudio = task.type === 'audio'
+      const isImage = task.type === 'image'
+      const mime = isAudio ? 'audio/mpeg' : isImage ? 'image/png' : 'video/mp4'
       localAssetId = updatePlaceholder({
         file_path: '',
         file_name: `completed-${assetId}`,
-        mime_type: 'video/mp4',
+        mime_type: mime,
         model_used: taskPayload?.model || '',
         prompt: taskPayload?.prompt || '',
         parameters: JSON.stringify(taskPayload),

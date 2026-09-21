@@ -11,7 +11,7 @@ import { AspectRatio, ASPECT_RATIOS } from './aspect-ratios'
 import { ImageLibraryPicker } from './ImageLibraryPicker'
 import {
   IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS, PIXVERSE_T2V_PRICES, PIXVERSE_REF_PRICES,
-  calcCost, calcVideoCost, type ModelPricing,
+  calcCost, calcVideoCost, type ModelPricing, cleanModelName,
 } from '../lib/models'
 import { useProvidersStore, isModelConfigured, PROVIDER_DEFS, hasAnyConfiguredProvider, type ProviderId } from '../stores/providers-store'
 import { srcUrl } from '../services/file-url'
@@ -1385,6 +1385,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         voiceId: currentModel.voiceId,
         engine: currentModel.engine,
         kind: currentModel.kind,
+        provider: currentModel.provider || 'kie',
       })
       richInputRef.current?.setText('')
       setPrompt('')
@@ -2119,11 +2120,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   <span className="flex size-3.5 shrink-0 items-center justify-center">
                     <ProviderLogo provider={getProviderForModel(currentModel)} size={13} />
                   </span>
-                  <span className="font-medium text-surface-100">{currentModel.name || (models.length === 0 ? 'Sin proveedor' : 'Seleccionar Modelo')}</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/90 border border-surface-700/60 font-semibold uppercase tracking-wider flex items-center gap-1 text-surface-300">
-                    <ProviderLogo provider={getProviderForModel(currentModel)} size={10} />
-                    <span>{getProviderForModel(currentModel).toUpperCase()}</span>
-                  </span>
+                  <span className="font-medium text-surface-100">{cleanModelName(currentModel.name) || (models.length === 0 ? 'Sin proveedor' : 'Seleccionar Modelo')}</span>
                   <ChevronDown size={11} className={`text-surface-400 transition-transform duration-150 ${showModels ? 'rotate-180 text-surface-200' : ''}`} />
                 </button>
                   {showModels && (() => {
@@ -2219,7 +2216,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                                     <SelectorOption
                                       key={`${g.label}-${m.name}`}
                                       icon={<ProviderLogo provider={pId} size={15} />}
-                                      label={m.name}
+                                      label={cleanModelName(m.name)}
                                       description={descriptionText}
                                       layout="stacked"
                                       selected={isSelected}
@@ -2234,20 +2231,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                                         }
                                       }}
                                       endContent={
-                                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                                          {m.refTags && (
-                                            <span className="text-[8px] px-1 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-semibold">
-                                              @TAGS
-                                            </span>
-                                          )}
-                                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/90 border border-surface-700/60 font-semibold uppercase tracking-wider flex items-center gap-1 text-surface-300">
-                                            <ProviderLogo provider={pId} size={10} />
-                                            <span>{pId.toUpperCase()}</span>
-                                          </span>
-                                          <span className="text-amber-400/90 text-[10px] font-mono">
+                                        costDisplay ? (
+                                          <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border bg-amber-500/10 border-amber-500/25 text-amber-300 shrink-0 shadow-xs">
                                             {costDisplay}
                                           </span>
-                                        </div>
+                                        ) : null
                                       }
                                     />
                                   )

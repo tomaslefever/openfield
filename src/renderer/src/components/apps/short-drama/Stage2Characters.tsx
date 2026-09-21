@@ -24,6 +24,7 @@ import {
   type GenerationHistoryItem,
 } from '../../../stores/short-drama-store'
 import { ModelSelectorDropdown } from '../../models/ModelSelectorDropdown'
+import { cleanModelName } from '../../../lib/models'
 import { ResolutionSelector } from '../../models/ResolutionSelector'
 import { VoiceSelectorDropdown } from '../../voice/VoiceSelectorDropdown'
 import { ImageLibraryPicker } from '../../ImageLibraryPicker'
@@ -1248,7 +1249,7 @@ export function Stage2Characters() {
             <div className="grid grid-cols-2 gap-3 pt-2 border-t border-surface-800 text-xs">
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider">Modelo</p>
-                <p className="text-surface-200 font-medium truncate">{imageModel.name}</p>
+                <p className="text-surface-200 font-medium truncate">{cleanModelName(imageModel.name)}</p>
               </div>
               <div>
                 <p className="text-[10px] text-surface-500 uppercase tracking-wider">Resolución</p>

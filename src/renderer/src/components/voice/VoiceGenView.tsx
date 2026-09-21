@@ -16,6 +16,59 @@ import {
 } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
+import { ProviderLogo } from '../icons/ProviderLogos'
+import { useProvidersStore } from '../../stores/providers-store'
+import { AUDIO_MODELS } from '../../lib/models'
+import { getAudioProvider, formatAudioModelLabel } from '../../lib/audio'
+
+const PRESET_VOICES_BY_MODEL: Record<string, { id: string; label: string; gender?: 'male' | 'female'; detail?: string }[]> = {
+  'gpt-tts-1': [
+    { id: 'alloy', label: 'Alloy', gender: 'male', detail: 'Neutral & balanced' },
+    { id: 'echo', label: 'Echo', gender: 'male', detail: 'Warm & rounded' },
+    { id: 'fable', label: 'Fable', gender: 'male', detail: 'Expressive & British' },
+    { id: 'onyx', label: 'Onyx', gender: 'male', detail: 'Deep & authoritative' },
+    { id: 'nova', label: 'Nova', gender: 'female', detail: 'Energetic & bright' },
+    { id: 'shimmer', label: 'Shimmer', gender: 'female', detail: 'Clear & gentle' },
+  ],
+  'minimax-text-to-speech': [
+    { id: 'male-qn-qingse', label: 'Qingse (Male)', gender: 'male', detail: 'Youthful & clear' },
+    { id: 'female-shaonv', label: 'Shaonv (Female)', gender: 'female', detail: 'Sweet & lively' },
+    { id: 'female-yujie', label: 'Yujie (Female)', gender: 'female', detail: 'Mature & calm' },
+    { id: 'presenter_male', label: 'Presenter Male', gender: 'male', detail: 'Broadcast news' },
+    { id: 'presenter_female', label: 'Presenter Female', gender: 'female', detail: 'Broadcast news' },
+    { id: 'audiobook_male_1', label: 'Audiobook Male', gender: 'male', detail: 'Deep narrative' },
+    { id: 'audiobook_female_1', label: 'Audiobook Female', gender: 'female', detail: 'Soft narrative' },
+  ],
+  'fal-ai/kokoro': [
+    { id: 'af_heart', label: 'Heart', gender: 'female', detail: 'American English - Grade A' },
+    { id: 'af_bella', label: 'Bella', gender: 'female', detail: 'American English - Warm' },
+    { id: 'af_nicole', label: 'Nicole', gender: 'female', detail: 'American English - Whisper' },
+    { id: 'af_sarah', label: 'Sarah', gender: 'female', detail: 'American English - Casual' },
+    { id: 'am_adam', label: 'Adam', gender: 'male', detail: 'American English - Clear' },
+    { id: 'am_michael', label: 'Michael', gender: 'male', detail: 'American English - Natural' },
+    { id: 'bf_emma', label: 'Emma', gender: 'female', detail: 'British English - Crisp' },
+    { id: 'bf_isabella', label: 'Isabella', gender: 'female', detail: 'British English - Friendly' },
+    { id: 'bm_george', label: 'George', gender: 'male', detail: 'British English - Formal' },
+    { id: 'bm_lewis', label: 'Lewis', gender: 'male', detail: 'British English - Storyteller' },
+  ],
+  'cjwbw/kokoro': [
+    { id: 'af_heart', label: 'Heart', gender: 'female', detail: 'American English - Grade A' },
+    { id: 'af_bella', label: 'Bella', gender: 'female', detail: 'American English - Warm' },
+    { id: 'af_nicole', label: 'Nicole', gender: 'female', detail: 'American English - Whisper' },
+    { id: 'af_sarah', label: 'Sarah', gender: 'female', detail: 'American English - Casual' },
+    { id: 'am_adam', label: 'Adam', gender: 'male', detail: 'American English - Clear' },
+    { id: 'am_michael', label: 'Michael', gender: 'male', detail: 'American English - Natural' },
+  ],
+  'machgen/kokoro-82m': [
+    { id: 'af_heart', label: 'Heart', gender: 'female', detail: 'American English - Grade A' },
+    { id: 'af_bella', label: 'Bella', gender: 'female', detail: 'American English - Warm' },
+    { id: 'af_nicole', label: 'Nicole', gender: 'female', detail: 'American English - Whisper' },
+    { id: 'af_sarah', label: 'Sarah', gender: 'female', detail: 'American English - Casual' },
+    { id: 'am_adam', label: 'Adam', gender: 'male', detail: 'American English - Clear' },
+    { id: 'am_michael', label: 'Michael', gender: 'male', detail: 'American English - Natural' },
+  ],
+}
+
 // Languages supported by the ElevenLabs multilingual models (ISO 639-1 codes,
 // per the API's verified_languages.language / voice_verification.language schema)
 const VOICE_LANGUAGES: { code: string; name: string }[] = [
@@ -465,10 +518,11 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
       return
     }
     if (!text.trim()) return
-    const params: any = { prompt: text.trim() }
+    const params: any = { prompt: text.trim(), kind: 'voice' }
 
-    if (selectedEngine === 'elevenlabs' && selectedVoice) {
+    if (selectedEngine === 'elevenlabs') {
       params.engine = 'elevenlabs'
+      params.provider = 'elevenlabs'
       params.voiceId = selectedVoice
       params.model = ttsModel
       params.speed = speed
@@ -476,6 +530,15 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
       params.similarityBoost = similarityBoost
       params.style = style
       params.useSpeakerBoost = useSpeakerBoost
+    } else {
+      params.engine = selectedEngine
+      params.provider = selectedEngine
+      params.model = ttsModel
+      params.speed = speed
+      if (selectedVoice) {
+        params.voiceId = selectedVoice
+        params.voice = selectedVoice
+      }
     }
 
     onGenerate(params)
@@ -566,22 +629,52 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
 
   const ALL_ENGINES: Engine[] = [
     { id: 'elevenlabs', name: 'ElevenLabs', provider: 'ElevenLabs', local: false, keyName: 'elevenlabsApiKey' },
+    { id: 'kie', name: 'KIE.ai', provider: 'KIE.ai', local: false, keyName: 'openfieldApiKey' },
+    { id: 'fal', name: 'fal.ai', provider: 'fal.ai', local: false, keyName: 'falApiKey' },
+    { id: 'replicate', name: 'Replicate', provider: 'Replicate', local: false, keyName: 'replicateApiKey' },
+    { id: 'machgen', name: 'MachGen', provider: 'MachGen', local: false, keyName: 'machgenApiKey' },
   ]
 
-  const engines = ALL_ENGINES.filter(e => activatedKeys[e.keyName || '__never__'])
+  const configuredProviders = useProvidersStore((s) => s.configuredProviders)
+
+  const engines = useMemo(() => {
+    const list = ALL_ENGINES.filter(e => {
+      const pId = e.id === 'elevenlabs' ? 'elevenlabs' : e.id === 'kie' ? 'kie' : e.id
+      return Boolean(configuredProviders[pId])
+    })
+    return list.length > 0 ? list : ALL_ENGINES
+  }, [configuredProviders])
 
   useEffect(() => {
     if (!engines.find(e => e.id === selectedEngine)) {
-      setSelectedEngine(engines[0]?.id || '')
+      setSelectedEngine(engines[0]?.id || 'elevenlabs')
     }
   }, [selectedEngine, engines])
+
+  const providerModels = useMemo(() => {
+    if (selectedEngine === 'elevenlabs') return []
+    return AUDIO_MODELS.filter(m => m.kind === 'voice' && m.provider === selectedEngine)
+  }, [selectedEngine])
+
+  useEffect(() => {
+    if (selectedEngine !== 'elevenlabs') {
+      const models = AUDIO_MODELS.filter(m => m.kind === 'voice' && m.provider === selectedEngine)
+      if (models.length > 0 && !models.some(m => (m.t2aId || m.name) === ttsModel)) {
+        setTtsModel(models[0].t2aId || models[0].name)
+      }
+    }
+  }, [selectedEngine, ttsModel])
+
+  const presetVoices = useMemo(() => {
+    if (selectedEngine === 'elevenlabs') return []
+    return PRESET_VOICES_BY_MODEL[ttsModel] || []
+  }, [selectedEngine, ttsModel])
 
   const charCount = text.length
   const canGenerate = genMode === 'vc'
     ? !isGenerating && selectedEngine === 'elevenlabs' && !!vcAudio && !!selectedVoice && elevenlabsConfigured
     : text.trim().length > 0 && !isGenerating && (
-        selectedEngine === 'gpt-tts' || selectedEngine === 'minimax-tts' ||
-        (selectedEngine === 'elevenlabs' ? (!!selectedVoice && elevenlabsConfigured) : !!selectedVoice)
+        selectedEngine !== 'elevenlabs' || (!!selectedVoice && elevenlabsConfigured)
       )
 
   const voiceList: any[] = selectedEngine === 'elevenlabs' ? elevenlabsVoices : []
@@ -821,17 +914,95 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
           </>
         )}
 
-        {/* Empty state for engines without a voice list */}
+        {/* Non-ElevenLabs: models + preset voices */}
         {selectedEngine !== 'elevenlabs' && (
-          <div className="flex-1 overflow-y-auto p-4 min-h-0">
-            <div className="flex flex-col items-center gap-2 py-8 text-surface-600">
-              <Cloud size={18} className="opacity-40" />
-              <p className="text-[11px] text-center px-4">
-                {engines.length === 0
-                  ? 'No providers activated. Add an API key in Settings → Providers to enable voice engines.'
-                  : 'This engine uses default voices. Select a voice-enabled engine to choose one.'}
-              </p>
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="p-3 border-b border-surface-800 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <ProviderLogo provider={selectedEngine} size={16} />
+                <span className="text-xs font-semibold text-surface-200 truncate">
+                  {engines.find(e => e.id === selectedEngine)?.name || selectedEngine}
+                </span>
+              </div>
+              <span className="text-[10px] text-surface-500 font-mono flex-shrink-0">{providerModels.length} models</span>
             </div>
+
+            {/* Model list */}
+            <div className="p-3 border-b border-surface-800 flex-shrink-0 space-y-1.5">
+              <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">TTS Model</p>
+              <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                {providerModels.map(m => {
+                  const modelId = m.t2aId || m.name
+                  const isSelected = ttsModel === modelId
+                  return (
+                    <button
+                      key={modelId}
+                      onClick={() => {
+                        setTtsModel(modelId)
+                        setSelectedVoice('')
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-all flex items-center justify-between ${
+                        isSelected
+                          ? 'bg-accent-500/15 text-accent-400 border border-accent-500/30 font-medium'
+                          : 'text-surface-300 hover:bg-surface-800/60 border border-transparent'
+                      }`}
+                    >
+                      <span className="truncate">{m.name}</span>
+                      {isSelected && <Check size={12} className="text-accent-400 flex-shrink-0" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Voice presets if available */}
+            {presetVoices.length > 0 ? (
+              <div className="flex-1 overflow-y-auto p-3 min-h-0 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-surface-500 uppercase tracking-wider">Preset Voices</p>
+                  <span className="text-[10px] text-surface-600 font-mono">{presetVoices.length}</span>
+                </div>
+                <div className="space-y-1">
+                  {presetVoices.map(v => {
+                    const isSelected = selectedVoice === v.id
+                    return (
+                      <div
+                        key={v.id}
+                        onClick={() => setSelectedVoice(isSelected ? '' : v.id)}
+                        className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs cursor-pointer transition-all border ${
+                          isSelected
+                            ? 'bg-accent-500/10 text-accent-400 border-accent-500/25'
+                            : 'text-surface-300 hover:bg-surface-800/50 border border-transparent'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1 mr-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-surface-200 truncate">{v.label}</span>
+                            {v.gender && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-surface-800 text-surface-400 uppercase font-mono">
+                                {v.gender}
+                              </span>
+                            )}
+                          </div>
+                          {v.detail && <p className="text-[10px] text-surface-500 truncate mt-0.5">{v.detail}</p>}
+                        </div>
+                        {isSelected && <Check size={12} className="text-accent-400 flex-shrink-0" />}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-4 min-h-0 flex flex-col items-center justify-center text-center">
+                <div className="w-10 h-10 rounded-full bg-surface-800/80 border border-surface-700/60 flex items-center justify-center text-accent-400 mb-2">
+                  <Mic size={18} />
+                </div>
+                <p className="text-xs font-medium text-surface-300">Sintetizador Directo</p>
+                <p className="text-[11px] text-surface-500 max-w-[200px] mt-1">
+                  Este modelo sintetiza automáticamente la voz con su tono nativo a partir del texto.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -998,19 +1169,18 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
                   className={`flex items-center gap-1.5 px-2.5 h-9 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-300 transition-colors border ${engineOpen ? 'border-accent-500/40' : 'border-transparent'}`}
                   title="Engine"
                 >
-                  {(() => { const eng = engines.find(e => e.id === selectedEngine) || engines[0]; return (
-                    <>
-                      {eng.local
-                        ? <Cpu size={12} className="text-green-500/80" />
-                        : <Cloud size={12} className="text-accent-400" />
-                      }
-                      {eng.name}
-                      {eng.local
-                        ? <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-500/80 font-semibold">LOCAL</span>
-                        : <span className="text-[9px] px-1 py-0.5 rounded bg-accent-500/20 text-accent-400 font-semibold">{eng.provider}</span>
-                      }
-                    </>
-                  ) })()}
+                  {(() => {
+                    const eng = engines.find(e => e.id === selectedEngine) || engines[0]
+                    return (
+                      <>
+                        <ProviderLogo provider={eng.id} size={13} />
+                        <span>{eng.name}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent-500/20 text-accent-400 font-semibold uppercase">
+                          {eng.id}
+                        </span>
+                      </>
+                    )
+                  })()}
                   <ChevronDown size={11} className={`text-surface-500 transition-transform duration-200 ${engineOpen ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -1022,15 +1192,12 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
                         <button
                           key={eng.id}
                           onClick={() => { setSelectedEngine(eng.id); setEngineOpen(false) }}
-                          className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${isActive ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}
+                          className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2.5 ${isActive ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}
                         >
-                          {eng.local
-                            ? <Cpu size={11} className={isActive ? 'text-green-500/80' : 'text-surface-500'} />
-                            : <Cloud size={11} className={isActive ? 'text-accent-400' : 'text-surface-500'} />
-                          }
-                          <span className="flex-1">{eng.name}</span>
-                          <span className={`text-[10px] ${eng.local ? 'text-green-500/70' : 'text-surface-600'}`}>{eng.provider}</span>
-                          {isActive && <Check size={12} className="flex-shrink-0" />}
+                          <ProviderLogo provider={eng.id} size={14} />
+                          <span className="flex-1 font-medium">{eng.name}</span>
+                          <span className="text-[10px] text-surface-500 uppercase">{eng.id}</span>
+                          {isActive && <Check size={12} className="flex-shrink-0 text-accent-400" />}
                         </button>
                       )
                     })}
@@ -1049,7 +1216,7 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
                 </PopoverTrigger>
                 <PopoverContent align="end" side="top" sideOffset={6} className="w-64 p-3 bg-surface-900 border-surface-700 text-surface-200">
                   <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-3">Advanced settings</p>
-                  {selectedEngine === 'elevenlabs' && (
+                  {selectedEngine === 'elevenlabs' ? (
                     <div className="space-y-3 mb-3">
                       <div>
                         <p className="text-[11px] text-surface-400 mb-1">Model</p>
@@ -1075,6 +1242,24 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
                         >
                           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${useSpeakerBoost ? 'left-[18px]' : 'left-0.5'}`} />
                         </button>
+                      </div>
+                    </div>
+                  ) : providerModels.length > 0 && (
+                    <div className="space-y-3 mb-3">
+                      <div>
+                        <p className="text-[11px] text-surface-400 mb-1">Model</p>
+                        <Select value={ttsModel} onValueChange={(val) => { setTtsModel(val); setSelectedVoice('') }}>
+                          <SelectTrigger className="h-7 w-full rounded-md px-2 text-[11px] gap-1 bg-surface-800 border-surface-700 text-surface-200 [&>svg]:size-3">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-surface-900 border-surface-700 text-surface-200 max-h-56">
+                            {providerModels.map(m => (
+                              <SelectItem key={m.t2aId || m.name} value={m.t2aId || m.name} className="text-xs py-1">
+                                {m.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   )}
@@ -1156,15 +1341,12 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
                       </button>
                       <div className="flex-1 min-w-0">
                         <p className="text-[11px] text-surface-200 line-clamp-2 leading-snug">{asset.prompt || '—'}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] text-surface-500">
-                            {asset.modelUsed?.startsWith('piper:') ? `Piper · ${asset.modelUsed.slice(6)}` :
-                             asset.modelUsed?.startsWith('kokoro:') ? `Kokoro · ${asset.modelUsed.slice(7)}` :
-                             asset.modelUsed?.startsWith('elevenlabs:vc:') ? `ElevenLabs VC · ${asset.modelUsed.slice(13)}` :
-                             asset.modelUsed?.startsWith('elevenlabs:') ? `ElevenLabs · ${asset.modelUsed.slice(11)}` :
-                             asset.modelUsed === 'gpt-tts-1' ? 'GPT TTS' :
-                             asset.modelUsed === 'minimax-text-to-speech' ? 'MiniMax TTS' :
-                             asset.modelUsed || '—'}
+                        <div className="flex items-center gap-1.5 mt-1">
+                          {getAudioProvider(asset) && (
+                            <ProviderLogo provider={getAudioProvider(asset)} size={11} />
+                          )}
+                          <span className="text-[10px] text-surface-500 truncate">
+                            {formatAudioModelLabel(asset.modelUsed)}
                           </span>
                         </div>
                       </div>

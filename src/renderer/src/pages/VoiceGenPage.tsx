@@ -15,6 +15,12 @@ export function VoiceGenPage() {
     if (!api) return
     const unsubComplete = api.on('openfield:task:completed', () => reset())
     const unsubFailed = api.on('openfield:task:failed', () => reset())
+    const unsubFalComplete = api.on('fal:task:completed', () => reset())
+    const unsubFalFailed = api.on('fal:task:failed', () => reset())
+    const unsubRepComplete = api.on('replicate:task:completed', () => reset())
+    const unsubRepFailed = api.on('replicate:task:failed', () => reset())
+    const unsubMachComplete = api.on('machgen:task:completed', () => reset())
+    const unsubMachFailed = api.on('machgen:task:failed', () => reset())
     const unsubProgress = api.on('local:audio:progress', (p: any) => {
       if (p?.status === 'completed') {
         setAudioStatus(null)
@@ -27,17 +33,35 @@ export function VoiceGenPage() {
       setAudioStatus(null)
       setAudioError(e?.message || 'Error generando audio')
     })
-    return () => { unsubComplete?.(); unsubFailed?.(); unsubProgress?.(); unsubError?.() }
+    return () => {
+      unsubComplete?.()
+      unsubFailed?.()
+      unsubFalComplete?.()
+      unsubFalFailed?.()
+      unsubRepComplete?.()
+      unsubRepFailed?.()
+      unsubMachComplete?.()
+      unsubMachFailed?.()
+      unsubProgress?.()
+      unsubError?.()
+    }
   }, [reset])
 
   const handleGenerate = useCallback(async (params: any) => {
     try {
       const api = (window as any).electronAPI
       setAudioError('')
+      const provider = params.provider || params.engine
+      const model = params.model || ''
+      const isElevenLabs = provider === 'elevenlabs'
+      const isFal = provider === 'fal' || model.startsWith('fal-ai/')
+      const isReplicate = provider === 'replicate' || model.startsWith('google/') || model.startsWith('inworld/') || model.startsWith('lucataco/') || model.startsWith('cjwbw/')
+      const isMachgen = provider === 'machgen' || model.startsWith('machgen/')
+
       if (params.local && params.voiceId) {
         setAudioStatus({ status: 'starting', message: 'Iniciando...', pct: 0 })
         await api?.local.audioGenerate({ voiceId: params.voiceId, prompt: params.prompt, engine: params.engine, speed: params.speed })
-      } else if (params.engine === 'elevenlabs' && params.mode === 'voicechanger') {
+      } else if (isElevenLabs && params.mode === 'voicechanger') {
         setAudioStatus({ status: 'starting', message: 'Convirtiendo voz con ElevenLabs...', pct: 0 })
         await api?.elevenlabs.voiceChange({
           voiceId: params.voiceId,
@@ -46,9 +70,27 @@ export function VoiceGenPage() {
           audioMime: params.audioMime,
           fileName: params.fileName,
         })
-      } else if (params.engine === 'elevenlabs' && params.voiceId) {
+      } else if (isElevenLabs && params.voiceId) {
         setAudioStatus({ status: 'starting', message: 'Iniciando ElevenLabs...', pct: 0 })
-        await api?.elevenlabs.generate({ voiceId: params.voiceId, prompt: params.prompt, speed: params.speed, model: params.model })
+        await api?.elevenlabs.generate({
+          voiceId: params.voiceId,
+          prompt: params.prompt,
+          speed: params.speed,
+          model: params.model,
+          stability: params.stability,
+          similarityBoost: params.similarityBoost,
+          style: params.style,
+          useSpeakerBoost: params.useSpeakerBoost,
+        })
+      } else if (isFal) {
+        setAudioStatus({ status: 'starting', message: 'Enviando a fal.ai...', pct: 0 })
+        await api?.fal.generate({ ...params, type: 'audio' })
+      } else if (isReplicate) {
+        setAudioStatus({ status: 'starting', message: 'Enviando a Replicate...', pct: 0 })
+        await api?.replicate.generate({ ...params, type: 'audio' })
+      } else if (isMachgen) {
+        setAudioStatus({ status: 'starting', message: 'Enviando a MachGen...', pct: 0 })
+        await api?.machgen.generate({ ...params, type: 'audio' })
       } else {
         await api?.openfield.generateAudio(params)
       }

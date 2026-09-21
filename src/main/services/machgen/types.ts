@@ -1,4 +1,7 @@
-export type MachgenTaskType = 'T2V' | 'I2V' | 'R2V' | 'UPSCALE' | 'T2I' | 'I2I'
+export type MachgenTaskType =
+  | 'T2V' | 'I2V' | 'R2V' | 'UPSCALE'
+  | 'T2I' | 'I2I'
+  | 'T2S' | 'T2D' | 'T2SFX' | 'T2M'
 
 export interface MachgenVideoConfig {
   duration_secs: number
@@ -102,17 +105,24 @@ export interface MachgenModelDef {
   name: string
   category: string
   hosting: 'MachGen' | 'Partner'
-  supportsT2V: boolean
-  supportsI2V: boolean
-  supportsEndFrame: boolean
-  supportsR2V: boolean
-  supportsUpscale: boolean
+  supportedTasks: MachgenTaskType[]
+  supportsT2V?: boolean
+  supportsI2V?: boolean
+  supportsEndFrame?: boolean
+  supportsR2V?: boolean
+  supportsUpscale?: boolean
+  supportsT2I?: boolean
+  supportsI2I?: boolean
+  supportsT2S?: boolean
+  supportsT2D?: boolean
+  supportsT2SFX?: boolean
+  supportsT2M?: boolean
   supportsVideoRef?: boolean
   supportsAudioRef?: boolean
-  allowedHeights: number[]
-  allowedAspectRatios: string[]
-  allowedDurations: number[]
-  defaultFps: number
+  allowedHeights?: number[]
+  allowedAspectRatios?: string[]
+  allowedDurations?: number[]
+  defaultFps?: number
   defaultInferSteps?: number
-  prices: { resolution: string; height: number; costPerSec: number }[]
+  prices?: { resolution: string; height?: number; costPerSec?: number; cost?: number }[]
 }
