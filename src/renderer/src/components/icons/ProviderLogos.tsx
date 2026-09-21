@@ -198,12 +198,7 @@ export function LocalLogo({ size = 16, className = '', ...props }: ProviderLogoP
 export function getProviderForModel(model?: { provider?: string; local?: boolean } | null): ProviderId {
   if (!model) return 'kie'
   if (model.local) return 'local'
-  if (model.provider === 'replicate') return 'replicate'
-  if (model.provider === 'fal') return 'fal'
-  if (model.provider === 'elevenlabs') return 'elevenlabs'
-  if (model.provider === 'machgen') return 'machgen'
-  if (model.provider === 'higgsfield') return 'higgsfield'
-  return 'kie'
+  return (model.provider as ProviderId) || 'kie'
 }
 
 export interface ProviderLogoComponentProps {

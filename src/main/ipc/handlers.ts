@@ -11,9 +11,6 @@ import { registerTasksHandlers } from './tasks'
 import { registerWorkflowsHandlers } from './workflows'
 import { registerLogsHandlers } from './logs'
 import { registerAppHandlers } from './app'
-import { registerMarketplaceHandlers } from './marketplace'
-import { registerModelsHandlers } from './models'
-import { registerLocalModelsHandlers } from './local-models'
 import { registerBridgeHandlers } from './bridge'
 import { registerReplicateHandlers } from './replicate'
 import { registerFalHandlers } from './fal'
@@ -40,9 +37,6 @@ export function registerIpcHandlers() {
   registerWorkflowsHandlers(ctx)
   registerLogsHandlers(ctx)
   registerAppHandlers(ctx)
-  registerMarketplaceHandlers(ctx)
-  registerModelsHandlers(ctx)
-  registerLocalModelsHandlers(ctx)
   registerBridgeHandlers(ctx)
   registerReplicateHandlers(ctx)
   registerFalHandlers(ctx)

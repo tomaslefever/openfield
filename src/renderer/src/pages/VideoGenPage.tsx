@@ -46,6 +46,12 @@ const MODEL_NAMES: Record<string, string> = {
   'minimax/h3-max-turbo/text-to-video': 'MiniMax H3 Max Turbo (Fal)',
   'minimax/h3-max/text-to-video': 'MiniMax H3 Max (Fal)',
   'minimax/h3-max/reference-to-video': 'MiniMax H3 Max Ref (Fal)',
+  'machgen/MiniMax-H3/t2v': 'MiniMax H3 (MachGen)',
+  'machgen/MiniMax-H3-Turbo/t2v': 'MiniMax H3 Turbo (MachGen)',
+  'machgen/MiniMax-H3': 'MiniMax H3 (MachGen)',
+  'machgen/MiniMax-H3-Turbo': 'MiniMax H3 Turbo (MachGen)',
+  'MiniMax-H3-Turbo': 'MiniMax H3 Turbo (MachGen)',
+  'MiniMax-H3': 'MiniMax H3 (MachGen)',
 }
 
 export function VideoGenPage() {

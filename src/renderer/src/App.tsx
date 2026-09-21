@@ -5,6 +5,7 @@ import { useElementsStore } from './stores/elements-store'
 import { useStoryboardStore } from './stores/storyboard-store'
 import { usePromptLibraryStore } from './stores/prompt-library-store'
 import { useShortDramaStore } from './stores/short-drama-store'
+import { useProvidersStore } from './stores/providers-store'
 import { AppSidebar } from './components/Sidebar'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { ImageGenPage } from './pages/ImageGenPage'
@@ -18,9 +19,7 @@ import { EditorPage } from './pages/EditorPage'
 import { CinemaStudioPage } from './pages/CinemaStudioPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProvidersPage } from './pages/ProvidersPage'
-import { useProvidersStore } from './stores/providers-store'
 import { LogsPage } from './pages/LogsPage'
-import { MarketplacePage } from './pages/MarketplacePage'
 import { AppsPage } from './pages/AppsPage'
 import { PromptLibraryPage } from './pages/PromptLibraryPage'
 import { StoryboardPage } from './pages/StoryboardPage'
@@ -46,7 +45,6 @@ const pages: Record<Page, React.FC> = {
   providers: ProvidersPage,
   settings: SettingsPage,
   logs: LogsPage,
-  marketplace: MarketplacePage,
 }
 
 function App() {

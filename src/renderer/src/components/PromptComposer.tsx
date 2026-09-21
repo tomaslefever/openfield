@@ -13,7 +13,7 @@ import {
   IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS, PIXVERSE_T2V_PRICES, PIXVERSE_REF_PRICES,
   calcCost, calcVideoCost, type ModelPricing,
 } from '../lib/models'
-import { useProvidersStore, isModelConfigured } from '../stores/providers-store'
+import { useProvidersStore, isModelConfigured, PROVIDER_DEFS, hasAnyConfiguredProvider, type ProviderId } from '../stores/providers-store'
 import { srcUrl } from '../services/file-url'
 import {
   CameraControl,
@@ -52,7 +52,7 @@ export interface PromptComposerHandle {
     lastFrameBase64?: string
     multiShots?: boolean
     multiPrompt?: { prompt: string; duration: number }[]
-    provider?: 'kie' | 'replicate' | 'fal' | 'machgen' | 'higgsfield'
+    provider?: ProviderId
     enhancePrompt?: boolean
     voice?: string
     voiceLanguage?: string
@@ -89,7 +89,7 @@ interface PromptComposerProps {
     voiceId?: string
     engine?: string
     kind?: 'voice' | 'music'
-    provider?: 'kie' | 'replicate' | 'fal' | 'machgen' | 'higgsfield'
+    provider?: ProviderId
     voice?: string
     voiceLanguage?: string
     draft?: boolean
@@ -647,12 +647,43 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     return () => window.removeEventListener('paste', onPaste)
   }, [])
 
+  const hasAnyProvider = useMemo(() => hasAnyConfiguredProvider(configuredProviders), [configuredProviders])
+
+  // Compute available modalities among currently active providers
+  const availableModes = useMemo(() => {
+    const modes: ('image' | 'video' | 'audio')[] = []
+    if (IMAGE_MODELS.some(m => isModelConfigured(m, configuredProviders))) modes.push('image')
+    if (VIDEO_MODELS.some(m => isModelConfigured(m, configuredProviders))) modes.push('video')
+    if (AUDIO_MODELS.some(m => isModelConfigured(m, configuredProviders))) modes.push('audio')
+    return modes
+  }, [configuredProviders])
+
   const models = (mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS)
     .filter(m => mode === 'audio' && subMode ? m.kind === subMode : true)
     .filter(m => isModelConfigured(m, configuredProviders))
-  // Before the activated providers resolve (or when none are configured) the filtered
-  // list is empty. Fall back to an empty model so every derived value stays null-safe;
-  // the UI shows the "no provider" notice via `hasModel`.
+
+  // If the current mode has 0 configured models, but another modality is available,
+  // automatically adapt to an available mode!
+  useEffect(() => {
+    if (hasAnyProvider && models.length === 0 && availableModes.length > 0) {
+      if (!availableModes.includes(internalMode)) {
+        const nextMode = availableModes[0]
+        setInternalMode(nextMode)
+        onModeChange?.(nextMode as any)
+      }
+    }
+  }, [hasAnyProvider, models.length, availableModes, internalMode, onModeChange])
+
+  // When models list has items, automatically select the first valid model if current modelName is unconfigured
+  useEffect(() => {
+    if (models.length > 0 && !models.some(m => m.name === modelName)) {
+      setModelName(models[0].name)
+      onModelChange?.(models[0].name)
+    }
+  }, [models, modelName, onModeChange])
+
+  // Fall back to an empty model so every derived value stays null-safe;
+  // the UI shows the "no provider" notice only if zero providers are configured.
   const hasModel = models.length > 0
   const currentModel = hasModel ? (models.find(m => m.name === modelName) || models[0]!) : EMPTY_MODEL
   const currentModelRef = useRef(currentModel)
@@ -1468,7 +1499,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       mode,
       prompt: finalPrompt,
       model: activeId,
-      provider: isReplicate ? 'replicate' : isFal ? 'fal' : isMachgen ? 'machgen' : isHiggsfield ? 'higgsfield' : undefined,
+      provider: (currentModel.provider && currentModel.provider !== 'kie') ? currentModel.provider : undefined,
       voice: isReplicate && !isPVideo ? replicateVoice : undefined,
       voiceLanguage: isReplicate && !isPVideo ? replicateLanguage : undefined,
       aspectRatio: aspectRatio,
@@ -1533,7 +1564,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
   const hasMedia = refs.length > 0 || !!imageBase64 || !!firstFrameBase64 || !!firstFrameUrl || !!lastFrameBase64 || !!lastFrameUrl
 
-  if (!hasModel) {
+  if (!hasAnyProvider) {
     return (
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,420px)] bg-surface-900 border border-surface-700 rounded-xl px-4 py-3 shadow-xl shadow-black/40 flex items-center gap-2.5">
         <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
@@ -1567,32 +1598,32 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         <div className={embedded ? 'w-full' : 'max-w-5xl mx-auto pointer-events-auto flex items-end gap-2.5'}>
           {/* Floating mode switcher (Image / Video) oriented vertically */}
           {!embedded && mode !== 'audio' && (
-            <div className="flex flex-col p-1.5 bg-sidebar/95 border border-white/20 rounded-2xl shadow-2xl shadow-black/50 backdrop-blur-2xl backdrop-saturate-150 gap-1.5 shrink-0 self-end mb-0.5">
+            <div className="flex flex-col p-1 bg-sidebar/95 border border-white/20 rounded-xl shadow-xl shadow-black/40 backdrop-blur-xl backdrop-saturate-150 gap-1 shrink-0 self-end mb-0.5">
               <button
                 type="button"
                 onClick={() => switchMode('image')}
-                className={`group flex flex-col items-center justify-center w-[68px] h-[66px] rounded-xl transition-all duration-200 active:scale-95 cursor-pointer select-none ${
+                className={`group flex flex-col items-center justify-center w-[50px] h-[46px] rounded-lg transition-all duration-150 active:scale-95 cursor-pointer select-none ${
                   mode === 'image'
-                    ? 'bg-accent-600 text-white shadow-lg shadow-accent-600/35 font-semibold ring-1 ring-white/20'
+                    ? 'bg-accent-600 text-white shadow-md shadow-accent-600/30 font-semibold'
                     : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/80'
                 }`}
                 title="Modo Imagen"
               >
-                <ImageIcon size={24} className="shrink-0 transition-transform duration-200 group-hover:scale-110" />
-                <span className="text-[11px] font-medium leading-none mt-1.5 tracking-tight">Imagen</span>
+                <ImageIcon size={18} className="shrink-0 transition-transform duration-150 group-hover:scale-110" />
+                <span className="text-[10px] font-medium leading-none mt-1 tracking-tight">Imagen</span>
               </button>
               <button
                 type="button"
                 onClick={() => switchMode('video')}
-                className={`group flex flex-col items-center justify-center w-[68px] h-[66px] rounded-xl transition-all duration-200 active:scale-95 cursor-pointer select-none ${
+                className={`group flex flex-col items-center justify-center w-[50px] h-[46px] rounded-lg transition-all duration-150 active:scale-95 cursor-pointer select-none ${
                   mode === 'video'
-                    ? 'bg-accent-600 text-white shadow-lg shadow-accent-600/35 font-semibold ring-1 ring-white/20'
+                    ? 'bg-accent-600 text-white shadow-md shadow-accent-600/30 font-semibold'
                     : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/80'
                 }`}
                 title="Modo Video"
               >
-                <Video size={24} className="shrink-0 transition-transform duration-200 group-hover:scale-110" />
-                <span className="text-[11px] font-medium leading-none mt-1.5 tracking-tight">Video</span>
+                <Video size={18} className="shrink-0 transition-transform duration-150 group-hover:scale-110" />
+                <span className="text-[10px] font-medium leading-none mt-1 tracking-tight">Video</span>
               </button>
             </div>
           )}
@@ -2101,15 +2132,12 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                     ? models.filter(m => m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q) || (m.provider && m.provider.toLowerCase().includes(q)))
                     : models
 
-                    const groups = [
-                      { id: 'kie', label: 'KIE.ai', provider: 'kie' as const, items: filtered.filter(m => !m.local && m.provider !== 'replicate' && m.provider !== 'fal' && m.provider !== 'elevenlabs' && m.provider !== 'machgen' && m.provider !== 'higgsfield') },
-                      { id: 'higgsfield', label: 'Higgsfield AI', provider: 'higgsfield' as const, items: filtered.filter(m => m.provider === 'higgsfield') },
-                      { id: 'machgen', label: 'MachGen', provider: 'machgen' as const, items: filtered.filter(m => m.provider === 'machgen') },
-                      { id: 'elevenlabs', label: 'ElevenLabs', provider: 'elevenlabs' as const, items: filtered.filter(m => m.provider === 'elevenlabs') },
-                      { id: 'replicate', label: 'Replicate', provider: 'replicate' as const, items: filtered.filter(m => m.provider === 'replicate') },
-                      { id: 'fal', label: 'fal.ai', provider: 'fal' as const, items: filtered.filter(m => m.provider === 'fal') },
-                      { id: 'local', label: 'Local', provider: 'local' as const, items: filtered.filter(m => m.local) },
-                    ].filter(g => g.items.length > 0)
+                    const groups = PROVIDER_DEFS.map((p) => ({
+                      id: p.id,
+                      label: p.label,
+                      provider: p.id,
+                      items: filtered.filter((m) => (m.provider || 'kie') === p.id),
+                    })).filter((g) => g.items.length > 0)
 
                     return (
                     <div className="astryx-selector-popup absolute bottom-full left-0 mb-1.5 bg-surface-900/95 backdrop-blur-xl border border-surface-700/90 rounded-xl p-1 min-w-[280px] w-max max-w-[360px] shadow-2xl max-h-[340px] flex flex-col overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
@@ -2140,13 +2168,30 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                       <div className="overflow-y-auto max-h-[280px] p-0.5 space-y-0.5 divide-y divide-surface-800/40">
                         {groups.length === 0 ? (
                           <div className="p-4 text-center text-xs text-surface-400 space-y-2">
-                            <p>No hay modelos disponibles con proveedor configurado</p>
+                            <p>No hay modelos disponibles para este modo con los proveedores configurados.</p>
+                            {availableModes.filter((am) => am !== mode).length > 0 && (
+                              <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
+                                {availableModes.filter((am) => am !== mode).map((am) => (
+                                  <button
+                                    key={am}
+                                    type="button"
+                                    onClick={() => {
+                                      switchMode(am as any)
+                                      setShowModels(false)
+                                    }}
+                                    className="px-2.5 py-1 bg-accent-600 hover:bg-accent-500 text-white rounded text-[11px] font-medium transition-colors"
+                                  >
+                                    Cambiar a {am === 'video' ? 'Video' : am === 'image' ? 'Imagen' : 'Audio'}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                             <button
                               type="button"
                               onClick={() => useAppStore.getState().setPage('providers')}
-                              className="text-[11px] text-accent-400 hover:text-accent-300 underline block mx-auto cursor-pointer"
+                              className="text-[11px] text-accent-400 hover:text-accent-300 underline block mx-auto cursor-pointer pt-1"
                             >
-                              Configurar API Keys en Providers →
+                              Configurar más Providers →
                             </button>
                           </div>
                         ) : (
@@ -2162,9 +2207,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                               <div className="space-y-0.5">
                                 {g.items.map((m) => {
                                   const isSelected = modelName === m.name
-                                  const costDisplay = m.provider === 'replicate' || m.provider === 'fal' || m.provider === 'machgen' || m.provider === 'higgsfield'
-                                    ? `$${(m.prices[0]?.cost || 0).toFixed(3)}/${m.unit === 's' ? 's' : 'img'}`
-                                    : `${Math.round((m.prices[0]?.cost || 0) * 200)} cr`
+                                  const isKie = (m.provider || 'kie') === 'kie'
+                                  const costDisplay = isKie
+                                    ? `${Math.round((m.prices[0]?.cost || 0) * 200)} cr`
+                                    : `$${(m.prices[0]?.cost || 0).toFixed(3)}/${m.unit === 's' ? 's' : 'img'}`
 
                                   const descriptionText = `${m.category}${m.resolutions && m.resolutions.length > 0 ? ` • ${m.resolutions.join(', ')}` : ''}`
                                   const pId = getProviderForModel(m)

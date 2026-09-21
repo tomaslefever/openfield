@@ -5,7 +5,7 @@ import { getRawDb } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
-import { FalApiClient, getFalModel, type FalImageResult, type FalVideoResult } from './fal'
+import { FalApiClient, getFalModel, type FalImageResult, type FalVideoResult, type FalAudioResult, type FalResult } from './fal'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_RETRIES = 3
@@ -48,11 +48,15 @@ export class FalQueue extends EventEmitter {
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
     const isImage = type === 'image'
+    const isAudio = type === 'audio'
+    const assetType = isImage ? 'image' : isAudio ? 'audio' : 'video'
+    const mimeType = isImage ? 'image/png' : isAudio ? 'audio/mpeg' : 'video/mp4'
+
     raw.prepare(
       `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      assetId, isImage ? 'image' : 'video', '', '', `pending-${taskId}`, isImage ? 'image/png' : 'video/mp4',
+      assetId, assetType, '', '', `pending-${taskId}`, mimeType,
       payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
       0, taskId, wsId, now, now
     )
@@ -76,7 +80,21 @@ export class FalQueue extends EventEmitter {
   private buildInput(payload: any): Record<string, any> {
     const model = getFalModel(payload.model)
     if (model?.type === 'image') return this.buildImageInput(payload, model)
+    if (model?.type === 'audio') return this.buildAudioInput(payload)
     return this.buildVideoInput(payload)
+  }
+
+  private buildAudioInput(payload: any): Record<string, any> {
+    const text = payload.prompt || payload.text || ''
+    const input: Record<string, any> = {
+      prompt: text,
+      input: text,
+      text: text,
+    }
+    if (payload.voice) input.voice = payload.voice
+    if (payload.voiceLanguage) input.language = payload.voiceLanguage
+    if (payload.duration) input.duration = Number(payload.duration)
+    return input
   }
 
   private buildVideoInput(payload: any): Record<string, any> {
@@ -211,13 +229,19 @@ export class FalQueue extends EventEmitter {
     }
   }
 
-  private async handleSuccess(task: any, result: FalVideoResult | FalImageResult) {
+  private async handleSuccess(task: any, result: FalResult) {
     const raw = getRawDb()
     const taskPayload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
     const isImage = task.type === 'image' || !!(result as FalImageResult).images
+    const isAudio = task.type === 'audio' || !!(result as any).audio_url || !!(result as any).audio_file || !!(result as any).audio
 
     if (isImage) {
       await this.handleImageSuccess(task, taskPayload, (result as FalImageResult).images || [])
+      return
+    }
+
+    if (isAudio) {
+      await this.handleAudioSuccess(task, taskPayload, result)
       return
     }
 
@@ -360,6 +384,81 @@ export class FalQueue extends EventEmitter {
       'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId, 100, Date.now(), Date.now(), task.taskId)
 
+    raw.save()
+
+    this.emit('task:completed', { taskId: task.taskId, assetId: localAssetId, output: remoteUrl })
+  }
+
+  private async handleAudioSuccess(task: any, taskPayload: any, result: any) {
+    const raw = getRawDb()
+    const audioData = result?.audio_url || result?.audio_file || result?.audio || result
+    const remoteUrl = typeof audioData === 'string' ? audioData : (audioData?.url || null)
+
+    if (!remoteUrl) {
+      logRun(raw, task.taskId, 'no-url', 'No output audio URL in result', null, 'warn')
+      raw.prepare(
+        'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+      ).run('completed', null, 100, Date.now(), Date.now(), task.taskId)
+      raw.save()
+      this.emit('task:completed', { taskId: task.taskId, assetId: null, output: null })
+      return
+    }
+
+    const assetId = crypto.randomUUID()
+    const mimeType = (typeof audioData === 'object' && audioData?.content_type) || 'audio/mpeg'
+    const ext = mimeType === 'audio/wav' || mimeType === 'audio/x-wav' ? 'wav' : mimeType === 'audio/ogg' ? 'ogg' : 'mp3'
+    const fileName = `${assetId}.${ext}`
+    const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
+    const subDir = workspaceAssetSubDir('audio', taskWs)
+    const localPath = `${subDir}/${fileName}`
+
+    const updatePlaceholder = (fields: Record<string, any>) => {
+      const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
+      if (!placeholder) return null
+      const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ')
+      raw.prepare(`UPDATE assets SET ${sets}, updated_at = ? WHERE id = ?`)
+        .run(...Object.values(fields), Date.now(), placeholder.id)
+      return placeholder.id
+    }
+
+    let localAssetId: string | null = null
+
+    try {
+      logRun(raw, task.taskId, 'download', `Downloading audio: ${remoteUrl.substring(0, 80)}...`)
+      const resp = await fetch(remoteUrl)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const buffer = Buffer.from(await resp.arrayBuffer())
+      await fs.mkdir(subDir, { recursive: true })
+      await fs.writeFile(localPath, buffer)
+
+      localAssetId = updatePlaceholder({
+        file_path: remoteUrl,
+        local_path: localPath,
+        file_name: fileName,
+        mime_type: mimeType,
+        type: 'audio',
+        file_size: buffer.length,
+        model_used: taskPayload?.model || '',
+        prompt: taskPayload?.prompt || '',
+        parameters: JSON.stringify(taskPayload),
+      })
+    } catch (err: any) {
+      logRun(raw, task.taskId, 'download-error', `Download failed: ${err.message}`, null, 'error')
+      console.error('[FalQueue] Failed to download audio:', err.message)
+      localAssetId = updatePlaceholder({
+        file_path: remoteUrl,
+        file_name: `remote-audio-${assetId}`,
+        mime_type: mimeType,
+        type: 'audio',
+        model_used: taskPayload?.model || '',
+        prompt: taskPayload?.prompt || '',
+        parameters: JSON.stringify(taskPayload),
+      })
+    }
+
+    raw.prepare(
+      'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+    ).run('completed', localAssetId, 100, Date.now(), Date.now(), task.taskId)
     raw.save()
 
     this.emit('task:completed', { taskId: task.taskId, assetId: localAssetId, output: remoteUrl })

@@ -9,6 +9,13 @@ export async function createPrediction(
   client: ReplicateApiClient,
   params: CreatePredictionParams
 ): Promise<Prediction> {
+  if (params.model && !params.version) {
+    const [owner, name] = params.model.split('/')
+    return client.request<Prediction>(`/models/${owner}/${name}/predictions`, {
+      method: 'POST',
+      body: JSON.stringify({ input: params.input }),
+    })
+  }
   return client.request<Prediction>('/predictions', {
     method: 'POST',
     body: JSON.stringify(params),

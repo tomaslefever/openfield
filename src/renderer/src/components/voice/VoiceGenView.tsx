@@ -250,11 +250,6 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
   const [historyOpen, setHistoryOpen] = useState(true)
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [engineOpen, setEngineOpen] = useState(false)
-  const engineRef = useRef<HTMLDivElement>(null)
-  const [piperInstalled, setPiperInstalled] = useState(false)
-  const [kokoroInstalled, setKokoroInstalled] = useState(false)
-  const [piperVoices, setPiperVoices] = useState<any[]>([])
-  const [kokoroVoices, setKokoroVoices] = useState<any[]>([])
   const [elevenlabsVoices, setElevenLabsVoices] = useState<any[]>([])
   const [elevenlabsModels, setElevenLabsModels] = useState<{ id: string; name: string }[]>([])
   const [elevenlabsConfigured, setElevenLabsConfigured] = useState(false)
@@ -265,7 +260,7 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
   const voicesScrollRef = useRef<HTMLDivElement>(null)
-  const [installing, setInstalling] = useState(false)
+  const engineRef = useRef<HTMLDivElement>(null)
   const [loadingVoices, setLoadingVoices] = useState(false)
   const [voiceError, setVoiceError] = useState('')
   const [activatedKeys, setActivatedKeys] = useState<Record<string, boolean>>({})
@@ -332,13 +327,10 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
   // Load engine status on mount
   useEffect(() => {
     const api = (window as any).electronAPI
-    api?.local?.piperIsInstalled?.().then(setPiperInstalled).catch(() => {})
-    api?.local?.kokoroIsInstalled?.().then(setKokoroInstalled).catch(() => {})
     api?.settings?.getAll?.().then((settings: any) => {
       const keys: Record<string, boolean> = {}
       if (settings?.openfieldApiKey) keys.openfieldApiKey = true
       if (settings?.elevenlabsApiKey) keys.elevenlabsApiKey = true
-      if (settings?.enableLocalModels === true || settings?.enableLocalModels === 'true') keys.enableLocalModels = true
       setActivatedKeys(keys)
     }).catch(() => {})
     try {
@@ -387,48 +379,9 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
     }
   }
 
-  // Load voices when local engine selected
+  // Load voices when ElevenLabs is selected
   useEffect(() => {
     const api = (window as any).electronAPI
-    if (selectedEngine === 'piper' && piperInstalled) {
-      api?.local?.piperGetVoices?.().then(async (voices: any[]) => {
-        const enriched = await Promise.all(voices.map(async (v: any) => ({
-          ...v,
-          downloaded: await api?.local?.piperIsVoiceDownloaded?.(v.id).catch(() => false)
-        })))
-        setPiperVoices(enriched)
-      }).catch(() => setPiperVoices([]))
-    }
-    if (selectedEngine === 'kokoro' && kokoroInstalled) {
-      let cancelled = false
-      let attempts = 0
-      const maxAttempts = 10
-
-      const tryLoad = async () => {
-        if (cancelled) return
-        setLoadingVoices(true)
-        setVoiceError('')
-        try {
-          const voices = await api?.local?.kokoroGetVoices?.()
-          if (!cancelled) {
-            setKokoroVoices(voices || [])
-            setLoadingVoices(false)
-          }
-        } catch (err: any) {
-          if (cancelled) return
-          attempts++
-          if (attempts < maxAttempts) {
-            setVoiceError(`Conectando con el servidor (intento ${attempts}/${maxAttempts})...`)
-            setTimeout(tryLoad, 3000)
-          } else {
-            setVoiceError('No se pudo conectar con el servidor local. Revisá los logs.')
-            setLoadingVoices(false)
-          }
-        }
-      }
-      tryLoad()
-      return () => { cancelled = true }
-    }
     if (selectedEngine === 'elevenlabs') {
       let cancelled = false
       setElevenLabsVoices([])
@@ -448,7 +401,7 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
       loadElevenLabsPage().finally(() => { if (!cancelled) setElevenLabsLoading(false) })
       return () => { cancelled = true }
     }
-  }, [selectedEngine, piperInstalled, kokoroInstalled])
+  }, [selectedEngine])
 
   // Reset voice selection when engine changes
   useEffect(() => {
@@ -472,28 +425,6 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
-
-  const handleInstall = async (engine: string) => {
-    const api = (window as any).electronAPI
-    setInstalling(true)
-    try {
-      if (engine === 'piper') {
-        await api?.local?.piperInstall?.()
-        setPiperInstalled(true)
-      } else if (engine === 'kokoro') {
-        await api?.local?.kokoroInstall?.()
-        setKokoroInstalled(true)
-      }
-    } catch (e) { console.error('Install failed:', e) }
-    setInstalling(false)
-  }
-
-  const handleDownloadVoice = async (voiceId: string) => {
-    const api = (window as any).electronAPI
-    await api?.local?.piperDownloadVoice?.(voiceId)
-    const downloaded = await api?.local?.piperIsVoiceDownloaded?.(voiceId).catch(() => false)
-    setPiperVoices(prev => prev.map(v => v.id === voiceId ? { ...v, downloaded } : v))
-  }
 
   const readAudioFile = (file: File) => {
     setVoiceError('')
@@ -536,19 +467,7 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
     if (!text.trim()) return
     const params: any = { prompt: text.trim() }
 
-    if (selectedEngine === 'piper' && selectedVoice) {
-      params.local = true
-      params.voiceId = selectedVoice
-      params.engine = 'piper'
-      params.model = selectedVoice
-      if (speed !== 1.0) params.speed = speed
-    } else if (selectedEngine === 'kokoro' && selectedVoice) {
-      params.local = true
-      params.voiceId = selectedVoice
-      params.engine = 'kokoro'
-      params.model = selectedVoice
-      if (speed !== 1.0) params.speed = speed
-    } else if (selectedEngine === 'elevenlabs' && selectedVoice) {
+    if (selectedEngine === 'elevenlabs' && selectedVoice) {
       params.engine = 'elevenlabs'
       params.voiceId = selectedVoice
       params.model = ttsModel
@@ -657,17 +576,15 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
     }
   }, [selectedEngine, engines])
 
-  const needsInstall = (selectedEngine === 'piper' && !piperInstalled) || (selectedEngine === 'kokoro' && !kokoroInstalled)
-
   const charCount = text.length
   const canGenerate = genMode === 'vc'
     ? !isGenerating && selectedEngine === 'elevenlabs' && !!vcAudio && !!selectedVoice && elevenlabsConfigured
-    : text.trim().length > 0 && !isGenerating && (!needsInstall) && (
+    : text.trim().length > 0 && !isGenerating && (
         selectedEngine === 'gpt-tts' || selectedEngine === 'minimax-tts' ||
         (selectedEngine === 'elevenlabs' ? (!!selectedVoice && elevenlabsConfigured) : !!selectedVoice)
       )
 
-  const voiceList: any[] = selectedEngine === 'piper' ? piperVoices : selectedEngine === 'kokoro' ? kokoroVoices : selectedEngine === 'elevenlabs' ? elevenlabsVoices : []
+  const voiceList: any[] = selectedEngine === 'elevenlabs' ? elevenlabsVoices : []
 
   const modelOptions = useMemo(() => {
     const apiOptions = elevenlabsModels.map((m) => ({ value: m.id, label: m.name }))
@@ -904,98 +821,8 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
           </>
         )}
 
-        {/* Voice list for local engines */}
-        {(selectedEngine === 'piper' || selectedEngine === 'kokoro') && (
-          <div className="flex-1 overflow-y-auto p-4 min-h-0">
-            {needsInstall ? (
-              <div className="flex flex-col items-center gap-3 py-8">
-                <p className="text-[11px] text-surface-500 text-center">
-                  {selectedEngine === 'piper' ? 'Piper engine is not installed.' : 'Kokoro engine is not installed.'}
-                </p>
-                <button
-                  onClick={() => handleInstall(selectedEngine)}
-                  disabled={installing}
-                  className="btn-primary text-xs flex items-center gap-1.5"
-                >
-                  {installing ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
-                  Install {selectedEngine === 'piper' ? 'Piper' : 'Kokoro'}
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between mb-2.5">
-                  <p className="text-[10px] text-surface-500 uppercase tracking-wider">Voices</p>
-                  <span className="text-[10px] text-surface-600">{voiceList.length}</span>
-                </div>
-                <div className="space-y-1">
-                  {voiceList.map((voice: any) => {
-                    const isDownloaded = selectedEngine === 'kokoro' ? true : voice.downloaded
-                    const vId = voice.id
-                    const label = selectedEngine === 'kokoro'
-                      ? `${voice.id} (${voice.language})`
-                      : `${voice.id}`
-                    return (
-                      <div key={vId} className="group">
-                        {isDownloaded ? (
-                          <button
-                            onClick={() => setSelectedVoice(vId)}
-                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all text-left ${
-                              selectedVoice === vId
-                                ? 'bg-accent-500/10 text-accent-400 border border-accent-500/20'
-                                : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/50 border border-transparent'
-                            }`}
-                          >
-                            <Mic size={14} className="flex-shrink-0" />
-                            <span className="truncate">{label}</span>
-                            {selectedVoice === vId && <Check size={14} className="ml-auto flex-shrink-0" />}
-                          </button>
-            ) : selectedEngine === 'kokoro' && loadingVoices ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-8">
-                <Loader size={18} className="animate-spin text-accent-400" />
-                <p className="text-[11px] text-surface-500">{voiceError || 'Conectando con el servidor...'}</p>
-              </div>
-            ) : selectedEngine === 'kokoro' && voiceError && !loadingVoices ? (
-              <div className="flex flex-col items-center gap-3 py-8">
-                <AlertCircle size={18} className="text-red-400" />
-                <p className="text-[11px] text-surface-500 text-center">{voiceError}</p>
-                <button onClick={() => {
-                  setVoiceError('')
-                  setLoadingVoices(true)
-                  const api = (window as any).electronAPI
-                  api?.local?.kokoroGetVoices?.().then((v: any[]) => {
-                    setKokoroVoices(v || [])
-                    setLoadingVoices(false)
-                  }).catch(() => {
-                    setVoiceError('No se pudo conectar. Intentá de nuevo.')
-                    setLoadingVoices(false)
-                  })
-                }} className="btn-ghost text-xs flex items-center gap-1">
-                  <RefreshCw size={11} /> Reintentar
-                </button>
-              </div>
-            ) : (
-                          <div className="flex items-center gap-2.5 px-3 py-2">
-                            <Mic size={14} className="text-surface-600 flex-shrink-0" />
-                            <span className="text-sm text-surface-500 truncate flex-1">{label}</span>
-                            <button
-                              onClick={() => handleDownloadVoice(vId)}
-                              className="text-[11px] text-accent-400 hover:text-accent-300 flex-shrink-0 flex items-center gap-1"
-                            >
-                              <Download size={12} /> Get
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         {/* Empty state for engines without a voice list */}
-        {selectedEngine !== 'piper' && selectedEngine !== 'kokoro' && selectedEngine !== 'elevenlabs' && (
+        {selectedEngine !== 'elevenlabs' && (
           <div className="flex-1 overflow-y-auto p-4 min-h-0">
             <div className="flex flex-col items-center gap-2 py-8 text-surface-600">
               <Cloud size={18} className="opacity-40" />
@@ -1038,11 +865,10 @@ export function VoiceGenView({ onGenerate, voiceAssets, isGenerating, statusMess
               value={text}
               onChange={e => setText(e.target.value)}
               placeholder={
-                (selectedEngine === 'piper' || selectedEngine === 'kokoro') && !selectedVoice ? 'Select a voice first...' :
                 selectedEngine === 'elevenlabs' && !selectedVoice ? 'Select a voice first...' :
                 'Type the text you want to convert to speech...\n\nYou can paste long texts, scripts, articles — the AI will generate natural-sounding speech from your text.'
               }
-              disabled={isGenerating || (selectedEngine === 'piper' && !piperInstalled) || (selectedEngine === 'kokoro' && !kokoroInstalled)}
+              disabled={isGenerating}
               className="flex-1 w-full bg-surface-900/60 border border-surface-700/60 rounded-xl p-5 text-sm text-surface-100 placeholder-surface-500 resize-none focus:outline-none focus:border-accent-500/40 focus:ring-1 focus:ring-accent-500/20 transition-all min-h-0 disabled:opacity-50"
             />
           ) : (

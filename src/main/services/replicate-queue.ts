@@ -5,7 +5,7 @@ import { getRawDb } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
-import { ReplicateApiClient, REPLICATE_MODELS, type Prediction } from './replicate'
+import { ReplicateApiClient, REPLICATE_MODELS, getReplicateModel, type Prediction } from './replicate'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_RETRIES = 3
@@ -57,11 +57,16 @@ export class ReplicateQueue extends EventEmitter {
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
+    const isImage = type === 'image'
+    const isAudio = type === 'audio'
+    const assetType = isImage ? 'image' : isAudio ? 'audio' : 'video'
+    const mimeType = isImage ? 'image/png' : isAudio ? 'audio/mpeg' : 'video/mp4'
+
     raw.prepare(
       `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      assetId, type, '', '', `pending-${taskId}`, 'video/mp4',
+      assetId, assetType, '', '', `pending-${taskId}`, mimeType,
       payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
       0, taskId, wsId, now, now
     )
@@ -110,12 +115,16 @@ export class ReplicateQueue extends EventEmitter {
     if (payload.prompt) {
       if (isPVideo) input.prompt = payload.prompt
       else if (isAvatar) input.video_prompt = payload.prompt
-      else input.voice_script = payload.prompt
+      else {
+        input.prompt = payload.prompt
+        input.text = payload.prompt
+      }
     }
     if (payload.resolution) input.resolution = payload.resolution
+    if (payload.duration) input.duration = payload.duration
+    if (payload.aspectRatio) input.aspect_ratio = payload.aspectRatio
+
     if (isPVideo) {
-      if (payload.duration) input.duration = payload.duration
-      if (payload.aspectRatio && ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'].includes(payload.aspectRatio)) input.aspect_ratio = payload.aspectRatio
       if (payload.fps === 24 || payload.fps === 48) input.fps = payload.fps
       if (payload.draft) input.draft = payload.draft
     } else {
@@ -146,14 +155,13 @@ export class ReplicateQueue extends EventEmitter {
         logRun(raw, task.taskId, 'recovery', `Resuming existing prediction: ${predictionId}`)
       } else {
         const version = modelVersion(payload.model)
-        if (!version) throw new Error(`Unknown Replicate model: ${payload.model}`)
         const input = this.buildInput(payload)
         if (!input.image && payload.model === 'prunaai/p-video-avatar') throw new Error('A portrait image is required for this model.')
         if (!input.prompt && !input.image && !input.audio && payload.model === 'prunaai/p-video') throw new Error('P-Video requires a prompt, image or audio.')
         if (!input.video && payload.model === 'philz1337x/crystal-video-upscaler') throw new Error('Crystal Upscaler requiere un video de referencia.')
 
-        logRun(raw, task.taskId, 'api-request', `Creating prediction: model=${modelName(payload.model)}, resolution=${payload.resolution || '720p'}, voice=${payload.voice || 'default'}`)
-        prediction = await this.apiClient.createPrediction({ version, input })
+        logRun(raw, task.taskId, 'api-request', `Creating prediction: model=${modelName(payload.model)}, resolution=${payload.resolution || '720p'}`)
+        prediction = await this.apiClient.createPrediction(version ? { version, input } : { model: payload.model, input })
         predictionId = prediction.id
         logRun(raw, task.taskId, 'api-response', `Prediction created: ${predictionId}`)
 
@@ -212,31 +220,74 @@ export class ReplicateQueue extends EventEmitter {
       return placeholder.id
     }
 
+    const model = getReplicateModel(taskPayload?.model)
+    let assetKind: 'image' | 'audio' | 'video' =
+      task.type === 'image' || model?.type === 'image'
+        ? 'image'
+        : task.type === 'audio' || model?.type === 'audio'
+        ? 'audio'
+        : 'video'
+
     if (remoteUrl) {
-      const fileName = `${assetId}.mp4`
+      if (remoteUrl.match(/\.(png|jpg|jpeg|webp|avif)($|\?)/i)) {
+        assetKind = 'image'
+      } else if (remoteUrl.match(/\.(mp3|wav|ogg|m4a|aac|flac)($|\?)/i)) {
+        assetKind = 'audio'
+      } else if (remoteUrl.match(/\.(mp4|webm|mov|mkv)($|\?)/i)) {
+        assetKind = 'video'
+      }
+    }
+
+    if (remoteUrl) {
       const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
-      const subDir = workspaceAssetSubDir('video', taskWs)
-      const localPath = `${subDir}/${fileName}`
+      const subDir = workspaceAssetSubDir(assetKind, taskWs)
+      const defaultExt = assetKind === 'image' ? 'png' : assetKind === 'audio' ? 'mp3' : 'mp4'
+      const defaultMime = assetKind === 'image' ? 'image/png' : assetKind === 'audio' ? 'audio/mpeg' : 'video/mp4'
 
       try {
-        logRun(raw, task.taskId, 'download', `Downloading video: ${remoteUrl.substring(0, 80)}...`)
+        logRun(raw, task.taskId, 'download', `Downloading ${assetKind}: ${remoteUrl.substring(0, 80)}...`)
         const resp = await fetch(remoteUrl)
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+
+        const contentType = resp.headers.get('content-type')?.split(';')[0]?.trim() || ''
+        let ext = defaultExt
+        let mime = defaultMime
+
+        if (contentType.startsWith('image/')) {
+          assetKind = 'image'
+          mime = contentType
+          ext = contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png'
+        } else if (contentType.startsWith('audio/')) {
+          assetKind = 'audio'
+          mime = contentType
+          ext = contentType === 'audio/wav' || contentType === 'audio/x-wav' ? 'wav' : contentType === 'audio/ogg' ? 'ogg' : 'mp3'
+        } else if (contentType.startsWith('video/')) {
+          assetKind = 'video'
+          mime = contentType
+          ext = contentType === 'video/webm' ? 'webm' : 'mp4'
+        }
+
+        const fileName = `${assetId}.${ext}`
+        const localPath = `${subDir}/${fileName}`
+
         const buffer = Buffer.from(await resp.arrayBuffer())
         await fs.mkdir(subDir, { recursive: true })
         await fs.writeFile(localPath, buffer)
 
         let fileSize = buffer.length
-        try {
-          const result = await ensurePlayableVideo(localPath)
-          fileSize = result.size
-        } catch {}
+        if (assetKind === 'video') {
+          try {
+            const result = await ensurePlayableVideo(localPath)
+            fileSize = result.size
+          } catch {}
+        }
 
         localAssetId = updatePlaceholder({
           file_path: remoteUrl,
           local_path: localPath,
           file_name: fileName,
-          mime_type: 'video/mp4',
+          mime_type: mime,
+          type: assetKind,
           model_used: taskPayload?.model || '',
           prompt: taskPayload?.prompt || '',
           parameters: JSON.stringify(taskPayload),
@@ -247,8 +298,9 @@ export class ReplicateQueue extends EventEmitter {
         console.error('[ReplicateQueue] Failed to download asset:', err.message)
         localAssetId = updatePlaceholder({
           file_path: remoteUrl,
-          file_name: `remote-video-${assetId}`,
-          mime_type: 'video/mp4',
+          file_name: `remote-${assetKind}-${assetId}`,
+          mime_type: defaultMime,
+          type: assetKind,
           model_used: taskPayload?.model || '',
           prompt: taskPayload?.prompt || '',
           parameters: JSON.stringify(taskPayload),

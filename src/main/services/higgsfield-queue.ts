@@ -189,15 +189,24 @@ export class HiggsfieldQueue extends EventEmitter {
 
     try {
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : task.payload
+      const isImage = task.type === 'image' || payload?.mode === 'image'
       const isKling = String(payload?.model || '').includes('kling')
       const isSeedance25 = String(payload?.model || '').includes('seedance-2.5')
       const input = this.buildInput(payload)
-      const modelName = isKling ? 'Kling 3.0 Standard' : isSeedance25 ? 'Seedance 2.5' : 'Seedance 2.0'
+      const modelName = isImage
+        ? 'Higgsfield Image'
+        : isKling
+        ? 'Kling 3.0 Standard'
+        : isSeedance25
+        ? 'Seedance 2.5'
+        : 'Seedance 2.0'
 
       const displayPrompt = String((input as any).prompt || (input as any).multi_prompt?.[0]?.prompt || '').substring(0, 60)
       logRun(raw, task.taskId, 'submit', `Submitting to Higgsfield ${modelName}: prompt="${displayPrompt}"`, input)
 
-      const submitRes = isKling
+      const submitRes = isImage
+        ? await this.apiClient.generate(payload?.model || '/text-to-image', input)
+        : isKling
         ? await this.apiClient.generateKling30Std(input as Kling30StdInput)
         : isSeedance25
         ? await this.apiClient.generateSeedance25(input as Seedance25Input)
@@ -277,7 +286,7 @@ export class HiggsfieldQueue extends EventEmitter {
     const raw = getRawDb()
     const taskPayload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
     const assetId = crypto.randomUUID()
-    const remoteUrl = statusRes.video?.url || null
+    const remoteUrl = statusRes.video?.url || (statusRes as any).image?.url || (statusRes as any).images?.[0]?.url || (statusRes as any).output?.url || null
 
     const updatePlaceholder = (fields: Record<string, any>) => {
       const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(task.taskId) as any
@@ -290,14 +299,15 @@ export class HiggsfieldQueue extends EventEmitter {
 
     let localAssetId: string | null = null
 
-    const isMov = taskPayload?.output_format === 'mov'
-    const ext = isMov ? 'mov' : 'mp4'
-    const mime = isMov ? 'video/quicktime' : 'video/mp4'
+    const isImage = task.type === 'image' || taskPayload?.mode === 'image' || (!statusRes.video?.url && !!((statusRes as any).image?.url || (statusRes as any).images?.[0]?.url))
+    const isMov = !isImage && taskPayload?.output_format === 'mov'
+    const ext = isImage ? 'png' : isMov ? 'mov' : 'mp4'
+    const mime = isImage ? 'image/png' : isMov ? 'video/quicktime' : 'video/mp4'
 
     if (remoteUrl) {
       const fileName = `${assetId}.${ext}`
       const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
-      const subDir = workspaceAssetSubDir('video', taskWs)
+      const subDir = workspaceAssetSubDir(isImage ? 'image' : 'video', taskWs)
       const localPath = `${subDir}/${fileName}`
 
       try {
@@ -307,17 +317,19 @@ export class HiggsfieldQueue extends EventEmitter {
         await fs.writeFile(localPath, buffer)
 
         let fileSize = buffer.length
-        try {
-          const res = await ensurePlayableVideo(localPath)
-          fileSize = res.size
-        } catch {}
+        if (!isImage) {
+          try {
+            const res = await ensurePlayableVideo(localPath)
+            fileSize = res.size
+          } catch {}
+        }
 
         localAssetId = updatePlaceholder({
           file_path: remoteUrl,
           local_path: localPath,
           file_name: fileName,
           mime_type: mime,
-          model_used: taskPayload?.model || 'bytedance/seedance-2.0/text-to-video',
+          model_used: taskPayload?.model || (isImage ? 'higgsfield/soul-image-2' : 'bytedance/seedance-2.0/text-to-video'),
           prompt: taskPayload?.prompt || '',
           parameters: JSON.stringify(taskPayload),
           file_size: fileSize,
@@ -329,7 +341,7 @@ export class HiggsfieldQueue extends EventEmitter {
           file_path: remoteUrl,
           file_name: `remote-${assetId}.${ext}`,
           mime_type: mime,
-          model_used: taskPayload?.model || 'bytedance/seedance-2.0/text-to-video',
+          model_used: taskPayload?.model || (isImage ? 'higgsfield/soul-image-2' : 'bytedance/seedance-2.0/text-to-video'),
           prompt: taskPayload?.prompt || '',
           parameters: JSON.stringify(taskPayload),
         })
@@ -339,7 +351,7 @@ export class HiggsfieldQueue extends EventEmitter {
         file_path: '',
         file_name: `completed-${assetId}.${ext}`,
         mime_type: mime,
-        model_used: taskPayload?.model || 'bytedance/seedance-2.0/text-to-video',
+        model_used: taskPayload?.model || (isImage ? 'higgsfield/soul-image-2' : 'bytedance/seedance-2.0/text-to-video'),
         prompt: taskPayload?.prompt || '',
         parameters: JSON.stringify(taskPayload),
       })

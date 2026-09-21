@@ -12,7 +12,7 @@ export function registerHiggsfieldHandlers({ raw, handle }: IpcContext) {
   handle('higgsfield:generate', async (event, params) => {
     const apiKey = requireHiggsfieldKey()
     const queue = getHiggsfieldQueue(apiKey)
-    const type = 'video'
+    const type = params?.mode === 'image' ? 'image' : 'video'
     const taskId = await queue.enqueue(type, params)
     const sender = event.sender
 

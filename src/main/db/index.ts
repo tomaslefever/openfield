@@ -126,9 +126,6 @@ export async function initDatabase(): Promise<DbWrapper> {
   fs.mkdirSync(path.join(assetsDir, 'videos'), { recursive: true })
   fs.mkdirSync(path.join(assetsDir, 'audio'), { recursive: true })
 
-  const modelsDir = path.join(dbDir, 'models')
-  fs.mkdirSync(modelsDir, { recursive: true })
-
   const db = new DatabaseSync(dbPath)
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA synchronous = FULL')
@@ -595,16 +592,8 @@ export function runMigrations() {
   seed.run('language', '"en"', now)
   seed.run('defaultImageModel', '"flux-pro"', now)
   seed.run('defaultVideoModel', '"kling-v1"', now)
-  seed.run('enableLocalModels', '"false"', now)
-  seed.run('localModelsDir', '""', now)
-  seed.run('pythonPath', '""', now)
-  seed.run('localServerPort', '19876', now)
   seed.run('bridgePort', '19877', now)
   seed.run('enableBridge', '"true"', now)
-  seed.run('localModelsDevice', '"cuda"', now)
-  seed.run('localModelsPrecision', '"bf16"', now)
-  seed.run('localModelsAutoUnloadSeconds', '300', now)
-  seed.run('hfToken', '""', now)
   seed.run('replicateApiKey', '""', now)
   seed.run('falApiKey', '""', now)
 }

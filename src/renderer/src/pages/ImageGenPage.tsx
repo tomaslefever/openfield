@@ -223,7 +223,24 @@ export function ImageGenPage() {
     const unsubFailed = api.on('openfield:task:failed', () => reset())
     const unsubFalComplete = api.on('fal:task:completed', () => reset())
     const unsubFalFailed = api.on('fal:task:failed', () => reset())
-    return () => { unsubComplete?.(); unsubFailed?.(); unsubFalComplete?.(); unsubFalFailed?.() }
+    const unsubHfComplete = api.on('higgsfield:task:completed', () => reset())
+    const unsubHfFailed = api.on('higgsfield:task:failed', () => reset())
+    const unsubMgComplete = api.on('machgen:task:completed', () => reset())
+    const unsubMgFailed = api.on('machgen:task:failed', () => reset())
+    const unsubRepComplete = api.on('replicate:task:completed', () => reset())
+    const unsubRepFailed = api.on('replicate:task:failed', () => reset())
+    return () => {
+      unsubComplete?.()
+      unsubFailed?.()
+      unsubFalComplete?.()
+      unsubFalFailed?.()
+      unsubHfComplete?.()
+      unsubHfFailed?.()
+      unsubMgComplete?.()
+      unsubMgFailed?.()
+      unsubRepComplete?.()
+      unsubRepFailed?.()
+    }
   }, [reset])
 
   const handleDelete = useCallback(async (assetId: string) => {
@@ -325,9 +342,18 @@ export function ImageGenPage() {
   const handleGenerate = useCallback(async (params: any) => {
     try {
       const api = (window as any).electronAPI
-      const isFalModel = params?.provider === 'fal'
-      if (isFalModel) {
+      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/')
+      const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('higgsfield/')
+      const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
+      const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('black-forest-labs/') || params?.model?.startsWith('ideogram-ai/')
+      if (isHiggsfieldModel) {
+        await api?.higgsfield.generate(params)
+      } else if (isFalModel) {
         await api?.fal.generate(params)
+      } else if (isMachgenModel) {
+        await api?.machgen.generate(params)
+      } else if (isReplicateModel) {
+        await api?.replicate.generate(params)
       } else if (params.local && params.modelId) {
         await api?.local.imageGenerate({
           modelId: params.modelId,

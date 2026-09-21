@@ -1,0 +1,156 @@
+Fecha_Lanzamiento,Modelo,Proveedor,Tipo,Pricing,Estado_Integracion,Clasificacion,URL
+2026-06,Sora 2,KIE.ai,Video,.250 / s,Integrado,Más reciente,https://kie.ai/market/sora-2
+2026-05,Runway Gen-4.5,KIE.ai,Video,.080 - .150 / s,Integrado,Más reciente,https://kie.ai/market/runway-gen-4-5
+2026-05,runway/gen-4.5,Replicate,Video,.080 - .150 / s,Integrado,Más reciente,https://replicate.com/runway/gen-4.5
+2026-04,Veo 3.1,KIE.ai,Video,.150 - .200 / s,Integrado,Más reciente,https://kie.ai/market/veo-3-1
+2026-04,google/gemini-3.1-flash-tts,Replicate,TTS,.015 / 1k chars,Integrado,Más reciente,https://replicate.com/google/gemini-3.1-flash-tts
+2026-04,google/veo-3.1,Replicate,Video,.150 - .200 / s,Integrado,Más reciente,https://replicate.com/google/veo-3.1
+2026-04,Veo 3.1,fal.ai,Video,.150 - .200 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/google/veo-3-1
+2026-03,Kling 3.0 Standard,Higgsfield AI,Video,.070 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/kling-3-0
+2026-03,Wan 3.0 (Higgsfield),Higgsfield AI,Video,.040 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/wan-3-0
+2026-03,Gemini Omni 1.1 Flash,KIE.ai,Video,.315 - .260 / video,Integrado,Más reciente,https://kie.ai/market/gemini-omni-flash-1-1
+2026-03,Kling 3.0,KIE.ai,Video,.070 - .335 / s,Integrado,Más reciente,https://kie.ai/market/kling-3-0
+2026-03,Wan 3.0,KIE.ai,Video,.040 - .160 / s,Integrado,Más reciente,https://kie.ai/market/wan-3-0
+2026-03,Kling 3.0 (MachGen),MachGen,Video,.060 / s,Integrado,Más reciente,https://www.machgen.ai/docs/models/kling-3-0
+2026-03,Wan 3.0 (MachGen),MachGen,Video,.035 / s,Integrado,Más reciente,https://www.machgen.ai/docs/models/wan-3-0
+2026-03,kling-ai/kling-video-3.0,Replicate,Video,.080 / s,Integrado,Más reciente,https://replicate.com/kling-ai/kling-video-3.0
+2026-03,Kling 3.0 Video,fal.ai,Video,.080 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/kling-video/v3/text-to-video
+2026-03,Wan 3.0 Video,fal.ai,Video,.050 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/wan/v3/text-to-video
+2026-02,Eleven Multilingual v3,ElevenLabs,TTS,.030 - .050 / 1k chars,Integrado,Más reciente,https://elevenlabs.io/docs/models#eleven-multilingual-v3
+2026-02,Eleven Multilingual v3 Flash,ElevenLabs,TTS,.020 - .030 / 1k chars,Integrado,Más reciente,https://elevenlabs.io/docs/models#eleven-multilingual-v3-flash
+2026-02,Eleven v3,ElevenLabs,TTS,.030 - .050 / 1k chars,Integrado,Más reciente,https://elevenlabs.io/docs/models#eleven-v3
+2026-02,Eleven v3 Flash,ElevenLabs,TTS,.020 - .030 / 1k chars,Integrado,Más reciente,https://elevenlabs.io/docs/models#eleven-v3-flash
+2026-02,ElevenLabs Music v2.5,ElevenLabs,Music generation,.004 / s,Integrado,Más reciente,https://elevenlabs.io/docs/models#music-v2-5
+2026-02,Seedance 2.5,Higgsfield AI,Video,.206 - .462 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/seedance-2-5
+2026-02,GPT Image 2.5 Flare,KIE.ai,Imagen,.030 - .080 / img,Integrado,Más reciente,https://kie.ai/market/gpt-image-2-5-flare
+2026-02,GPT Image 2.5 Sunburst,KIE.ai,Imagen,.030 - .080 / img,Integrado,Más reciente,https://kie.ai/market/gpt-image-2-5-sunburst
+2026-02,Seedance 2.5,KIE.ai,Video,.140 - .315 / s,Integrado,Más reciente,https://kie.ai/market/seedance-2-5
+2026-02,Suno v4 / v4.5,KIE.ai,Music generation,.040 / canción,Integrado,Más reciente,https://kie.ai/market/suno-v4
+2026-02,MiniMax H3 Max,fal.ai,Video,.013 - .040 / s,Integrado,Más reciente,https://fal.ai/models/minimax/h3-max/text-to-video
+2026-02,MiniMax H3 Max Reference,fal.ai,Video,.050 - .080 / s,Integrado,Más reciente,https://fal.ai/models/minimax/h3-max/reference-to-video
+2026-02,MiniMax H3 Max Turbo,fal.ai,Video,.006 - .020 / s,Integrado,Más reciente,https://fal.ai/models/minimax/h3-max-turbo/text-to-video
+2026-02,MiniMax H3 Turbo (MachGen),MachGen,Video,.015 - .050 / s,Integrado,Más reciente,https://www.machgen.ai/docs/models/minimax-h3-turbo
+2026-02,MiniMax Music 3,fal.ai,Music generation,.030 / 30s,Integrado,Más reciente,https://fal.ai/models/fal-ai/minimax/music-3
+2026-02,Seedance 2.5,fal.ai,Video,.180 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/bytedance/seedance-2-5
+2026-01,Soul 2.0 Cinema,Higgsfield AI,Video,.120 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/soul-2-0
+2026-01,Soul Image 2.0,Higgsfield AI,Imagen,.030 / img,Integrado,Más reciente,https://console.higgsfield.ai/models/soul-image-2
+2026-01,Flux 2 Pro,KIE.ai,Imagen,.050 - .080 / img,Integrado,Más usado,https://kie.ai/market/flux-2-pro
+2026-01,Qwen 3 TTS,KIE.ai,TTS,.015 / 1k chars,Integrado,Más reciente,https://kie.ai/market/qwen-3-tts
+2026-01,Qwen Image 3,KIE.ai,Imagen,.030 / img,Integrado,Más reciente,https://kie.ai/market/qwen-image-3
+2026-01,FLUX.2 Pro (MachGen),MachGen,Imagen,.030 / img,Integrado,Más reciente,https://www.machgen.ai/docs/models/flux-2-pro
+2026-01,LTX-2.3-Pro (MachGen),MachGen,Video,.008 - .030 / s,Integrado,Más reciente,https://www.machgen.ai/docs/models/ltx-2-3-pro
+2026-01,Wan2.2-A14B (MachGen),MachGen,Video,.018 - .036 / s,Integrado,Más reciente,https://www.machgen.ai/docs/models/wan-2-2
+2026-01,Dia TTS,fal.ai,TTS,.030 / 1k chars,Integrado,Más reciente,https://fal.ai/models/fal-ai/dia-tts
+2026-01,Orpheus TTS,fal.ai,TTS,.025 / 1k chars,Integrado,Más reciente,https://fal.ai/models/fal-ai/orpheus-tts
+2026-01,Qwen Audio 3.0 TTS,fal.ai,TTS,.015 / 1k chars,Integrado,Más reciente,https://fal.ai/models/fal-ai/qwen-audio-3-tts
+2026-01,Recraft V4,fal.ai,Imagen,.040 - .080 / img,Integrado,Más reciente,https://fal.ai/models/fal-ai/recraft/v4/text-to-image
+2026-01,Recraft V4 Pro,fal.ai,Imagen,.250 - .300 / img,Integrado,Más reciente,https://fal.ai/models/fal-ai/recraft/v4/pro/text-to-image
+2025-11,Seedance 2.0,Higgsfield AI,Video,.135 - .555 / s,Integrado,Más usado,https://console.higgsfield.ai/models/seedance-2-0
+2025-11,Seedance 2 Fast,KIE.ai,Video,.059 - .124 / s,Integrado,Más reciente,https://kie.ai/market/seedance-2-fast
+2025-11,Seedance 2 Mini,KIE.ai,Video,.019 - .041 / s,Integrado,Más reciente,https://kie.ai/market/seedance-2-mini
+2025-11,Seedance 2.0,KIE.ai,Video,.095 - .040 / s,Integrado,Más usado,https://kie.ai/market/seedance-2
+2025-10,MiniMax H3 (Higgsfield),Higgsfield AI,Video,.050 / s,Integrado,Más usado,https://console.higgsfield.ai/models/minimax-h3
+2025-10,Kling 2.5 Turbo,KIE.ai,Video,.050 / s,Integrado,Más usado,https://kie.ai/market/kling-2-5-turbo
+2025-10,MiniMax H3,KIE.ai,Video,.040 - .065 / s,Integrado,Más usado,https://kie.ai/market/minimax-h3
+2025-10,MiniMax H3 (MachGen),MachGen,Video,.035 - .100 / s,Integrado,Más usado,https://www.machgen.ai/docs/models/minimax-h3
+2025-10,Kling 2.5 Turbo Video,fal.ai,Video,.050 / s,Integrado,Más usado,https://fal.ai/models/fal-ai/kling-video/v2.5/turbo
+2025-10,MiniMax H3,fal.ai,Video,.080 - .160 / s,Integrado,Más usado,https://fal.ai/models/minimax/h3/reference-to-video
+2025-09,InfiniteTalk multi-fp8,Hugging Face,TTS,Gratis (Local),No integrado,Más reciente,https://huggingface.co/MeiGen-AI/InfiniteTalk
+2025-09,Grok Imagine,KIE.ai,Imagen,.020 - .030 / img,Integrado,Más reciente,https://kie.ai/market/grok-imagine
+2025-09,Grok Imagine Video,KIE.ai,Video,.012 - .040 / s,Integrado,Más reciente,https://kie.ai/market/grok-imagine-video
+2025-09,Hailuo 2 Pro,KIE.ai,Video,.060 / s,Integrado,Más reciente,https://kie.ai/market/hailuo-2-pro
+2025-09,OmniHuman 1.5,KIE.ai,Video,.135 / s,Integrado,Más reciente,https://kie.ai/market/omnihuman-1-5
+2025-09,PixVerse V6,KIE.ai,Video,.020 - .092 / s,Integrado,Más reciente,https://kie.ai/market/pixverse-v6
+2025-09,Wan 2.7,KIE.ai,Video,.040 / s,Integrado,Más usado,https://kie.ai/market/wan-2-7
+2025-09,PixVerse V6,fal.ai,Video,.020 - .092 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/pixverse/v6
+2025-08,Imagen 4 Fast,KIE.ai,Imagen,.040 - .060 / img,Integrado,Más reciente,https://kie.ai/market/imagen-4-fast
+2025-08,Nano Banana 2,KIE.ai,Imagen,.040 - .090 / img,Integrado,Más reciente,https://kie.ai/market/nano-banana-2
+2025-08,Nano Banana 2 Lite,KIE.ai,Imagen,.020 / img,Integrado,Más reciente,https://kie.ai/market/nano-banana-2-lite
+2025-08,Seedream 5 Pro,KIE.ai,Imagen,.060 - .150 / img,Integrado,Más reciente,https://kie.ai/market/seedream-5-pro
+2025-08,ideogram-ai/ideogram-v2-turbo,Replicate,Imagen,.040 / img,Integrado,Más reciente,https://replicate.com/ideogram-ai/ideogram-v2-turbo
+2025-08,FLUX Krea LoRA stream,fal.ai,Imagen,.035 - .070 / img,Integrado,Más reciente,https://fal.ai/models/fal-ai/flux-krea-lora/stream
+2025-08,FLUX.1 Kontext [pro],fal.ai,Imagen,.040 - .080 / img,Integrado,Más reciente,https://fal.ai/models/fal-ai/flux-pro/kontext
+2025-08,Ideogram v2 Turbo,fal.ai,Imagen,.040 / img,Integrado,Más reciente,https://fal.ai/models/fal-ai/ideogram/v2/turbo
+2025-07,Eleven Flash v2.5,ElevenLabs,TTS,.015 / 1k chars,Integrado,Más reciente,https://elevenlabs.io/docs/models#eleven-flash-v25
+2025-07,Eleven Turbo v2.5,ElevenLabs,TTS,.020 / 1k chars,Integrado,Más usado,https://elevenlabs.io/docs/models#eleven-turbo-v25
+2025-07,Ace-Step Music,Hugging Face,Music generation,Gratis (Local),No integrado,Más reciente,https://huggingface.co/ace-step/music-v1
+2025-07,F5-TTS,Hugging Face,TTS,Gratis (Local),No integrado,Más reciente,https://huggingface.co/SWivid/F5-TTS
+2025-07,Fish-Speech 1.5,Hugging Face,TTS,Gratis (Local),No integrado,Más reciente,https://huggingface.co/fishaudio/fish-speech-1.5
+2025-07,Sana 1.6 Sprint,Hugging Face,Imagen,Gratis (Local),No integrado,Más reciente,https://huggingface.co/Efficient-Large-Model/Sana_1600M_1024px
+2025-07,Stable Diffusion 3.5 Large,Hugging Face,Imagen,Gratis (Local),No integrado,Más reciente,https://huggingface.co/stabilityai/stable-diffusion-3.5-large
+2025-07,Fish-Speech (MachGen),MachGen,TTS,.010 / 1k chars,Integrado,Más reciente,https://www.machgen.ai/docs/models/fish-speech
+2025-07,f5-tts,Replicate,TTS,.005 / gen,Integrado,Más reciente,https://replicate.com/f5-tts
+2025-07,google/lyria-3,Replicate,Music generation,.030 / gen,Integrado,Más reciente,https://replicate.com/google/lyria-3
+2025-07,stability-ai/stable-audio-2.5,Replicate,Music generation,.020 / gen,Integrado,Más reciente,https://replicate.com/stability-ai/stable-audio-2.5
+2025-07,Bria FIBO,fal.ai,Imagen,.040 - .080 / img,Integrado,Más reciente,https://fal.ai/models/bria/fibo/generate
+2025-07,CassetteAI,fal.ai,Music generation,.015 / 30s,Integrado,Más reciente,https://fal.ai/models/fal-ai/cassette-ai
+2025-07,ImagineArt 2.0,fal.ai,Imagen,.040 - .080 / img,Integrado,Más reciente,https://fal.ai/models/imagineart/imagineart-2.0-preview/text-to-image
+2025-07,Kling O1 Image,fal.ai,Imagen,.040 / img,Integrado,Más reciente,https://fal.ai/models/fal-ai/kling-o1/image-to-image
+2025-07,Sonilo V1.1,fal.ai,Music generation,.020 / 30s,Integrado,Más reciente,https://fal.ai/models/fal-ai/sonilo
+2025-06,HunyuanVideo,Hugging Face,Video,Gratis (Local),No integrado,Más reciente,https://huggingface.co/tencent/HunyuanVideo
+2025-06,Wan 2.1 T2V 14B,Hugging Face,Video,Gratis (Local),No integrado,Más reciente,https://huggingface.co/Wan-AI/Wan2.1-T2V-14B
+2025-06,P-Video,Replicate,Video,.020 - .040 / s,Integrado,Más reciente,https://replicate.com/prunaai/p-video
+2025-06,P-Video Avatar,Replicate,Video,.025 - .045 / s,Integrado,Más reciente,https://replicate.com/prunaai/p-video-avatar
+2025-06,wan-video/wan-2.1,Replicate,Video,.025 / s,Integrado,Más reciente,https://replicate.com/wan-video/wan-2.1
+2025-06,HunyuanVideo,fal.ai,Video,.030 / s,Integrado,Más usado,https://fal.ai/models/fal-ai/hunyuan-video
+2025-06,Wan 2.1 Video,fal.ai,Video,.025 / s,Integrado,Más usado,https://fal.ai/models/fal-ai/wan/v2.1/text-to-video
+2025-05,inworld/inworld-tts,Replicate,TTS,.010 / 1k chars,Integrado,Más reciente,https://replicate.com/inworld/inworld-tts
+2025-05,Gemini TTS,fal.ai,TTS,.015 / 1k chars,Integrado,Más reciente,https://fal.ai/models/fal-ai/gemini-tts
+2025-05,xAI TTS,fal.ai,TTS,.025 / 1k chars,Integrado,Más reciente,https://fal.ai/models/fal-ai/xai-tts
+2024-12,Kokoro 82M v1.0,Hugging Face,TTS,Gratis (Local),No integrado,Más usado,https://huggingface.co/hexgrad/Kokoro-82M
+2024-12,Kokoro-82M (MachGen),MachGen,TTS,.005 / 1k chars,Integrado,Más usado,https://www.machgen.ai/docs/models/kokoro
+2024-12,cjwbw/kokoro,Replicate,TTS,.002 / 1k chars,Integrado,Más usado,https://replicate.com/cjwbw/kokoro
+2024-12,Kokoro TTS,fal.ai,TTS,.020 / 1k chars,Integrado,Más usado,https://fal.ai/models/fal-ai/kokoro
+2024-11,LTX-Video 2B Distilled,Hugging Face,Video,Gratis (Local),No integrado,Más usado,https://huggingface.co/Lightricks/LTX-Video
+2024-11,GPT Image 2,KIE.ai,Imagen,.030 - .080 / img,Integrado,Más usado,https://kie.ai/market/gpt-image-2
+2024-11,lightricks/ltx-video,Replicate,Video,.010 / s,Integrado,Más usado,https://replicate.com/lightricks/ltx-video
+2024-11,GPT Image 2,fal.ai,Imagen,.030 - .300 / img,Integrado,Más usado,https://fal.ai/models/openai/gpt-image-2
+2024-11,LTX-Video 2B,fal.ai,Video,.008 / s,Integrado,Más usado,https://fal.ai/models/fal-ai/ltx-video
+2024-11,Nano Banana Pro,fal.ai,Imagen,.150 - .300 / img,Integrado,Más reciente,https://fal.ai/models/fal-ai/nano-banana-pro
+2024-10,ElevenLabs Music v2,ElevenLabs,Music generation,.004 / s,Integrado,Más usado,https://elevenlabs.io/docs/models#music-v2
+2024-10,FLUX.1 Pro (Higgsfield),Higgsfield AI,Imagen,.040 / img,Integrado,Más usado,https://console.higgsfield.ai/models/flux-pro
+2024-10,black-forest-labs/flux-1.1-pro,Replicate,Imagen,.040 / img,Integrado,Más reciente,https://replicate.com/black-forest-labs/flux-1.1-pro
+2024-10,ElevenLabs Music (fal),fal.ai,Music generation,.004 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/elevenlabs/music
+2024-10,FLUX.1 [pro],fal.ai,Imagen,.040 / img,Integrado,Más usado,https://fal.ai/models/fal-ai/flux-pro
+2024-10,MiniMax Music 2.0,fal.ai,Music generation,.020 / 30s,Integrado,Más usado,https://fal.ai/models/fal-ai/minimax-music
+2024-09,CogVideoX-5B,Hugging Face,Video,Gratis (Local),No integrado,Más usado,https://huggingface.co/THUDM/CogVideoX-5B
+2024-09,MuCat Music,KIE.ai,Music generation,.006 / s,Integrado,Más reciente,https://kie.ai/market/mucat-text-to-music
+2024-09,OpenAudio Music,KIE.ai,Music generation,.004 / s,Integrado,Más reciente,https://kie.ai/market/openaudio-text-to-music
+2024-09,google/imagen-3,Replicate,Imagen,.030 / img,Integrado,Más reciente,https://replicate.com/google/imagen-3
+2024-09,kling-ai/kling-v1.5-pro,Replicate,Video,.050 / s,Integrado,Más usado,https://replicate.com/kling-ai/kling-v1.5-pro
+2024-09,minimax/video-01,Replicate,Video,.030 / s,Integrado,Más usado,https://replicate.com/minimax/video-01
+2024-09,recraft-ai/recraft-v3,Replicate,Imagen,.040 / img,Integrado,Más usado,https://replicate.com/recraft-ai/recraft-v3
+2024-09,Recraft V3,fal.ai,Imagen,.040 - .080 / img,Integrado,Más usado,https://fal.ai/models/fal-ai/recraft/v3/text-to-image
+2024-08,ElevenLabs Sound Effects (SFX),ElevenLabs,Music generation,.002 / s,Integrado,Más usado,https://elevenlabs.io/docs/models#sound-effects
+2024-08,Ideogram 2.0 (Higgsfield),Higgsfield AI,Imagen,.060 / img,Integrado,Más usado,https://console.higgsfield.ai/models/ideogram-2
+2024-08,FLUX.1 Dev,Hugging Face,Imagen,Gratis (Local),No integrado,Más usado,https://huggingface.co/black-forest-labs/FLUX.1-dev
+2024-08,FLUX.1 Schnell,Hugging Face,Imagen,Gratis (Local),No integrado,Más usado,https://huggingface.co/black-forest-labs/FLUX.1-schnell
+2024-08,Ideogram 2.0,KIE.ai,Imagen,.080 / img,Integrado,Más usado,https://kie.ai/market/ideogram-2-0
+2024-08,FLUX.1 Dev (MachGen),MachGen,Imagen,.015 / img,Integrado,Más usado,https://www.machgen.ai/docs/models/flux-dev
+2024-08,FLUX.1 Schnell (MachGen),MachGen,Imagen,.002 / img,Integrado,Más usado,https://www.machgen.ai/docs/models/flux-schnell
+2024-08,black-forest-labs/flux-dev,Replicate,Imagen,.025 / img,Integrado,Más usado,https://replicate.com/black-forest-labs/flux-dev
+2024-08,black-forest-labs/flux-schnell,Replicate,Imagen,.003 / img,Integrado,Más usado,https://replicate.com/black-forest-labs/flux-schnell
+2024-08,ideogram-ai/ideogram-v2,Replicate,Imagen,.080 / img,Integrado,Más usado,https://replicate.com/ideogram-ai/ideogram-v2
+2024-08,FLUX.1 [dev],fal.ai,Imagen,.025 / img,Integrado,Más usado,https://fal.ai/models/fal-ai/flux/dev
+2024-08,FLUX.1 [schnell],fal.ai,Imagen,.003 / img,Integrado,Más usado,https://fal.ai/models/fal-ai/flux/schnell
+2024-08,Ideogram v2,fal.ai,Imagen,.080 / img,Integrado,Más usado,https://fal.ai/models/fal-ai/ideogram/v2
+2024-06,Eleven Flash v2,ElevenLabs,TTS,.015 / 1k chars,Integrado,Más usado,https://elevenlabs.io/docs/models#eleven-flash-v2
+2024-06,Eleven Multilingual v2,ElevenLabs,TTS,.015 - .030 / 1k chars,Integrado,Más usado,https://elevenlabs.io/docs/models#eleven-multilingual-v2
+2024-06,Eleven Turbo v2,ElevenLabs,TTS,.020 / 1k chars,Integrado,Más usado,https://elevenlabs.io/docs/models#eleven-turbo-v2
+2024-06,Stable Audio Open 1.0,Hugging Face,Music generation,Gratis (Local),No integrado,Más usado,https://huggingface.co/stabilityai/stable-audio-open-1.0
+2024-06,ElevenLabs TTS (KIE Gateway),KIE.ai,TTS,.020 / 1k chars,Integrado,Más usado,https://kie.ai/market/elevenlabs-tts
+2024-06,MiniMax TTS,KIE.ai,TTS,.003 / clip,Integrado,Más usado,https://kie.ai/market/minimax-text-to-speech
+2024-06,Suno v3.5,KIE.ai,Music generation,.030 / canción,Integrado,Más usado,https://kie.ai/market/suno-v3-5
+2024-06,Stable Audio Open (MachGen),MachGen,Music generation,.005 / gen,Integrado,Más usado,https://www.machgen.ai/docs/models/stable-audio
+2024-06,stability-ai/stable-audio-open-1.0,Replicate,Music generation,.005 / gen,Integrado,Más usado,https://replicate.com/stability-ai/stable-audio-open-1.0
+2024-06,ElevenLabs TTS (fal),fal.ai,TTS,.020 / 1k chars,Integrado,Más usado,https://fal.ai/models/fal-ai/elevenlabs/tts
+2024-06,Stable Audio Open,fal.ai,Music generation,.008 / gen,Integrado,Más usado,https://fal.ai/models/fal-ai/stable-audio-open
+2024-05,Piper TTS Voices,Hugging Face,TTS,Gratis (Local),No integrado,Más usado,https://huggingface.co/rhasspy/piper-voices
+2024-05,GPT TTS,KIE.ai,TTS,.004 / clip,Integrado,Más usado,https://kie.ai/market/gpt-tts-1
+2024-05,Recraft Remove Background,KIE.ai,Imagen,.020 / img,Integrado,Más usado,https://kie.ai/market/recraft-remove-background
+2024-05,Crystal Video Upscaler,Replicate,Video,.100 / s,Integrado,Más usado,https://replicate.com/philz1337x/crystal-video-upscaler
+2024-04,MusicGen Medium,Hugging Face,Music generation,Gratis (Local),No integrado,Más usado,https://huggingface.co/facebook/musicgen-medium
+2024-04,MusicGen Stereo Large,Hugging Face,Music generation,Gratis (Local),No integrado,Más usado,https://huggingface.co/facebook/musicgen-stereo-large
+2024-04,SDXL Lightning,Hugging Face,Imagen,Gratis (Local),No integrado,Más usado,https://huggingface.co/ByteDance/SDXL-Lightning
+2024-04,lucataco/xtts-v2,Replicate,TTS,.005 / 1k chars,Integrado,Más usado,https://replicate.com/lucataco/xtts-v2
+2024-04,meta/musicgen,Replicate,Music generation,.010 / gen,Integrado,Más usado,https://replicate.com/meta/musicgen

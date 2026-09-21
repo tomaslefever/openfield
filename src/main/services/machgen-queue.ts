@@ -145,8 +145,8 @@ export class MachgenQueue extends EventEmitter {
         srcImageUrls.push(toDataUri(payload.firstFrameBase64, 'image/png'))
         srcImageUrls.push(toDataUri(payload.lastFrameBase64, 'image/png'))
         keyframeIndices = [0, -1]
-      } else if (payload.lastFrameBase64 && !payload.firstFrameBase64 && modelId === 'MiniMax-H3') {
-        // Lone end frame uniquely supported by MiniMax-H3
+      } else if (payload.lastFrameBase64 && !payload.firstFrameBase64 && (modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo')) {
+        // Lone end frame uniquely supported by MiniMax-H3 and MiniMax-H3-Turbo
         srcImageUrls.push(toDataUri(payload.lastFrameBase64, 'image/png'))
         keyframeIndices = [-1]
       } else if (payload.firstFrameBase64) {
@@ -194,10 +194,10 @@ export class MachgenQueue extends EventEmitter {
       }
     }
 
-    // enhance_prompt: default true for MiniMax-H3 and LTX, unless explicitly false
+    // enhance_prompt: default true for MiniMax-H3, MiniMax-H3-Turbo and LTX, unless explicitly false
     let enhancePrompt = payload.enhancePrompt
     if (enhancePrompt === undefined) {
-      enhancePrompt = modelId === 'MiniMax-H3' || modelId === 'LTX-2.3-Pro' ? true : null
+      enhancePrompt = modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo' || modelId === 'LTX-2.3-Pro' ? true : null
     }
 
     const input: MachgenTaskInput = {

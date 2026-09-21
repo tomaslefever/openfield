@@ -24,6 +24,14 @@ export interface FalImageResult {
   images: FalFile[]
 }
 
+export interface FalAudioResult {
+  audio_url?: string | FalFile
+  audio_file?: FalFile
+  audio?: string | FalFile
+}
+
+export type FalResult = FalVideoResult | FalImageResult | FalAudioResult | Record<string, any>
+
 export interface MiniMaxH3Input {
   prompt: string
   duration?: number

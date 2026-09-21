@@ -20,6 +20,10 @@ export const IMAGE_MODELS = [
   { id: 'grok-imagine/text-to-image', name: 'Grok Imagine', cost: 0.02, unit: 'img', category: 'Grok' },
   { id: 'imagen4-fast', name: 'Imagen 4 Fast', cost: 0.04, unit: 'img', category: 'Google' },
   { id: 'recraft/remove-background', name: 'Remove Background', cost: 0.02, unit: 'img', category: 'Recraft' },
+  { id: 'ideogram-2-0', name: 'Ideogram 2.0', cost: 0.08, unit: 'img', category: 'Ideogram',
+    prices: { '1K': 0.08 } },
+  { id: 'qwen-image-3', name: 'Qwen Image 3', cost: 0.03, unit: 'img', category: 'Qwen',
+    prices: { '1K': 0.03 } },
 ]
 
 export const AUDIO_MODELS = [
@@ -27,6 +31,10 @@ export const AUDIO_MODELS = [
   { id: 'minimax-text-to-speech', name: 'MiniMax TTS', cost: 0.003, unit: 'img', category: 'MiniMax' },
   { id: 'openaudio-text-to-music', name: 'OpenAudio Music', cost: 0.004, unit: 's', category: 'OpenAudio' },
   { id: 'mucat-text-to-music', name: 'MuCat Music', cost: 0.006, unit: 's', category: 'MuCat' },
+  { id: 'qwen-3-tts', name: 'Qwen 3 TTS', cost: 0.015, unit: 'img', category: 'Qwen' },
+  { id: 'elevenlabs-tts-kie', name: 'ElevenLabs TTS (KIE)', cost: 0.020, unit: 'img', category: 'ElevenLabs' },
+  { id: 'suno-v4', name: 'Suno v4', cost: 0.040, unit: 'img', category: 'Suno' },
+  { id: 'suno-v3-5', name: 'Suno v3.5', cost: 0.030, unit: 'img', category: 'Suno' },
 ] as const
 
 export const VIDEO_MODELS = [
@@ -59,6 +67,12 @@ export const VIDEO_MODELS = [
   { id: 'omnihuman-1-5', name: 'OmniHuman 1.5', cost: 0.135, unit: 's', category: 'OmniHuman' },
   { id: 'google/gemini-omni-flash-1-1', name: 'Gemini Omni 1.1 Flash', cost: 0.42, unit: 'video', category: 'Google' },
   { id: 'gemini-omni-video', name: 'Gemini Omni 1.1 Flash', cost: 0.42, unit: 'video', category: 'Google' },
+  { id: 'sora-2', name: 'Sora 2', cost: 0.25, unit: 's', category: 'OpenAI',
+    prices: { '720p': 0.25, '1080p': 0.35, '720P': 0.25, '1080P': 0.35 } },
+  { id: 'runway-gen-4-5', name: 'Runway Gen-4.5', cost: 0.10, unit: 's', category: 'Runway',
+    prices: { '720p': 0.10, '1080p': 0.15, '720P': 0.10, '1080P': 0.15 } },
+  { id: 'veo-3-1', name: 'Veo 3.1', cost: 0.15, unit: 's', category: 'Google',
+    prices: { '720p': 0.15, '1080p': 0.20, '720P': 0.15, '1080P': 0.20 } },
 ] as const
 
 export interface CostEstimateOptions {

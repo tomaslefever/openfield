@@ -14,7 +14,7 @@ export function registerFalHandlers({ raw, handle }: IpcContext) {
     const apiKey = requireFalKey()
     const queue = getFalQueue(apiKey)
     const model = getFalModel(params?.model)
-    const type = model?.type === 'image' ? 'image' : 'video'
+    const type = params?.type || model?.type || 'video'
     const taskId = await queue.enqueue(type, params)
     const sender = event.sender
 

@@ -73,6 +73,12 @@ const MODEL_NAMES: Record<string, string> = {
   'minimax/h3-max-turbo/text-to-video': 'MiniMax H3 Max Turbo (Fal)',
   'minimax/h3-max/text-to-video': 'MiniMax H3 Max (Fal)',
   'minimax/h3-max/reference-to-video': 'MiniMax H3 Max Ref (Fal)',
+  'machgen/MiniMax-H3/t2v': 'MiniMax H3 (MachGen)',
+  'machgen/MiniMax-H3-Turbo/t2v': 'MiniMax H3 Turbo (MachGen)',
+  'machgen/MiniMax-H3': 'MiniMax H3 (MachGen)',
+  'machgen/MiniMax-H3-Turbo': 'MiniMax H3 Turbo (MachGen)',
+  'MiniMax-H3-Turbo': 'MiniMax H3 Turbo (MachGen)',
+  'MiniMax-H3': 'MiniMax H3 (MachGen)',
   'gpt-tts-1': 'GPT TTS',
   'minimax-text-to-speech': 'MiniMax TTS',
   'openaudio-text-to-music': 'OpenAudio Music',
@@ -437,8 +443,8 @@ export function LibraryPage() {
       const api = (window as any).electronAPI
       const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
-      const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('bytedance/seedance-2.0') || params?.model?.startsWith('bytedance/seedance-2.5') || params?.model?.startsWith('kling-video/')
-      const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
+      const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('bytedance/seedance-2.0') || params?.model?.startsWith('bytedance/seedance-2.5') || params?.model?.startsWith('kling-video/') || params?.model?.startsWith('higgsfield/')
+      const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/') || params?.model?.startsWith('black-forest-labs/') || params?.model?.startsWith('ideogram-ai/')
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/') || params?.model?.startsWith('bria/')
 
       if (isVideo) {
@@ -460,8 +466,14 @@ export function LibraryPage() {
         if (!assetSearch.types.image) {
           setAssetSearch({ types: { ...assetSearch.types, image: true } })
         }
-        if (isFalModel) {
+        if (isHiggsfieldModel) {
+          await api?.higgsfield.generate(params)
+        } else if (isFalModel) {
           await api?.fal.generate(params)
+        } else if (isMachgenModel) {
+          await api?.machgen.generate(params)
+        } else if (isReplicateModel) {
+          await api?.replicate.generate(params)
         } else if (params.local && params.modelId) {
           await api?.local.imageGenerate({
             modelId: params.modelId,

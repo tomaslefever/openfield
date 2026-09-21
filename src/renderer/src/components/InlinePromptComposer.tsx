@@ -47,13 +47,12 @@ export function InlinePromptComposer({
 
     try {
       const api = (window as any).electronAPI
-      const modelIdToUse = modelId
-      const taskId = await api?.openfield.generateImage({
-        prompt: prompt.trim(),
-        model: modelIdToUse,
-        aspectRatio,
-        resolution,
-      })
+      const modelIdToUse = selectedModel?.t2iId || selectedModel?.i2iId || modelId
+      const taskId = await (selectedModel?.provider === 'fal'
+        ? api?.fal.generate({ prompt: prompt.trim(), model: modelIdToUse, aspectRatio, resolution })
+        : selectedModel?.provider === 'higgsfield'
+        ? api?.higgsfield.generate({ prompt: prompt.trim(), model: modelIdToUse, aspectRatio, resolution, mode: 'image' })
+        : api?.openfield.generateImage({ prompt: prompt.trim(), model: modelIdToUse, aspectRatio, resolution }))
 
       let resolved = false
       const cleanup1 = api.on('openfield:task:completed', (p: any) => {

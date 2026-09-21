@@ -1,7 +1,7 @@
 import type { IpcContext } from './context'
 import { readSetting } from './helpers'
 import { getReplicateQueue } from '../services/replicate-queue'
-import { ReplicateApiClient, REPLICATE_MODELS } from '../services/replicate'
+import { ReplicateApiClient, REPLICATE_MODELS, getReplicateModel } from '../services/replicate'
 
 export function requireReplicateKey(): string {
   const key = readSetting('replicateApiKey')
@@ -13,7 +13,9 @@ export function registerReplicateHandlers({ raw, handle }: IpcContext) {
   handle('replicate:generate', async (event, params) => {
     const apiKey = requireReplicateKey()
     const queue = getReplicateQueue(apiKey)
-    const taskId = await queue.enqueue('video', params)
+    const model = getReplicateModel(params?.model)
+    const type = params?.type || model?.type || 'video'
+    const taskId = await queue.enqueue(type, params)
     const sender = event.sender
 
     const cleanup = () => {

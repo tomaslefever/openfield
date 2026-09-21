@@ -4,9 +4,10 @@ export interface ReplicateModelCatalogEntry {
   id: string
   name: string
   category: string
-  version: string
-  type: 'video'
-  costPerSecond: number
+  version?: string
+  type: 'video' | 'image' | 'audio'
+  costPerSecond?: number
+  costPerImage?: number
   resolutions: string[]
   voices?: string[]
   languages?: string[]
@@ -61,6 +62,40 @@ export const REPLICATE_MODELS: ReplicateModelCatalogEntry[] = [
     costPerSecond: 0.1,
     resolutions: [],
   },
+  // Video models
+  { id: 'runway/gen-4.5', name: 'Runway Gen-4.5', category: 'Runway', type: 'video', costPerSecond: 0.10, resolutions: ['720p', '1080p'] },
+  { id: 'google/veo-3.1', name: 'Veo 3.1', category: 'Google', type: 'video', costPerSecond: 0.15, resolutions: ['720p', '1080p'] },
+  { id: 'kling-ai/kling-video-3.0', name: 'Kling 3.0', category: 'Kling', type: 'video', costPerSecond: 0.08, resolutions: ['720p'] },
+  { id: 'kling-ai/kling-v1.5-pro', name: 'Kling 1.5 Pro', category: 'Kling', type: 'video', costPerSecond: 0.05, resolutions: ['720p'] },
+  { id: 'wan-video/wan-2.1', name: 'Wan 2.1 Video', category: 'Wan', type: 'video', costPerSecond: 0.025, resolutions: ['720p'] },
+  { id: 'lightricks/ltx-video', name: 'LTX-Video', category: 'Lightricks', type: 'video', costPerSecond: 0.01, resolutions: ['720p'] },
+  { id: 'minimax/video-01', name: 'MiniMax Video-01', category: 'MiniMax', type: 'video', costPerSecond: 0.03, resolutions: ['720p'] },
+
+  // Image models
+  { id: 'black-forest-labs/flux-dev', name: 'FLUX.1 Dev', category: 'Flux', type: 'image', costPerImage: 0.025, resolutions: ['1K'] },
+  { id: 'black-forest-labs/flux-schnell', name: 'FLUX.1 Schnell', category: 'Flux', type: 'image', costPerImage: 0.003, resolutions: ['1K'] },
+  { id: 'black-forest-labs/flux-1.1-pro', name: 'FLUX 1.1 Pro', category: 'Flux', type: 'image', costPerImage: 0.040, resolutions: ['1K'] },
+  { id: 'ideogram-ai/ideogram-v2', name: 'Ideogram v2', category: 'Ideogram', type: 'image', costPerImage: 0.080, resolutions: ['1K'] },
+  { id: 'ideogram-ai/ideogram-v2-turbo', name: 'Ideogram v2 Turbo', category: 'Ideogram', type: 'image', costPerImage: 0.040, resolutions: ['1K'] },
+  { id: 'google/imagen-3', name: 'Imagen 3', category: 'Google', type: 'image', costPerImage: 0.030, resolutions: ['1K'] },
+  { id: 'recraft-ai/recraft-v3', name: 'Recraft V3', category: 'Recraft', type: 'image', costPerImage: 0.040, resolutions: ['1K'] },
+
+  // Audio / TTS models
+  { id: 'google/gemini-3.1-flash-tts', name: 'Gemini 3.1 Flash TTS', category: 'Google', type: 'audio', resolutions: [] },
+  { id: 'f5-tts', name: 'F5-TTS', category: 'F5', type: 'audio', resolutions: [] },
+  { id: 'inworld/inworld-tts', name: 'Inworld TTS', category: 'Inworld', type: 'audio', resolutions: [] },
+  { id: 'cjwbw/kokoro', name: 'Kokoro', category: 'Kokoro', type: 'audio', resolutions: [] },
+  { id: 'lucataco/xtts-v2', name: 'XTTS v2', category: 'Coqui', type: 'audio', resolutions: [] },
+
+  // Music models
+  { id: 'google/lyria-3', name: 'Lyria 3', category: 'Google', type: 'audio', resolutions: [] },
+  { id: 'stability-ai/stable-audio-2.5', name: 'Stable Audio 2.5', category: 'Stability', type: 'audio', resolutions: [] },
+  { id: 'stability-ai/stable-audio-open-1.0', name: 'Stable Audio Open 1.0', category: 'Stability', type: 'audio', resolutions: [] },
+  { id: 'meta/musicgen', name: 'MusicGen', category: 'Meta', type: 'audio', resolutions: [] },
 ]
 
 export type PVideoAvatarParams = Partial<PVideoAvatarInput>
+
+export function getReplicateModel(modelId: string): ReplicateModelCatalogEntry | undefined {
+  return REPLICATE_MODELS.find(m => m.id === modelId)
+}

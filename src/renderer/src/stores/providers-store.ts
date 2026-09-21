@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ModelPricing } from '../lib/models'
 
-export type ProviderId = 'kie' | 'replicate' | 'fal' | 'hf' | 'elevenlabs' | 'machgen' | 'higgsfield'
+export type ProviderId = 'kie' | 'replicate' | 'fal' | 'elevenlabs' | 'machgen' | 'higgsfield'
 
 export interface ProviderStatus {
   provider: ProviderId
@@ -62,14 +62,6 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     helperUrl: 'https://fal.ai/dashboard/keys',
   },
   {
-    id: 'hf',
-    label: 'HuggingFace',
-    description: 'Token for gated models (FLUX...)',
-    keyName: 'hfToken',
-    keyPlaceholder: 'hf_... (HuggingFace token)',
-    helperUrl: 'https://huggingface.co/settings/tokens',
-  },
-  {
     id: 'elevenlabs',
     label: 'ElevenLabs',
     description: 'AI voice synthesis (TTS)',
@@ -79,15 +71,31 @@ export const PROVIDER_DEFS: ProviderDef[] = [
   },
 ]
 
+export function hasAnyConfiguredProvider(configured: Record<string, boolean>): boolean {
+  return PROVIDER_DEFS.some((p) => Boolean(configured[p.id]))
+}
+
+export function getConfiguredProviderIds(configured: Record<string, boolean>): ProviderId[] {
+  return PROVIDER_DEFS.filter((p) => Boolean(configured[p.id])).map((p) => p.id)
+}
+
 export function isModelConfigured(model: ModelPricing, configured: Record<string, boolean>): boolean {
-  if (model.local) return false
   const provider = model.provider || 'kie'
   return !!configured[provider]
+}
+
+function buildInitialConfigured(): Record<string, boolean> {
+  const res: Record<string, boolean> = {}
+  PROVIDER_DEFS.forEach((p) => {
+    res[p.id] = false
+  })
+  return res
 }
 
 interface ProvidersState {
   keys: Record<string, string>
   configuredProviders: Record<string, boolean>
+  hasAnyProvider: boolean
   statuses: Record<string, ProviderStatus | null>
   loaded: boolean
   isRefreshing: boolean
@@ -100,15 +108,8 @@ interface ProvidersState {
 
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
   keys: {},
-  configuredProviders: {
-    kie: false,
-    replicate: false,
-    fal: false,
-    hf: false,
-    elevenlabs: false,
-    machgen: false,
-    higgsfield: false,
-  },
+  configuredProviders: buildInitialConfigured(),
+  hasAnyProvider: false,
   statuses: {},
   loaded: false,
   isRefreshing: false,
@@ -126,17 +127,14 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         keys.kie = settings.kieApiKey
       }
 
-      const configured: Record<string, boolean> = {
-        kie: !!(keys.kie || settings.openfieldApiKey || settings.kieApiKey),
-        replicate: !!(keys.replicate || settings.replicateApiKey),
-        fal: !!(keys.fal || settings.falApiKey),
-        hf: !!(keys.hf || settings.hfToken),
-        elevenlabs: !!(keys.elevenlabs || settings.elevenlabsApiKey),
-        machgen: !!(keys.machgen || settings.machgenApiKey),
-        higgsfield: !!(keys.higgsfield || settings.higgsfieldApiKey),
-      }
+      const configured: Record<string, boolean> = {}
+      PROVIDER_DEFS.forEach((p) => {
+        const val = keys[p.id] || settings[p.keyName] || (p.id === 'kie' ? (settings.openfieldApiKey || settings.kieApiKey) : '')
+        configured[p.id] = Boolean(val && String(val).trim())
+      })
 
-      set({ keys, configuredProviders: configured, loaded: true })
+      const hasAny = hasAnyConfiguredProvider(configured)
+      set({ keys, configuredProviders: configured, hasAnyProvider: hasAny, loaded: true })
       await get().refreshBalances()
     } catch (e) {
       console.warn('[providers-store] load error:', e)
@@ -153,10 +151,6 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
       list.forEach((b: any) => {
         if (b?.provider) map[b.provider] = b
       })
-      const settings = (await api?.settings?.getAll?.()) || {}
-      if (settings?.hfToken) {
-        map.hf = { provider: 'hf', label: 'HuggingFace', kind: 'token' }
-      }
       set({ statuses: map, isRefreshing: false })
     } catch {
       set({ isRefreshing: false })
@@ -173,7 +167,11 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     set((state) => {
       const newKeys = { ...state.keys, [providerId]: value }
       const newConfigured = { ...state.configuredProviders, [providerId]: !!value.trim() }
-      return { keys: newKeys, configuredProviders: newConfigured }
+      return {
+        keys: newKeys,
+        configuredProviders: newConfigured,
+        hasAnyProvider: hasAnyConfiguredProvider(newConfigured),
+      }
     })
 
     await get().refreshBalances()
@@ -191,7 +189,12 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
       delete newKeys[providerId]
       const newConfigured = { ...state.configuredProviders, [providerId]: false }
       const newStatuses = { ...state.statuses, [providerId]: null }
-      return { keys: newKeys, configuredProviders: newConfigured, statuses: newStatuses }
+      return {
+        keys: newKeys,
+        configuredProviders: newConfigured,
+        hasAnyProvider: hasAnyConfiguredProvider(newConfigured),
+        statuses: newStatuses,
+      }
     })
   },
 }))

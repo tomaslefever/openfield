@@ -156,9 +156,6 @@ const electronAPI = {
       'assets:changed', 'assets:updated',
       'export:progress', 'export:complete', 'export:error',
       'error', 'notification',
-      'models:download:progress', 'models:download:completed', 'models:download:error',
-      'local:image:progress', 'local:image:completed', 'local:image:error',
-      'local:audio:progress', 'local:audio:error',
       'update:status', 'update:progress',
     ];
     if (validChannels.includes(channel)) {
@@ -202,52 +199,6 @@ const electronAPI = {
   // ─── MCP Bridge ───────────────────────────────────
   bridge: {
     getStatus: () => ipcRenderer.invoke('bridge:getStatus'),
-  },
-
-  // ─── Marketplace ──────────────────────────────────
-  marketplace: {
-    search: (params: any) => ipcRenderer.invoke('marketplace:search', params),
-    getModel: (modelId: string) => ipcRenderer.invoke('marketplace:getModel', modelId),
-    getReadme: (modelId: string) => ipcRenderer.invoke('marketplace:getReadme', modelId),
-    getCurated: () => ipcRenderer.invoke('marketplace:getCurated'),
-  },
-
-  // ─── Models ───────────────────────────────────────
-  models: {
-    list: (filters?: any) => ipcRenderer.invoke('models:list', filters),
-    listByPipeline: () => ipcRenderer.invoke('models:listByPipeline'),
-    get: (id: string) => ipcRenderer.invoke('models:get', id),
-    download: (modelId: string, options?: any) => ipcRenderer.invoke('models:download', modelId, options),
-    cancelDownload: (modelId: string) => ipcRenderer.invoke('models:cancelDownload', modelId),
-    getActiveDownloads: () => ipcRenderer.invoke('models:getActiveDownloads'),
-    uninstall: (id: string) => ipcRenderer.invoke('models:uninstall', id),
-    isInstalled: (id: string) => ipcRenderer.invoke('models:isInstalled', id),
-    getTotalSize: () => ipcRenderer.invoke('models:getTotalSize'),
-    reset: (id: string) => ipcRenderer.invoke('models:reset', id),
-  },
-
-  // ─── Local Server ─────────────────────────────────
-  local: {
-    serverStatus: () => ipcRenderer.invoke('local:server:status'),
-    serverStart: () => ipcRenderer.invoke('local:server:start'),
-    serverStop: () => ipcRenderer.invoke('local:server:stop'),
-    serverPanic: () => ipcRenderer.invoke('local:server:panic'),
-    detectPython: () => ipcRenderer.invoke('local:detectPython'),
-    detectHardware: () => ipcRenderer.invoke('local:detectHardware'),
-    piperIsInstalled: () => ipcRenderer.invoke('local:piper:isInstalled'),
-    piperInstall: () => ipcRenderer.invoke('local:piper:install'),
-    piperGetVoices: () => ipcRenderer.invoke('local:piper:getVoices'),
-    piperIsVoiceDownloaded: (voiceId: string) => ipcRenderer.invoke('local:piper:isVoiceDownloaded', voiceId),
-    piperDownloadVoice: (voiceId: string) => ipcRenderer.invoke('local:piper:downloadVoice', voiceId),
-    piperGenerate: (params: any) => ipcRenderer.invoke('local:piper:generate', params),
-    kokoroIsInstalled: () => ipcRenderer.invoke('local:kokoro:isInstalled'),
-    kokoroGetVoices: () => ipcRenderer.invoke('local:kokoro:getVoices'),
-    kokoroInstall: () => ipcRenderer.invoke('local:kokoro:install'),
-    audioGenerate: (params: any) => ipcRenderer.invoke('local:audio:generate', params),
-    imageGenerate: (params: any) => ipcRenderer.invoke('local:image:generate', params),
-    serverLoadModel: (modelId: string, device?: string) => ipcRenderer.invoke('local:server:loadModel', modelId, device),
-    serverUnloadModel: () => ipcRenderer.invoke('local:server:unloadModel'),
-    serverModelInfo: () => ipcRenderer.invoke('local:server:modelInfo'),
   },
 
   // ─── Short Drama (Microseries AI) ─────────────────

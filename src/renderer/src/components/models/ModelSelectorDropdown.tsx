@@ -11,6 +11,7 @@ import {
 import { Selector } from '../ui/Selector'
 import { SelectorOption } from '../ui/SelectorOption'
 import { ProviderLogo, getProviderForModel } from '../icons/ProviderLogos'
+import { PROVIDER_DEFS, type ProviderId } from '../../stores/providers-store'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -22,7 +23,7 @@ interface Props {
   compact?: boolean
   showCost?: boolean
   resolution?: string
-  filterProvider?: 'kie' | 'fal' | 'replicate' | 'elevenlabs' | 'machgen' | 'higgsfield'
+  filterProvider?: ProviderId
   dropUp?: boolean
 }
 
@@ -90,89 +91,18 @@ export function ModelSelectorDropdown({
     )
   }
 
-  // Groups by provider with official logos
+  // Groups by provider with official logos (dynamic iteration over PROVIDER_DEFS)
   const groups = useMemo(() => {
-    const list = [
-      {
-        id: 'kie',
-        label: (
-          <div className="flex items-center gap-1.5">
-            <ProviderLogo provider="kie" size={13} />
-            <span>KIE.ai</span>
-          </div>
-        ),
-        items: allModels.filter(
-          (m) =>
-            !m.local &&
-            m.provider !== 'replicate' &&
-            m.provider !== 'fal' &&
-            m.provider !== 'elevenlabs' &&
-            m.provider !== 'machgen' &&
-            m.provider !== 'higgsfield'
-        ),
-      },
-      {
-        id: 'higgsfield',
-        label: (
-          <div className="flex items-center gap-1.5">
-            <ProviderLogo provider="higgsfield" size={13} />
-            <span>Higgsfield AI</span>
-          </div>
-        ),
-        items: allModels.filter((m) => m.provider === 'higgsfield'),
-      },
-      {
-        id: 'machgen',
-        label: (
-          <div className="flex items-center gap-1.5">
-            <ProviderLogo provider="machgen" size={13} />
-            <span>MachGen</span>
-          </div>
-        ),
-        items: allModels.filter((m) => m.provider === 'machgen'),
-      },
-      {
-        id: 'fal',
-        label: (
-          <div className="flex items-center gap-1.5">
-            <ProviderLogo provider="fal" size={13} />
-            <span>fal.ai</span>
-          </div>
-        ),
-        items: allModels.filter((m) => m.provider === 'fal'),
-      },
-      {
-        id: 'replicate',
-        label: (
-          <div className="flex items-center gap-1.5">
-            <ProviderLogo provider="replicate" size={13} />
-            <span>Replicate</span>
-          </div>
-        ),
-        items: allModels.filter((m) => m.provider === 'replicate'),
-      },
-      {
-        id: 'elevenlabs',
-        label: (
-          <div className="flex items-center gap-1.5">
-            <ProviderLogo provider="elevenlabs" size={13} />
-            <span>ElevenLabs</span>
-          </div>
-        ),
-        items: allModels.filter((m) => m.provider === 'elevenlabs'),
-      },
-      {
-        id: 'local',
-        label: (
-          <div className="flex items-center gap-1.5">
-            <ProviderLogo provider="local" size={13} />
-            <span>Local</span>
-          </div>
-        ),
-        items: allModels.filter((m) => m.local),
-      },
-    ]
-    return list.filter((g) => g.items.length > 0)
+    return PROVIDER_DEFS.map((p) => ({
+      id: p.id,
+      label: (
+        <div className="flex items-center gap-1.5">
+          <ProviderLogo provider={p.id} size={13} />
+          <span>{p.label}</span>
+        </div>
+      ),
+      items: allModels.filter((m) => (m.provider || 'kie') === p.id),
+    })).filter((g) => g.items.length > 0)
   }, [allModels])
 
   const currentPrice = useMemo(() => {

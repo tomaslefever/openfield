@@ -2,7 +2,7 @@ export interface FalModelCatalogEntry {
   id: string
   name: string
   category: string
-  type: 'video' | 'image'
+  type: 'video' | 'image' | 'audio'
   /** Video models: billed per second of output */
   costPerSecond?: number
   /** Image models: billed per generated image */
@@ -161,6 +161,41 @@ export const FAL_MODELS: FalModelCatalogEntry[] = [
     resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '4:3', '3:4', '9:16'],
   },
+  // Missing Image models
+  { id: 'fal-ai/flux/dev', name: 'FLUX.1 [dev]', category: 'Flux', type: 'image', costPerImage: 0.025, resolutions: ['1K'], aspectRatios: ['1:1', '16:9', '9:16'] },
+  { id: 'fal-ai/flux/schnell', name: 'FLUX.1 [schnell]', category: 'Flux', type: 'image', costPerImage: 0.003, resolutions: ['1K'], aspectRatios: ['1:1', '16:9', '9:16'] },
+  { id: 'fal-ai/flux-pro', name: 'FLUX.1 [pro]', category: 'Flux', type: 'image', costPerImage: 0.040, resolutions: ['1K'], aspectRatios: ['1:1', '16:9', '9:16'] },
+  { id: 'fal-ai/ideogram/v2', name: 'Ideogram v2', category: 'Ideogram', type: 'image', costPerImage: 0.080, resolutions: ['1K'], aspectRatios: ['1:1', '16:9', '9:16'] },
+  { id: 'fal-ai/ideogram/v2/turbo', name: 'Ideogram v2 Turbo', category: 'Ideogram', type: 'image', costPerImage: 0.040, resolutions: ['1K'], aspectRatios: ['1:1', '16:9', '9:16'] },
+  { id: 'fal-ai/kling-o1/image-to-image', name: 'Kling O1 Image', category: 'Kling', type: 'image', costPerImage: 0.040, resolutions: ['1K'], aspectRatios: ['1:1', '16:9', '9:16'] },
+
+  // Missing Video models
+  { id: 'fal-ai/google/veo-3-1', name: 'Veo 3.1', category: 'Google', type: 'video', costPerSecond: 0.15, resolutions: ['720p', '1080p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { id: 'fal-ai/kling-video/v3/text-to-video', name: 'Kling 3.0 Video', category: 'Kling', type: 'video', costPerSecond: 0.08, resolutions: ['std'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { id: 'fal-ai/kling-video/v2.5/turbo', name: 'Kling 2.5 Turbo Video', category: 'Kling', type: 'video', costPerSecond: 0.05, resolutions: ['std'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { id: 'fal-ai/wan/v3/text-to-video', name: 'Wan 3.0 Video', category: 'Wan', type: 'video', costPerSecond: 0.05, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { id: 'fal-ai/wan/v2.1/text-to-video', name: 'Wan 2.1 Video', category: 'Wan', type: 'video', costPerSecond: 0.025, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { id: 'fal-ai/bytedance/seedance-2-5', name: 'Seedance 2.5', category: 'ByteDance', type: 'video', costPerSecond: 0.18, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { id: 'fal-ai/hunyuan-video', name: 'HunyuanVideo', category: 'Tencent', type: 'video', costPerSecond: 0.03, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { id: 'fal-ai/ltx-video', name: 'LTX-Video 2B', category: 'Lightricks', type: 'video', costPerSecond: 0.008, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { id: 'fal-ai/pixverse/v6', name: 'PixVerse V6', category: 'PixVerse', type: 'video', costPerSecond: 0.036, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+
+  // Missing Audio/TTS models
+  { id: 'fal-ai/dia-tts', name: 'Dia TTS', category: 'Fal', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/orpheus-tts', name: 'Orpheus TTS', category: 'Fal', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/qwen-audio-3-tts', name: 'Qwen Audio 3.0 TTS', category: 'Qwen', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/kokoro', name: 'Kokoro TTS', category: 'Kokoro', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/gemini-tts', name: 'Gemini TTS', category: 'Google', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/xai-tts', name: 'xAI TTS', category: 'xAI', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/elevenlabs/tts', name: 'ElevenLabs TTS (Fal)', category: 'ElevenLabs', type: 'audio', resolutions: [], aspectRatios: [] },
+
+  // Missing Music models
+  { id: 'fal-ai/minimax/music-3', name: 'MiniMax Music 3', category: 'MiniMax', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/minimax-music', name: 'MiniMax Music 2.0', category: 'MiniMax', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/cassette-ai', name: 'CassetteAI', category: 'CassetteAI', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/sonilo', name: 'Sonilo V1.1', category: 'Sonilo', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/stable-audio-open', name: 'Stable Audio Open', category: 'Stability', type: 'audio', resolutions: [], aspectRatios: [] },
+  { id: 'fal-ai/elevenlabs/music', name: 'ElevenLabs Music (Fal)', category: 'ElevenLabs', type: 'audio', costPerSecond: 0.004, resolutions: [], aspectRatios: [] },
 ]
 
 export function getFalModel(modelId: string): FalModelCatalogEntry | undefined {

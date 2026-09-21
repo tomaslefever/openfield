@@ -11,7 +11,6 @@ import { recoverRefsFromBackup } from './migrations/recover-refs-from-backup'
 import { initTaskQueue } from './services/task-queue'
 import { initReplicateQueue } from './services/replicate-queue'
 import { initFalQueue } from './services/fal-queue'
-import { getServerManager } from './services/local-models/server-manager'
 import { getMcpBridge } from './services/mcp'
 import { isBridgeEnabled } from './services/storyboard-service'
 import { initUpdater, checkForUpdates } from './services/updater'
@@ -122,18 +121,6 @@ async function initialize() {
       raw.save()
     }
   } catch (err) { console.warn('[Migration] Backup refs recovery failed:', err) }
-
-  // Start local model server if enabled
-  try {
-    const raw = getRawDb()
-    const row = raw.prepare("SELECT value FROM settings WHERE key = 'enableLocalModels'").get() as any
-    if (row?.value) {
-      const enabled = JSON.parse(row.value)
-      if (enabled === true || enabled === 'true') {
-        getServerManager().start().catch(err => console.warn('[local-models] Server start failed:', err.message))
-      }
-    }
-  } catch {}
 
   // Start MCP bridge (local HTTP bridge on port 19877 by default)
   try {
@@ -339,7 +326,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  try { getServerManager().stop() } catch {}
   try { getMcpBridge().stop() } catch {}
   try { getRawDb().saveSync() } catch {}
 })

@@ -24,7 +24,8 @@ export interface Account {
 }
 
 export interface CreatePredictionParams {
-  version: string
+  version?: string
+  model?: string
   input: Record<string, any>
 }
 

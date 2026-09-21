@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ProviderLogo } from './icons/ProviderLogos'
 
 interface ProviderStatus {
-  provider: 'kie' | 'replicate' | 'fal' | 'hf' | 'elevenlabs' | 'machgen' | 'higgsfield'
+  provider: 'kie' | 'replicate' | 'fal' | 'elevenlabs' | 'machgen' | 'higgsfield'
   label: string
   kind: 'credits' | 'account' | 'dollars' | 'token'
   value?: number | string
@@ -70,15 +70,6 @@ const PROVIDERS: ProviderDef[] = [
     helperUrl: 'https://fal.ai/dashboard/keys',
   },
   {
-    id: 'hf',
-    label: 'HuggingFace',
-    description: 'Token for gated models (FLUX...)',
-    icon: <ProviderLogo provider="hf" size={18} />,
-    keyName: 'hfToken',
-    keyPlaceholder: 'hf_... (HuggingFace token)',
-    helperUrl: 'https://huggingface.co/settings/tokens',
-  },
-  {
     id: 'elevenlabs',
     label: 'ElevenLabs',
     description: 'AI voice synthesis (TTS)',
@@ -104,10 +95,6 @@ export function ProvidersSection() {
       const list: any[] = (await api()?.balances?.list?.()) || []
       const map: Record<string, ProviderStatus | null> = {}
       list.forEach((b: any) => { if (b?.provider) map[b.provider] = b })
-      const settings: any = await api()?.settings?.getAll?.()
-      if (settings?.hfToken) {
-        map.hf = { provider: 'hf', label: 'HuggingFace', kind: 'token' }
-      }
       setStatuses(map)
     } catch {
       /* offline */

@@ -18,22 +18,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
+import { ProviderLogo } from '../components/icons/ProviderLogos'
 import {
   useProvidersStore,
   PROVIDER_DEFS,
   type ProviderDef,
   type ProviderStatus,
 } from '../stores/providers-store'
-
-const PROVIDER_ICONS: Record<string, React.ReactNode> = {
-  machgen: <DollarSign size={18} />,
-  higgsfield: <Sparkles size={18} />,
-  kie: <Zap size={18} />,
-  replicate: <User size={18} />,
-  fal: <DollarSign size={18} />,
-  hf: <Cloud size={18} />,
-  elevenlabs: <AudioLines size={18} />,
-}
 
 export function ProvidersPage() {
   const {
@@ -156,8 +147,8 @@ export function ProvidersPage() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       {/* Left: Icon, Name, Description */}
                       <div className="flex items-center gap-3.5 min-w-0">
-                        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent-600/15 text-accent-400 border border-accent-500/20 shadow-inner">
-                          {PROVIDER_ICONS[p.id] || <KeyRound size={18} />}
+                        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-surface-800/80 border border-surface-700/60 p-2 shadow-inner">
+                          <ProviderLogo provider={p.id} size={24} className="text-surface-100" />
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">

@@ -465,11 +465,6 @@ export function MusicGenPage() {
                 style={{ width: `${Math.min(Math.max(audioStatus.pct || 5, 2), 100)}%` }}
               />
             </div>
-            {audioStatus.status === 'installing_deps' && (
-              <p className="text-[10px] text-surface-500 mt-1.5">
-                Instalando dependencias de Kokoro (torch + misaki). Solo la primera vez, puede tardar varios minutos.
-              </p>
-            )}
           </div>
         </div>
       )}
