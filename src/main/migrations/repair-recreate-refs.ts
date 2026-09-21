@@ -11,7 +11,7 @@ export async function repairRecreateRefs(): Promise<number> {
   const raw = getRawDb()
   const am = getAssetManager()
 
-  const taskRows = raw.prepare('SELECT task_id, payload FROM openfield_tasks').all() as any[]
+  const taskRows = raw.prepare('SELECT task_id, payload FROM tasks UNION SELECT task_id, payload FROM openfield_tasks').all() as any[]
   const tasks = new Map<string, any>()
   for (const t of taskRows) tasks.set(t.taskId, t.payload)
 

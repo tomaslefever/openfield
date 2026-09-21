@@ -331,7 +331,8 @@ export async function generateTransition(transitionId: string, params: any): Pro
 }
 
 export function getTask(taskId: string): any {
-  const row = getRawDb().prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(taskId)
+  const db = getRawDb()
+  const row = (db.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) || db.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(taskId)) as any
   if (!row) return null
   let payload: any = {}
   try { payload = JSON.parse(row.payload || '{}') } catch {}

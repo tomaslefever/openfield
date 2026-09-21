@@ -42,7 +42,7 @@ export class FalQueue extends EventEmitter {
     logRun(raw, taskId, 'enqueue', `fal.ai task enqueued: model=${payload?.model}, hasImage=${!!payload?.imageBase64}`, undefined, 'info', wsId)
 
     raw.prepare(
-      'INSERT INTO fal_tasks (task_id, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, \'fal\', ?, ?, ?, ?, ?, ?)'
     ).run(taskId, 'pending', type, JSON.stringify(payload), wsId, now, now)
 
     // Optimistic placeholder asset
@@ -70,7 +70,7 @@ export class FalQueue extends EventEmitter {
   private async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
-    const pending = raw.prepare('SELECT * FROM fal_tasks WHERE status = ? ORDER BY created_at ASC').all('pending')
+    const pending = raw.prepare('SELECT * FROM tasks WHERE provider = \'fal\' AND status = ? ORDER BY created_at ASC').all('pending')
     for (const task of pending) {
       if (this.processing.size >= this.maxConcurrent) break
       if (!this.processing.has(task.taskId)) this.processTask(task)
@@ -172,7 +172,7 @@ export class FalQueue extends EventEmitter {
 
     logRun(raw, task.taskId, 'processing', 'fal.ai task started processing')
 
-    raw.prepare('UPDATE fal_tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
+    raw.prepare('UPDATE tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
       .run('processing', Date.now(), Date.now(), task.taskId)
 
     this.emit('task:started', { taskId: task.taskId })
@@ -180,7 +180,7 @@ export class FalQueue extends EventEmitter {
     try {
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
 
-      let requestId = task.requestId || payload?.requestId
+      let requestId = task.requestId || task.externalId || payload?.requestId
 
       if (requestId) {
         logRun(raw, task.taskId, 'recovery', `Resuming existing request: ${requestId}`)
@@ -194,11 +194,11 @@ export class FalQueue extends EventEmitter {
         logRun(raw, task.taskId, 'api-response', `Request submitted: ${requestId}`)
 
         payload.requestId = requestId
-        raw.prepare('UPDATE fal_tasks SET payload = ?, request_id = ? WHERE task_id = ?')
-          .run(JSON.stringify(payload), requestId, task.taskId)
+        raw.prepare('UPDATE tasks SET payload = ?, external_id = ?, request_id = ? WHERE task_id = ?')
+          .run(JSON.stringify(payload), requestId, requestId, task.taskId)
       }
 
-      raw.prepare('UPDATE fal_tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), task.taskId)
+      raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), task.taskId)
       logRun(raw, task.taskId, 'waiting', 'Polling queue status...')
 
       const result = await this.poll(payload.model, requestId!, task.taskId)
@@ -224,7 +224,7 @@ export class FalQueue extends EventEmitter {
         return this.apiClient.getRequestResult(modelId, requestId)
       }
 
-      raw.prepare('UPDATE fal_tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
+      raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
     }
   }
@@ -306,7 +306,7 @@ export class FalQueue extends EventEmitter {
     }
 
     raw.prepare(
-      'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+      'UPDATE tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId, 100, Date.now(), Date.now(), task.taskId)
 
     raw.save()
@@ -320,7 +320,7 @@ export class FalQueue extends EventEmitter {
     if (!image?.url) {
       logRun(raw, task.taskId, 'no-url', 'No output image URL in result', null, 'warn')
       raw.prepare(
-        'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+        'UPDATE tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
       ).run('completed', null, 100, Date.now(), Date.now(), task.taskId)
       raw.save()
       this.emit('task:completed', { taskId: task.taskId, assetId: null, output: null })
@@ -381,7 +381,7 @@ export class FalQueue extends EventEmitter {
     }
 
     raw.prepare(
-      'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+      'UPDATE tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId, 100, Date.now(), Date.now(), task.taskId)
 
     raw.save()
@@ -397,7 +397,7 @@ export class FalQueue extends EventEmitter {
     if (!remoteUrl) {
       logRun(raw, task.taskId, 'no-url', 'No output audio URL in result', null, 'warn')
       raw.prepare(
-        'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+        'UPDATE tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
       ).run('completed', null, 100, Date.now(), Date.now(), task.taskId)
       raw.save()
       this.emit('task:completed', { taskId: task.taskId, assetId: null, output: null })
@@ -457,7 +457,7 @@ export class FalQueue extends EventEmitter {
     }
 
     raw.prepare(
-      'UPDATE fal_tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+      'UPDATE tasks SET status = ?, result_asset_id = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId, 100, Date.now(), Date.now(), task.taskId)
     raw.save()
 
@@ -472,12 +472,12 @@ export class FalQueue extends EventEmitter {
       .run(`__error__:${error.message}`, Date.now(), task.taskId, '')
 
     if (retryCount <= MAX_RETRIES) {
-      raw.prepare('UPDATE fal_tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
+      raw.prepare('UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
         .run('pending', retryCount, error.message, Date.now(), task.taskId)
       this.emit('task:retry', { taskId: task.taskId, attempt: retryCount, error: error.message })
       setTimeout(() => this.processQueue(), 5000 * retryCount)
     } else {
-      raw.prepare('UPDATE fal_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
+      raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
         .run('failed', error.message, Date.now(), task.taskId)
       this.emit('task:failed', { taskId: task.taskId, error: error.message })
     }
@@ -486,14 +486,14 @@ export class FalQueue extends EventEmitter {
 
   async cancelTask(taskId: string): Promise<boolean> {
     const raw = getRawDb()
-    const task = raw.prepare('SELECT * FROM fal_tasks WHERE task_id = ?').get(taskId) as any
+    const task = raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) as any
     if (!task) return false
     const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
-    const requestId = task.requestId || payload?.requestId
+    const requestId = task.requestId || task.request_id || task.external_id || payload?.requestId
     if (requestId && payload?.model) {
       try { await this.apiClient.cancelRequest(payload.model, requestId) } catch {}
     }
-    raw.prepare('UPDATE fal_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
+    raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
       .run('failed', 'Canceled by user', Date.now(), taskId)
     raw.prepare('UPDATE assets SET file_path = ?, updated_at = ? WHERE task_id = ? AND file_path = ?')
       .run('__error__:Canceled by user', Date.now(), taskId, '')
@@ -505,7 +505,7 @@ export class FalQueue extends EventEmitter {
   async recoverPendingTasks() {
     const raw = getRawDb()
     for (const status of ['processing', 'pending']) {
-      const tasks = raw.prepare('SELECT * FROM fal_tasks WHERE status = ?').all(status) as any[]
+      const tasks = raw.prepare('SELECT * FROM tasks WHERE provider = ? AND status = ?').all('fal', status) as any[]
       for (const task of tasks) {
         logRun(raw, task.taskId, 'recovery', 'Recovering interrupted fal.ai task')
         this.processTask(task)

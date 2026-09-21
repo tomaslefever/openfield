@@ -43,8 +43,8 @@ export class MachgenQueue extends EventEmitter {
     logRun(raw, taskId, 'enqueue', `MachGen task enqueued: model=${payload?.model}, mode=${payload?.mode}`, undefined, 'info', wsId)
 
     raw.prepare(
-      'INSERT INTO machgen_tasks (task_id, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'pending', type, JSON.stringify(payload), wsId, now, now)
+      'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(taskId, 'machgen', 'pending', type, JSON.stringify(payload), wsId, now, now)
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
@@ -70,7 +70,7 @@ export class MachgenQueue extends EventEmitter {
   private async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
-    const pending = raw.prepare('SELECT * FROM machgen_tasks WHERE status = ? ORDER BY created_at ASC').all('pending')
+    const pending = raw.prepare('SELECT * FROM tasks WHERE provider = ? AND status = ? ORDER BY created_at ASC').all('machgen', 'pending')
     for (const task of pending) {
       if (this.processing.size >= this.maxConcurrent) break
       if (!this.processing.has(task.taskId)) this.processTask(task)
@@ -289,7 +289,7 @@ export class MachgenQueue extends EventEmitter {
 
     logRun(raw, task.taskId, 'processing', 'MachGen task started processing')
 
-    raw.prepare('UPDATE machgen_tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
+    raw.prepare('UPDATE tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
       .run('processing', Date.now(), Date.now(), task.taskId)
 
     this.emit('task:started', { taskId: task.taskId })
@@ -305,8 +305,8 @@ export class MachgenQueue extends EventEmitter {
 
       logRun(raw, task.taskId, 'submitted', `MachGen task_id assigned: ${machgenTaskId}`)
 
-      raw.prepare('UPDATE machgen_tasks SET request_id = ?, updated_at = ? WHERE task_id = ?')
-        .run(machgenTaskId, Date.now(), task.taskId)
+      raw.prepare('UPDATE tasks SET request_id = ?, external_id = ?, updated_at = ? WHERE task_id = ?')
+        .run(machgenTaskId, machgenTaskId, Date.now(), task.taskId)
 
       const finalStatus = await this.pollTask(task.taskId, machgenTaskId)
       await this.handleSuccess(task, finalStatus)
@@ -337,7 +337,7 @@ export class MachgenQueue extends EventEmitter {
         throw new Error(statusRes.error_msg || 'MachGen task failed without error message')
       }
 
-      raw.prepare('UPDATE machgen_tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
+      raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
     }
   }
@@ -420,7 +420,7 @@ export class MachgenQueue extends EventEmitter {
     }
 
     raw.prepare(
-      'UPDATE machgen_tasks SET status = ?, result_asset_id = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+      'UPDATE tasks SET status = ?, result_asset_id = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId, Date.now(), Date.now(), task.taskId)
     raw.save()
 
@@ -435,14 +435,14 @@ export class MachgenQueue extends EventEmitter {
     if (retryCount < MAX_RETRIES && !errorMessage.includes('HTTP 400') && !errorMessage.includes('401') && !errorMessage.includes('403')) {
       logRun(raw, task.taskId, 'retry', `Retrying task (attempt ${retryCount}/${MAX_RETRIES}): ${errorMessage}`, null, 'warn')
       raw.prepare(
-        'UPDATE machgen_tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
+        'UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
       ).run('pending', retryCount, errorMessage, Date.now(), task.taskId)
       raw.save()
       this.emit('task:retrying', { taskId: task.taskId, retryCount, error: errorMessage })
     } else {
       logRun(raw, task.taskId, 'failed', `Task failed permanently: ${errorMessage}`, null, 'error')
       raw.prepare(
-        'UPDATE machgen_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
+        'UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
       ).run('failed', errorMessage, Date.now(), task.taskId)
 
       // Delete optimistic placeholder
@@ -457,12 +457,12 @@ export class MachgenQueue extends EventEmitter {
 
   cancelTask(taskId: string): boolean {
     const raw = getRawDb()
-    const task = raw.prepare('SELECT * FROM machgen_tasks WHERE task_id = ?').get(taskId) as any
+    const task = raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) as any
     if (!task) return false
 
     if (task.status === 'completed' || task.status === 'failed') return false
 
-    raw.prepare('UPDATE machgen_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
+    raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
       .run('failed', 'Cancelled by user', Date.now(), taskId)
 
     try {

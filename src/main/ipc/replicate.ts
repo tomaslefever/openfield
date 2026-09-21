@@ -36,7 +36,7 @@ export function registerReplicateHandlers({ raw, handle }: IpcContext) {
   })
 
   handle('replicate:task:status', (_e, taskId: string) => {
-    return raw.prepare('SELECT * FROM replicate_tasks WHERE task_id = ?').get(taskId)
+    return raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) || raw.prepare('SELECT * FROM replicate_tasks WHERE task_id = ?').get(taskId)
   })
 
   handle('replicate:task:cancel', (_e, taskId: string) => {

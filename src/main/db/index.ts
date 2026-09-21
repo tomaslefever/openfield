@@ -183,6 +183,27 @@ export function runMigrations() {
       kind TEXT DEFAULT 'image', refs TEXT DEFAULT '[]', tags TEXT DEFAULT '[]',
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS tasks (
+      task_id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      external_id TEXT,
+      openfield_task_id TEXT,
+      request_id TEXT,
+      prediction_id TEXT,
+      result_asset_id TEXT,
+      error_message TEXT,
+      progress INTEGER DEFAULT 0,
+      credits_used REAL DEFAULT 0,
+      retry_count INTEGER DEFAULT 0,
+      workspace_id TEXT,
+      started_at INTEGER,
+      completed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS openfield_tasks (
       task_id TEXT PRIMARY KEY, status TEXT NOT NULL, type TEXT NOT NULL,
       payload TEXT NOT NULL, result_asset_id TEXT, error_message TEXT,
@@ -523,7 +544,7 @@ export function runMigrations() {
       }
       const paramRows = raw.all("SELECT parameters FROM assets WHERE parameters IS NOT NULL AND parameters != ''") as any[]
       for (const row of paramRows) { try { scanForRefIds(row.parameters) } catch {} }
-      for (const table of ['openfield_tasks', 'replicate_tasks', 'fal_tasks']) {
+      for (const table of ['tasks', 'openfield_tasks', 'replicate_tasks', 'fal_tasks']) {
         const payloadRows = raw.all(`SELECT payload FROM ${table} WHERE payload IS NOT NULL`) as any[]
         for (const row of payloadRows) { try { scanForRefIds(row.payload) } catch {} }
       }
@@ -550,7 +571,7 @@ export function runMigrations() {
   // a "Default" workspace so the user keeps all their data.
   const workspaceTables = [
     'assets', 'elements', 'storyboards', 'workflows', 'projects',
-    'openfield_tasks', 'replicate_tasks', 'fal_tasks', 'machgen_tasks', 'higgsfield_tasks', 'run_logs',
+    'tasks', 'openfield_tasks', 'replicate_tasks', 'fal_tasks', 'machgen_tasks', 'higgsfield_tasks', 'run_logs',
   ]
   for (const table of workspaceTables) {
     try { raw.exec(`ALTER TABLE ${table} ADD COLUMN workspace_id TEXT`) } catch {}
@@ -583,6 +604,119 @@ export function runMigrations() {
     }
   } catch (err: any) {
     console.warn('[DB] Workspaces migration failed:', err?.message)
+  }
+
+  // ─── Unified tasks migration ──────────────────────────────────────
+  try {
+    raw.exec(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        task_id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        status TEXT NOT NULL,
+        type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        external_id TEXT,
+        openfield_task_id TEXT,
+        request_id TEXT,
+        prediction_id TEXT,
+        result_asset_id TEXT,
+        error_message TEXT,
+        progress INTEGER DEFAULT 0,
+        credits_used REAL DEFAULT 0,
+        retry_count INTEGER DEFAULT 0,
+        workspace_id TEXT,
+        started_at INTEGER,
+        completed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_provider_status ON tasks(provider, status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC);
+    `)
+
+    // Migrate from openfield_tasks
+    try {
+      raw.exec(`
+        INSERT OR IGNORE INTO tasks (
+          task_id, provider, status, type, payload, external_id, openfield_task_id,
+          result_asset_id, error_message, progress, credits_used, retry_count,
+          workspace_id, started_at, completed_at, created_at, updated_at
+        )
+        SELECT
+          task_id, 'openfield', status, type, payload, openfield_task_id, openfield_task_id,
+          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(credits_used, 0),
+          COALESCE(retry_count, 0), workspace_id, started_at, completed_at, created_at, updated_at
+        FROM openfield_tasks;
+      `)
+    } catch {}
+
+    // Migrate from fal_tasks
+    try {
+      raw.exec(`
+        INSERT OR IGNORE INTO tasks (
+          task_id, provider, status, type, payload, external_id, request_id,
+          result_asset_id, error_message, progress, retry_count,
+          workspace_id, started_at, completed_at, created_at, updated_at
+        )
+        SELECT
+          task_id, 'fal', status, type, payload, request_id, request_id,
+          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
+          workspace_id, started_at, completed_at, created_at, updated_at
+        FROM fal_tasks;
+      `)
+    } catch {}
+
+    // Migrate from replicate_tasks
+    try {
+      raw.exec(`
+        INSERT OR IGNORE INTO tasks (
+          task_id, provider, status, type, payload, external_id, prediction_id,
+          result_asset_id, error_message, progress, retry_count,
+          workspace_id, started_at, completed_at, created_at, updated_at
+        )
+        SELECT
+          task_id, 'replicate', status, type, payload, prediction_id, prediction_id,
+          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
+          workspace_id, started_at, completed_at, created_at, updated_at
+        FROM replicate_tasks;
+      `)
+    } catch {}
+
+    // Migrate from machgen_tasks
+    try {
+      raw.exec(`
+        INSERT OR IGNORE INTO tasks (
+          task_id, provider, status, type, payload, external_id, request_id,
+          result_asset_id, error_message, progress, retry_count,
+          workspace_id, started_at, completed_at, created_at, updated_at
+        )
+        SELECT
+          task_id, 'machgen', status, type, payload, request_id, request_id,
+          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
+          workspace_id, started_at, completed_at, created_at, updated_at
+        FROM machgen_tasks;
+      `)
+    } catch {}
+
+    // Migrate from higgsfield_tasks
+    try {
+      raw.exec(`
+        INSERT OR IGNORE INTO tasks (
+          task_id, provider, status, type, payload, external_id, request_id,
+          result_asset_id, error_message, progress, retry_count,
+          workspace_id, started_at, completed_at, created_at, updated_at
+        )
+        SELECT
+          task_id, 'higgsfield', status, type, payload, request_id, request_id,
+          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
+          workspace_id, started_at, completed_at, created_at, updated_at
+        FROM higgsfield_tasks;
+      `)
+    } catch {}
+  } catch (err: any) {
+    console.warn('[DB] Tasks unification migration warning:', err?.message)
   }
 
   // Migration: image default aspect is now 1:1 (videos stay 16:9)

@@ -54,8 +54,8 @@ export class HiggsfieldQueue extends EventEmitter {
     logRun(raw, taskId, 'enqueue', `Higgsfield task enqueued: model=${payload?.model}`, undefined, 'info', wsId)
 
     raw.prepare(
-      'INSERT INTO higgsfield_tasks (task_id, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'pending', type, JSON.stringify(payload), wsId, now, now)
+      'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(taskId, 'higgsfield', 'pending', type, JSON.stringify(payload), wsId, now, now)
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
@@ -77,7 +77,7 @@ export class HiggsfieldQueue extends EventEmitter {
   private async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
-    const pending = raw.prepare('SELECT * FROM higgsfield_tasks WHERE status = ? ORDER BY created_at ASC').all('pending')
+    const pending = raw.prepare('SELECT * FROM tasks WHERE provider = ? AND status = ? ORDER BY created_at ASC').all('higgsfield', 'pending')
     for (const task of pending) {
       if (this.processing.size >= this.maxConcurrent) break
       if (!this.processing.has(task.taskId)) this.processTask(task)
@@ -184,7 +184,7 @@ export class HiggsfieldQueue extends EventEmitter {
     this.processing.add(task.taskId)
     const raw = getRawDb()
 
-    raw.prepare('UPDATE higgsfield_tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
+    raw.prepare('UPDATE tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
       .run('processing', Date.now(), Date.now(), task.taskId)
 
     try {
@@ -219,8 +219,8 @@ export class HiggsfieldQueue extends EventEmitter {
 
       logRun(raw, task.taskId, 'submitted', `Higgsfield request_id assigned: ${hfRequestId}`)
 
-      raw.prepare('UPDATE higgsfield_tasks SET request_id = ?, updated_at = ? WHERE task_id = ?')
-        .run(hfRequestId, Date.now(), task.taskId)
+      raw.prepare('UPDATE tasks SET request_id = ?, external_id = ?, updated_at = ? WHERE task_id = ?')
+        .run(hfRequestId, hfRequestId, Date.now(), task.taskId)
 
       if (submitRes.status === 'completed') {
         await this.handleSuccess(task, submitRes as HiggsfieldCompletedStatus)
@@ -277,7 +277,7 @@ export class HiggsfieldQueue extends EventEmitter {
         throw new Error('Task was canceled')
       }
 
-      raw.prepare('UPDATE higgsfield_tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
+      raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
     }
   }
@@ -358,7 +358,7 @@ export class HiggsfieldQueue extends EventEmitter {
     }
 
     raw.prepare(
-      'UPDATE higgsfield_tasks SET status = ?, result_asset_id = ?, progress = 100, completed_at = ?, updated_at = ? WHERE task_id = ?'
+      'UPDATE tasks SET status = ?, result_asset_id = ?, progress = 100, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId || assetId, Date.now(), Date.now(), task.taskId)
 
     raw.save()
@@ -374,12 +374,12 @@ export class HiggsfieldQueue extends EventEmitter {
     if (currentRetries < MAX_RETRIES && !errorMessage.includes('NSFW') && !errorMessage.includes('canceled') && !errorMessage.includes('API key')) {
       logRun(raw, task.taskId, 'retry', `Retrying task (${currentRetries + 1}/${MAX_RETRIES}): ${errorMessage}`, null, 'warn')
       raw.prepare(
-        'UPDATE higgsfield_tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
+        'UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
       ).run('pending', currentRetries + 1, errorMessage, Date.now(), task.taskId)
     } else {
       logRun(raw, task.taskId, 'failed', `Higgsfield task marked as failed: ${errorMessage}`, null, 'error')
       raw.prepare(
-        'UPDATE higgsfield_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
+        'UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
       ).run('failed', errorMessage, Date.now(), task.taskId)
 
       // Delete optimistic placeholder
@@ -394,7 +394,7 @@ export class HiggsfieldQueue extends EventEmitter {
 
   cancelTask(taskId: string): boolean {
     const raw = getRawDb()
-    const task = raw.prepare('SELECT * FROM higgsfield_tasks WHERE task_id = ?').get(taskId) as any
+    const task = raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) as any
     if (!task) return false
 
     if (task.status === 'completed' || task.status === 'failed') return false
@@ -405,7 +405,7 @@ export class HiggsfieldQueue extends EventEmitter {
       this.cancelUrls.delete(taskId)
     }
 
-    raw.prepare('UPDATE higgsfield_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
+    raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
       .run('failed', 'Cancelled by user', Date.now(), taskId)
 
     try {

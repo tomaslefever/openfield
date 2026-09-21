@@ -34,7 +34,7 @@ export function registerHiggsfieldHandlers({ raw, handle }: IpcContext) {
   })
 
   handle('higgsfield:task:status', (_e, taskId: string) => {
-    return raw.prepare('SELECT * FROM higgsfield_tasks WHERE task_id = ?').get(taskId)
+    return raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) || raw.prepare('SELECT * FROM higgsfield_tasks WHERE task_id = ?').get(taskId)
   })
 
   handle('higgsfield:task:cancel', (_e, taskId: string) => {

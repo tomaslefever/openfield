@@ -284,8 +284,9 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
         try {
           const asset = getRawDb().prepare('SELECT * FROM assets WHERE id = ?').get(videoRef.assetId) as any
           if (asset?.taskId) {
-            const task = getRawDb().prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(asset.taskId) as any
-            kieTaskId = task?.openfieldTaskId || task?.kieTaskId || ''
+            const db = getRawDb()
+            const task = (db.prepare('SELECT * FROM tasks WHERE task_id = ?').get(asset.taskId) || db.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(asset.taskId)) as any
+            kieTaskId = task?.openfieldTaskId || task?.openfield_task_id || task?.external_id || task?.kieTaskId || ''
           }
         } catch {}
       }

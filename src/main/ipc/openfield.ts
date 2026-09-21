@@ -178,8 +178,8 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
     if (!asset) throw new Error('Asset not found')
     if (asset.type !== 'video') throw new Error('Only video assets can be upscaled')
     if (!asset.taskId) throw new Error('Source video has no generation task')
-    const sourceTask = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(asset.taskId) as any
-    let kieTaskId: string | null = sourceTask?.openfieldTaskId || sourceTask?.kieTaskId || null
+    const sourceTask = (raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(asset.taskId) || raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(asset.taskId)) as any
+    let kieTaskId: string | null = sourceTask?.openfieldTaskId || sourceTask?.openfield_task_id || sourceTask?.external_id || sourceTask?.kieTaskId || null
     if (!kieTaskId && sourceTask?.payload) {
       try {
         const p = JSON.parse(sourceTask.payload)
@@ -219,7 +219,10 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
 
   handle('openfield:task:status', async (_e, taskId: string) => {
     if (!taskId) return null
-    let task = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(taskId) as any
+    let task = raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) as any
+    if (!task) {
+      task = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(taskId) as any
+    }
     if (!task) {
       task = raw.prepare('SELECT * FROM machgen_tasks WHERE task_id = ?').get(taskId) as any
     }
@@ -269,16 +272,18 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
   })
 
   handle('openfield:task:cancel', (_e, taskId: string) => {
-    if (raw.prepare('SELECT 1 FROM machgen_tasks WHERE task_id = ?').get(taskId)) {
+    const taskRow = raw.prepare('SELECT provider FROM tasks WHERE task_id = ?').get(taskId) as any
+    const provider = taskRow?.provider
+    if (provider === 'machgen' || raw.prepare('SELECT 1 FROM machgen_tasks WHERE task_id = ?').get(taskId)) {
       return getMachgenQueue(requireMachgenKey()).cancelTask(taskId)
     }
-    if (raw.prepare('SELECT 1 FROM fal_tasks WHERE task_id = ?').get(taskId)) {
+    if (provider === 'fal' || raw.prepare('SELECT 1 FROM fal_tasks WHERE task_id = ?').get(taskId)) {
       return getFalQueue(requireFalKey()).cancelTask(taskId)
     }
-    if (raw.prepare('SELECT 1 FROM higgsfield_tasks WHERE task_id = ?').get(taskId)) {
+    if (provider === 'higgsfield' || raw.prepare('SELECT 1 FROM higgsfield_tasks WHERE task_id = ?').get(taskId)) {
       return getHiggsfieldQueue(requireHiggsfieldKey()).cancelTask(taskId)
     }
-    if (raw.prepare('SELECT 1 FROM replicate_tasks WHERE task_id = ?').get(taskId)) {
+    if (provider === 'replicate' || raw.prepare('SELECT 1 FROM replicate_tasks WHERE task_id = ?').get(taskId)) {
       return getReplicateQueue(requireReplicateKey()).cancelTask(taskId)
     }
     const apiKey = requireApiKey()

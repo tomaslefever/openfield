@@ -193,7 +193,7 @@ export class TaskQueue extends EventEmitter {
     // Persist the enriched payload (with asset IDs) so handleSuccess/refresh keep
     // disk-backed refs instead of overwriting them with raw base64.
     raw.prepare(
-      'INSERT INTO openfield_tasks (task_id, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, \'openfield\', ?, ?, ?, ?, ?, ?)'
     ).run(taskId, 'pending', type, JSON.stringify(enrichedPayload), wsId, now, now)
 
     // Create optimistic placeholder asset immediately
@@ -215,7 +215,7 @@ export class TaskQueue extends EventEmitter {
   private async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
-    const pending = raw.prepare('SELECT * FROM openfield_tasks WHERE status = ? ORDER BY created_at ASC').all('pending')
+    const pending = raw.prepare('SELECT * FROM tasks WHERE provider = \'openfield\' AND status = ? ORDER BY created_at ASC').all('pending')
     for (const task of pending) {
       if (this.processing.size >= this.maxConcurrent) break
       if (!this.processing.has(task.taskId)) this.processTask(task)
@@ -228,7 +228,7 @@ export class TaskQueue extends EventEmitter {
 
     logRun(raw, task.taskId, 'processing', 'Task started processing')
 
-    raw.prepare('UPDATE openfield_tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
+    raw.prepare('UPDATE tasks SET status = ?, started_at = ?, updated_at = ? WHERE task_id = ?')
       .run('processing', Date.now(), Date.now(), task.taskId)
 
     this.emit('task:started', { taskId: task.taskId })
@@ -237,7 +237,7 @@ export class TaskQueue extends EventEmitter {
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : task.payload
 
       // If we already have an API task ID (recovery), skip creation and poll directly
-      let kieTaskId = task.kieTaskId || payload?.kieTaskId
+      let kieTaskId = task.kieTaskId || task.openfieldTaskId || task.externalId || payload?.kieTaskId
       if (kieTaskId) {
         logRun(raw, task.taskId, 'recovery', `Resuming existing task: ${kieTaskId}`)
       } else {
@@ -257,11 +257,11 @@ export class TaskQueue extends EventEmitter {
 
         // Store KIE task ID in dedicated column and payload for recovery
         payload.kieTaskId = kieTaskId
-        raw.prepare('UPDATE openfield_tasks SET payload = ?, openfield_task_id = ? WHERE task_id = ?')
-            .run(JSON.stringify(payload), kieTaskId, task.taskId)
+        raw.prepare('UPDATE tasks SET payload = ?, external_id = ?, openfield_task_id = ? WHERE task_id = ?')
+            .run(JSON.stringify(payload), kieTaskId, kieTaskId, task.taskId)
       }
 
-      raw.prepare('UPDATE openfield_tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), task.taskId)
+      raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), task.taskId)
 
       logRun(raw, task.taskId, 'waiting', 'Polling API for completion...')
 
@@ -417,7 +417,7 @@ export class TaskQueue extends EventEmitter {
     }
 
     raw.prepare(
-      'UPDATE openfield_tasks SET status = ?, result_asset_id = ?, credits_used = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
+      'UPDATE tasks SET status = ?, result_asset_id = ?, credits_used = ?, progress = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId, creditsUsed, 100, Date.now(), Date.now(), task.taskId)
 
     // Link the result back to the storyboard scene/transition that requested it
@@ -456,12 +456,12 @@ export class TaskQueue extends EventEmitter {
       .run(`__error__:${error.message}`, Date.now(), task.taskId, '')
 
     if (retryCount <= 3) {
-      raw.prepare('UPDATE openfield_tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
+      raw.prepare('UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
         .run('pending', retryCount, error.message, Date.now(), task.taskId)
       this.emit('task:retry', { taskId: task.taskId, attempt: retryCount, error: error.message })
       setTimeout(() => this.processQueue(), 5000 * retryCount)
     } else {
-      raw.prepare('UPDATE openfield_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
+      raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
         .run('failed', error.message, Date.now(), task.taskId)
       this.emit('task:failed', { taskId: task.taskId, error: error.message })
     }
@@ -475,12 +475,12 @@ export class TaskQueue extends EventEmitter {
 
   async recoverPendingTasks() {
     const raw = getRawDb()
-    const processing = raw.prepare('SELECT * FROM openfield_tasks WHERE status = ?').all('processing') as any[]
+    const processing = raw.prepare('SELECT * FROM tasks WHERE provider = \'openfield\' AND status = ?').all('processing') as any[]
     for (const task of processing) {
       logRun(raw, task.taskId, 'recovery', 'Recovering interrupted task')
       this.processTask(task)
     }
-    const pending = raw.prepare('SELECT * FROM openfield_tasks WHERE status = ?').all('pending') as any[]
+    const pending = raw.prepare('SELECT * FROM tasks WHERE provider = \'openfield\' AND status = ?').all('pending') as any[]
     for (const task of pending) {
       logRun(raw, task.taskId, 'recovery', 'Recovering pending task')
       this.processTask(task)
@@ -493,14 +493,14 @@ export class TaskQueue extends EventEmitter {
 
   async cancelTask(taskId: string) {
     const raw = getRawDb()
-    raw.prepare('UPDATE openfield_tasks SET status = ?, updated_at = ? WHERE task_id = ?').run('cancelled', Date.now(), taskId)
+    raw.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?').run('cancelled', Date.now(), taskId)
     this.processing.delete(taskId)
     this.emit('task:cancelled', { taskId })
   }
 
   async retryTask(taskId: string) {
     const raw = getRawDb()
-    raw.prepare('UPDATE openfield_tasks SET status = ?, retry_count = 0, error_message = NULL, updated_at = ? WHERE task_id = ?')
+    raw.prepare('UPDATE tasks SET status = ?, retry_count = 0, error_message = NULL, updated_at = ? WHERE task_id = ?')
       .run('pending', Date.now(), taskId)
     this.processQueue()
   }

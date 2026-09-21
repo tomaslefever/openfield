@@ -256,7 +256,7 @@ export function duplicateWorkspace(id: string): Workspace | null {
 
 const WORKSPACE_SCOPED_TABLES = [
   'assets', 'elements', 'storyboards', 'workflows', 'projects',
-  'openfield_tasks', 'replicate_tasks', 'fal_tasks', 'run_logs', 'prompts',
+  'tasks', 'openfield_tasks', 'replicate_tasks', 'fal_tasks', 'machgen_tasks', 'higgsfield_tasks', 'run_logs', 'prompts',
 ]
 
 export async function deleteWorkspace(id: string): Promise<{ ok: boolean; error?: string }> {
@@ -322,11 +322,17 @@ export function getTaskWorkspace(taskId: string): string {
   if (taskWorkspaceCache.has(taskId)) return taskWorkspaceCache.get(taskId)!
   const raw = getRawDb()
   let wsId = ''
-  for (const table of ['openfield_tasks', 'fal_tasks', 'replicate_tasks', 'machgen_tasks', 'higgsfield_tasks']) {
-    try {
-      const row = raw.prepare(`SELECT workspace_id FROM ${table} WHERE task_id = ?`).get(taskId) as any
-      if (row?.workspace_id) { wsId = row.workspace_id; break }
-    } catch {}
+  try {
+    const row = raw.prepare('SELECT workspace_id FROM tasks WHERE task_id = ?').get(taskId) as any
+    if (row?.workspace_id) wsId = row.workspace_id
+  } catch {}
+  if (!wsId) {
+    for (const table of ['openfield_tasks', 'fal_tasks', 'replicate_tasks', 'machgen_tasks', 'higgsfield_tasks']) {
+      try {
+        const row = raw.prepare(`SELECT workspace_id FROM ${table} WHERE task_id = ?`).get(taskId) as any
+        if (row?.workspace_id) { wsId = row.workspace_id; break }
+      } catch {}
+    }
   }
   if (!wsId) wsId = getActiveWorkspaceId()
   taskWorkspaceCache.set(taskId, wsId)

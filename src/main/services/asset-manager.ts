@@ -478,7 +478,7 @@ export class AssetManager {
     if (!asset) return null
 
     // Try to re-download from the original task
-    const task = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(asset.taskId) as any
+    const task = (raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(asset.taskId) || raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(asset.taskId)) as any
     if (!task) {
       console.error(`[refreshAsset] No task found for task_id: ${asset.taskId}`)
       if (!asset.filePath?.startsWith('__error__')) {
@@ -489,7 +489,7 @@ export class AssetManager {
     }
 
     const taskPayload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
-    let kieTaskId: string | null = task.kieTaskId || taskPayload?.kieTaskId || null
+    let kieTaskId: string | null = task.kieTaskId || task.openfieldTaskId || task.openfield_task_id || task.external_id || taskPayload?.kieTaskId || null
 
     // Fallback: try to find kieTaskId from run_logs
     if (!kieTaskId) {
@@ -501,7 +501,7 @@ export class AssetManager {
         if (match) {
           kieTaskId = match[1]
           console.log(`[refreshAsset] Recovered kieTaskId from logs: ${kieTaskId}`)
-          raw.prepare('UPDATE openfield_tasks SET openfield_task_id = ? WHERE task_id = ?').run(kieTaskId, asset.taskId)
+          raw.prepare('UPDATE tasks SET openfield_task_id = ?, external_id = ? WHERE task_id = ?').run(kieTaskId, kieTaskId, asset.taskId)
         }
       }
     }

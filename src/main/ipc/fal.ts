@@ -36,7 +36,7 @@ export function registerFalHandlers({ raw, handle }: IpcContext) {
   })
 
   handle('fal:task:status', (_e, taskId: string) => {
-    return raw.prepare('SELECT * FROM fal_tasks WHERE task_id = ?').get(taskId)
+    return raw.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) || raw.prepare('SELECT * FROM fal_tasks WHERE task_id = ?').get(taskId)
   })
 
   handle('fal:task:cancel', (_e, taskId: string) => {
