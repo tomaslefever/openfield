@@ -134,7 +134,7 @@ export async function initDatabase(): Promise<DbWrapper> {
   dbInstance = new DbWrapper(db, dbPath)
 
   // Migrate legacy data to openfield folder for consistency
-  const userDataPath = app.getPath('userData')
+  const userDataPath = app?.getPath ? app.getPath('userData') : path.join(process.env.APPDATA || process.env.HOME || '', 'kie-studio-desktop')
   const newDir = path.join(userDataPath, 'openfield')
   const oldSubDir = path.join(userDataPath, 'kie-studio')
   const legacyDir = path.join(path.dirname(userDataPath), 'kie-studio-desktop', 'kie-studio')
@@ -518,40 +518,42 @@ export function runMigrations() {
   // in any stored task payload or asset parameters (imageAssetId / firstFrameAssetId /
   // lastFrameAssetId / imageRefs[].assetId / videoRefs[].assetId / audioRefs[].assetId).
   try {
-    const uploadCount = raw.prepare("SELECT count(*) as c FROM assets WHERE model_used = 'upload'").get()?.c || 0
-    if (uploadCount > 0) {
-      const refIds = new Set<string>()
-      const scanForRefIds = (value: any) => {
-        if (!value) return
-        if (typeof value === 'string') {
-          if (value.length > 0 && value.length < 1000000) {
-            try { value = JSON.parse(value) } catch { return }
-          } else { return }
-        }
-        if (Array.isArray(value)) { for (const item of value) scanForRefIds(item); return }
-        if (typeof value !== 'object') return
-        if (typeof value.imageAssetId === 'string') refIds.add(value.imageAssetId)
-        if (typeof value.firstFrameAssetId === 'string') refIds.add(value.firstFrameAssetId)
-        if (typeof value.lastFrameAssetId === 'string') refIds.add(value.lastFrameAssetId)
-        for (const key of ['imageRefs', 'videoRefs', 'audioRefs']) {
-          if (Array.isArray(value[key])) {
-            for (const r of value[key]) {
-              if (r && typeof r.assetId === 'string') refIds.add(r.assetId)
+    const refMarkingDone = raw.prepare("SELECT value FROM settings WHERE key = 'refMarkingMigrationDone'").get() as any
+    if (!refMarkingDone) {
+      const uploadCount = raw.prepare("SELECT count(*) as c FROM assets WHERE model_used = 'upload'").get()?.c || 0
+      if (uploadCount > 0) {
+        const refIds = new Set<string>()
+        const scanForRefIds = (value: any) => {
+          if (!value) return
+          if (typeof value === 'string') {
+            if (value.length > 0 && value.length < 500000) {
+              try { value = JSON.parse(value) } catch { return }
+            } else { return }
+          }
+          if (Array.isArray(value)) { for (const item of value) scanForRefIds(item); return }
+          if (typeof value !== 'object') return
+          if (typeof value.imageAssetId === 'string') refIds.add(value.imageAssetId)
+          if (typeof value.firstFrameAssetId === 'string') refIds.add(value.firstFrameAssetId)
+          if (typeof value.lastFrameAssetId === 'string') refIds.add(value.lastFrameAssetId)
+          for (const key of ['imageRefs', 'videoRefs', 'audioRefs']) {
+            if (Array.isArray(value[key])) {
+              for (const r of value[key]) {
+                if (r && typeof r.assetId === 'string') refIds.add(r.assetId)
+              }
             }
           }
+          for (const v of Object.values(value)) scanForRefIds(v)
         }
-        for (const v of Object.values(value)) scanForRefIds(v)
-      }
-      const paramRows = raw.all("SELECT parameters FROM assets WHERE parameters IS NOT NULL AND parameters != ''") as any[]
-      for (const row of paramRows) { try { scanForRefIds(row.parameters) } catch {} }
-      for (const table of ['tasks', 'openfield_tasks', 'replicate_tasks', 'fal_tasks']) {
-        const payloadRows = raw.all(`SELECT payload FROM ${table} WHERE payload IS NOT NULL`) as any[]
+        const paramRows = raw.all("SELECT parameters FROM assets WHERE parameters IS NOT NULL AND parameters != ''") as any[]
+        for (const row of paramRows) { try { scanForRefIds(row.parameters) } catch {} }
+        const payloadRows = raw.all("SELECT payload FROM tasks WHERE payload IS NOT NULL") as any[]
         for (const row of payloadRows) { try { scanForRefIds(row.payload) } catch {} }
+        const now = Date.now()
+        for (const id of refIds) {
+          raw.prepare("UPDATE assets SET model_used = 'ref', updated_at = ? WHERE id = ? AND model_used = 'upload'").run(now, id)
+        }
       }
-      const now = Date.now()
-      for (const id of refIds) {
-        raw.prepare("UPDATE assets SET model_used = 'ref', updated_at = ? WHERE id = ? AND model_used = 'upload'").run(now, id)
-      }
+      raw.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('refMarkingMigrationDone', '1', ?)").run(Date.now())
     }
   } catch (err: any) {
     console.warn('[DB] Ref-marking migration failed:', err?.message)
@@ -636,88 +638,94 @@ export function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC);
     `)
 
-    // Migrate from openfield_tasks
-    try {
-      raw.exec(`
-        INSERT OR IGNORE INTO tasks (
-          task_id, provider, status, type, payload, external_id, openfield_task_id,
-          result_asset_id, error_message, progress, credits_used, retry_count,
-          workspace_id, started_at, completed_at, created_at, updated_at
-        )
-        SELECT
-          task_id, 'openfield', status, type, payload, openfield_task_id, openfield_task_id,
-          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(credits_used, 0),
-          COALESCE(retry_count, 0), workspace_id, started_at, completed_at, created_at, updated_at
-        FROM openfield_tasks;
-      `)
-    } catch {}
+    // Migrate legacy task tables into unified tasks table (one-time)
+    const tasksDone = raw.prepare("SELECT value FROM settings WHERE key = 'tasksUnifiedV1Done'").get() as any
+    if (!tasksDone) {
+        // Migrate from openfield_tasks
+        try {
+          raw.exec(`
+            INSERT OR IGNORE INTO tasks (
+              task_id, provider, status, type, payload, external_id, openfield_task_id,
+              result_asset_id, error_message, progress, credits_used, retry_count,
+              workspace_id, started_at, completed_at, created_at, updated_at
+            )
+            SELECT
+              task_id, 'openfield', status, type, payload, openfield_task_id, openfield_task_id,
+              result_asset_id, error_message, COALESCE(progress, 0), COALESCE(credits_used, 0),
+              COALESCE(retry_count, 0), workspace_id, started_at, completed_at, created_at, updated_at
+            FROM openfield_tasks;
+          `)
+        } catch {}
 
-    // Migrate from fal_tasks
-    try {
-      raw.exec(`
-        INSERT OR IGNORE INTO tasks (
-          task_id, provider, status, type, payload, external_id, request_id,
-          result_asset_id, error_message, progress, retry_count,
-          workspace_id, started_at, completed_at, created_at, updated_at
-        )
-        SELECT
-          task_id, 'fal', status, type, payload, request_id, request_id,
-          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
-          workspace_id, started_at, completed_at, created_at, updated_at
-        FROM fal_tasks;
-      `)
-    } catch {}
+        // Migrate from fal_tasks
+        try {
+          raw.exec(`
+            INSERT OR IGNORE INTO tasks (
+              task_id, provider, status, type, payload, external_id, request_id,
+              result_asset_id, error_message, progress, retry_count,
+              workspace_id, started_at, completed_at, created_at, updated_at
+            )
+            SELECT
+              task_id, 'fal', status, type, payload, request_id, request_id,
+              result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
+              workspace_id, started_at, completed_at, created_at, updated_at
+            FROM fal_tasks;
+          `)
+        } catch {}
 
-    // Migrate from replicate_tasks
-    try {
-      raw.exec(`
-        INSERT OR IGNORE INTO tasks (
-          task_id, provider, status, type, payload, external_id, prediction_id,
-          result_asset_id, error_message, progress, retry_count,
-          workspace_id, started_at, completed_at, created_at, updated_at
-        )
-        SELECT
-          task_id, 'replicate', status, type, payload, prediction_id, prediction_id,
-          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
-          workspace_id, started_at, completed_at, created_at, updated_at
-        FROM replicate_tasks;
-      `)
-    } catch {}
+        // Migrate from replicate_tasks
+        try {
+          raw.exec(`
+            INSERT OR IGNORE INTO tasks (
+              task_id, provider, status, type, payload, external_id, prediction_id,
+              result_asset_id, error_message, progress, retry_count,
+              workspace_id, started_at, completed_at, created_at, updated_at
+            )
+            SELECT
+              task_id, 'replicate', status, type, payload, prediction_id, prediction_id,
+              result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
+              workspace_id, started_at, completed_at, created_at, updated_at
+            FROM replicate_tasks;
+          `)
+        } catch {}
 
-    // Migrate from machgen_tasks
-    try {
-      raw.exec(`
-        INSERT OR IGNORE INTO tasks (
-          task_id, provider, status, type, payload, external_id, request_id,
-          result_asset_id, error_message, progress, retry_count,
-          workspace_id, started_at, completed_at, created_at, updated_at
-        )
-        SELECT
-          task_id, 'machgen', status, type, payload, request_id, request_id,
-          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
-          workspace_id, started_at, completed_at, created_at, updated_at
-        FROM machgen_tasks;
-      `)
-    } catch {}
+        // Migrate from machgen_tasks
+        try {
+          raw.exec(`
+            INSERT OR IGNORE INTO tasks (
+              task_id, provider, status, type, payload, external_id, request_id,
+              result_asset_id, error_message, progress, retry_count,
+              workspace_id, started_at, completed_at, created_at, updated_at
+            )
+            SELECT
+              task_id, 'machgen', status, type, payload, request_id, request_id,
+              result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
+              workspace_id, started_at, completed_at, created_at, updated_at
+            FROM machgen_tasks;
+          `)
+        } catch {}
 
-    // Migrate from higgsfield_tasks
-    try {
-      raw.exec(`
-        INSERT OR IGNORE INTO tasks (
-          task_id, provider, status, type, payload, external_id, request_id,
-          result_asset_id, error_message, progress, retry_count,
-          workspace_id, started_at, completed_at, created_at, updated_at
-        )
-        SELECT
-          task_id, 'higgsfield', status, type, payload, request_id, request_id,
-          result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
-          workspace_id, started_at, completed_at, created_at, updated_at
-        FROM higgsfield_tasks;
-      `)
-    } catch {}
-  } catch (err: any) {
-    console.warn('[DB] Tasks unification migration warning:', err?.message)
-  }
+        // Migrate from higgsfield_tasks
+        try {
+          raw.exec(`
+            INSERT OR IGNORE INTO tasks (
+              task_id, provider, status, type, payload, external_id, request_id,
+              result_asset_id, error_message, progress, retry_count,
+              workspace_id, started_at, completed_at, created_at, updated_at
+            )
+            SELECT
+              task_id, 'higgsfield', status, type, payload, request_id, request_id,
+              result_asset_id, error_message, COALESCE(progress, 0), COALESCE(retry_count, 0),
+              workspace_id, started_at, completed_at, created_at, updated_at
+            FROM higgsfield_tasks;
+          `)
+        } catch {}
+
+        raw.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('tasksUnifiedV1Done', '1', ?)").run(Date.now())
+      }
+    } catch (err: any) {
+      console.warn('[DB] Tasks unification migration warning:', err?.message)
+    }
 
   // Migration: image default aspect is now 1:1 (videos stay 16:9)
   try { raw.exec("UPDATE storyboards SET default_aspect_ratio = '1:1' WHERE default_aspect_ratio = '16:9'") } catch {}
@@ -737,7 +745,7 @@ export function runMigrations() {
 }
 
 export function getUserDataDir(): string {
-  const userDataPath = app.getPath('userData')
+  const userDataPath = app?.getPath ? app.getPath('userData') : path.join(process.env.APPDATA || process.env.HOME || '', 'kie-studio-desktop')
   const legacyPaths = [
     path.join(userDataPath, 'kie-studio'),
     path.join(path.dirname(userDataPath), 'kie-studio-desktop', 'kie-studio'),
