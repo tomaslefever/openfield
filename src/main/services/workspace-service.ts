@@ -322,7 +322,7 @@ export function getTaskWorkspace(taskId: string): string {
   if (taskWorkspaceCache.has(taskId)) return taskWorkspaceCache.get(taskId)!
   const raw = getRawDb()
   let wsId = ''
-  for (const table of ['openfield_tasks', 'fal_tasks', 'replicate_tasks']) {
+  for (const table of ['openfield_tasks', 'fal_tasks', 'replicate_tasks', 'machgen_tasks', 'higgsfield_tasks']) {
     try {
       const row = raw.prepare(`SELECT workspace_id FROM ${table} WHERE task_id = ?`).get(taskId) as any
       if (row?.workspace_id) { wsId = row.workspace_id; break }

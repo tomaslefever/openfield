@@ -282,6 +282,7 @@ export function runMigrations() {
       status TEXT NOT NULL,
       type TEXT NOT NULL,
       payload TEXT NOT NULL,
+      workspace_id TEXT,
       prediction_id TEXT,
       result_asset_id TEXT,
       error_message TEXT,
@@ -297,6 +298,7 @@ export function runMigrations() {
       status TEXT NOT NULL,
       type TEXT NOT NULL,
       payload TEXT NOT NULL,
+      workspace_id TEXT,
       request_id TEXT,
       result_asset_id TEXT,
       error_message TEXT,
@@ -312,6 +314,7 @@ export function runMigrations() {
       status TEXT NOT NULL,
       type TEXT NOT NULL,
       payload TEXT NOT NULL,
+      workspace_id TEXT,
       request_id TEXT,
       result_asset_id TEXT,
       error_message TEXT,
@@ -327,6 +330,7 @@ export function runMigrations() {
       status TEXT NOT NULL,
       type TEXT NOT NULL,
       payload TEXT NOT NULL,
+      workspace_id TEXT,
       request_id TEXT,
       result_asset_id TEXT,
       error_message TEXT,
@@ -546,7 +550,7 @@ export function runMigrations() {
   // a "Default" workspace so the user keeps all their data.
   const workspaceTables = [
     'assets', 'elements', 'storyboards', 'workflows', 'projects',
-    'openfield_tasks', 'replicate_tasks', 'fal_tasks', 'run_logs',
+    'openfield_tasks', 'replicate_tasks', 'fal_tasks', 'machgen_tasks', 'higgsfield_tasks', 'run_logs',
   ]
   for (const table of workspaceTables) {
     try { raw.exec(`ALTER TABLE ${table} ADD COLUMN workspace_id TEXT`) } catch {}

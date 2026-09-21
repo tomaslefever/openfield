@@ -39,14 +39,15 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
     if (falKey) {
       try {
         const client = new FalApiClient(falKey)
-        const billing = await client.request<{ balance?: string; balance_cents?: number }>('/users/me/billing')
-        if (billing && (billing.balance_cents != null || billing.balance != null)) {
-          const dollars = billing.balance_cents != null
-            ? billing.balance_cents / 100
-            : parseFloat(billing.balance || '0')
-          if (isFinite(dollars)) {
-            balances.push({ provider: 'fal', label: 'fal.ai', kind: 'dollars', value: dollars })
-          }
+        const dollars = await client.getBalance()
+        if (dollars != null && isFinite(dollars)) {
+          balances.push({
+            provider: 'fal',
+            label: 'fal.ai',
+            kind: 'dollars',
+            value: Math.round(dollars * 100) / 100,
+            url: 'https://fal.ai/dashboard/billing',
+          })
         }
       } catch { /* key invalid or offline */ }
     }

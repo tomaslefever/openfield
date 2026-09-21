@@ -22,6 +22,22 @@ export class FalApiClient extends BaseClient {
   cancelRequest(modelId: string, requestId: string): Promise<void> {
     return cancelRequest(this, modelId, requestId)
   }
+
+  async getBalance(): Promise<number | null> {
+    try {
+      const response = await fetch('https://rest.alpha.fal.ai/billing/user_balance', {
+        headers: {
+          'Authorization': `Key ${this.apiKey}`,
+        },
+      })
+      if (!response.ok) return null
+      const text = await response.text()
+      const val = parseFloat(text)
+      return isFinite(val) ? val : null
+    } catch {
+      return null
+    }
+  }
 }
 
 export * from './types'
