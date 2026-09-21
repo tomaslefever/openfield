@@ -2,6 +2,7 @@ import { ModelPricing, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS } from './models
 
 export interface ImageGenerationPayload {
   model: string
+  provider?: string
   prompt: string
   negative_prompt?: string
   aspect_ratio?: string
@@ -14,6 +15,7 @@ export interface ImageGenerationPayload {
 
 export interface VideoGenerationPayload {
   model: string
+  provider?: string
   prompt: string
   negative_prompt?: string
   aspect_ratio?: string
@@ -31,6 +33,7 @@ export interface VideoGenerationPayload {
 
 export interface AudioGenerationPayload {
   model: string
+  provider?: string
   prompt?: string
   text?: string
   voice_id?: string
@@ -66,6 +69,7 @@ export function buildImagePayload(
 
   const payload: ImageGenerationPayload = {
     model: modelId,
+    provider: model.provider,
     prompt: prompt.trim(),
     aspect_ratio: ar,
     aspectRatio: ar,
@@ -116,6 +120,7 @@ export function buildVideoPayload(
 
   const payload: VideoGenerationPayload = {
     model: modelId,
+    provider: model.provider,
     prompt: prompt.trim(),
     aspectRatio: options?.aspectRatio || '9:16',
     aspect_ratio: options?.aspectRatio || '9:16',
@@ -192,6 +197,7 @@ export function buildAudioPayload(
 
   return {
     model: modelId,
+    provider: model.provider,
     prompt: text,
     text: text,
     voice_id: options?.voiceId || 'male-qn-qingse',

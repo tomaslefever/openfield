@@ -2,6 +2,69 @@ import type { IpcContext } from './context'
 import { requireApiKey, readSetting } from './helpers'
 import { OpenfieldApiClient, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS } from '../services/kie'
 import { getTaskQueue } from '../services/task-queue'
+import { requireMachgenKey } from './machgen'
+import { getMachgenQueue } from '../services/machgen-queue'
+import { getMachgenModel } from '../services/machgen'
+import { requireFalKey } from './fal'
+import { getFalQueue } from '../services/fal-queue'
+import { getFalModel } from '../services/fal'
+import { requireHiggsfieldKey } from './higgsfield'
+import { getHiggsfieldQueue } from '../services/higgsfield-queue'
+import { requireReplicateKey } from './replicate'
+import { getReplicateQueue } from '../services/replicate-queue'
+import { getReplicateModel } from '../services/replicate'
+
+function detectProvider(params: any): 'machgen' | 'fal' | 'higgsfield' | 'replicate' | 'kie' {
+  if (!params) return 'kie'
+  if (params.provider === 'kie') return 'kie'
+  if (params.provider === 'machgen' || params.model?.startsWith('machgen/') || (params.model && getMachgenModel(params.model))) {
+    return 'machgen'
+  }
+  if (
+    params.provider === 'higgsfield' ||
+    params.model?.startsWith('higgsfield/') ||
+    params.model?.startsWith('bytedance/seedance-2.0') ||
+    params.model?.startsWith('bytedance/seedance-2.5') ||
+    params.model?.startsWith('kling-video/')
+  ) {
+    return 'higgsfield'
+  }
+  if (
+    params.provider === 'fal' ||
+    params.model?.startsWith('fal-ai/') ||
+    params.model?.startsWith('minimax/') ||
+    params.model?.startsWith('imagineart/') ||
+    (params.model && getFalModel(params.model))
+  ) {
+    return 'fal'
+  }
+  if (
+    params.provider === 'replicate' ||
+    params.model?.startsWith('prunaai/') ||
+    params.model?.startsWith('philz1337x/') ||
+    params.model?.startsWith('black-forest-labs/') ||
+    params.model?.startsWith('ideogram-ai/') ||
+    (params.model && getReplicateModel(params.model))
+  ) {
+    return 'replicate'
+  }
+  return 'kie'
+}
+
+function forwardQueueEvents(sender: any, queue: any, taskId: string, prefix = 'openfield') {
+  const cleanup = () => {
+    queue.off('task:progress', onProgress)
+    queue.off('task:completed', onComplete)
+    queue.off('task:failed', onFailed)
+  }
+  const onProgress = (p: any) => { if (p.taskId === taskId) sender.send(`${prefix}:task:progress`, p) }
+  const onComplete = (p: any) => { if (p.taskId === taskId) { sender.send(`${prefix}:task:completed`, p); cleanup() } }
+  const onFailed = (p: any) => { if (p.taskId === taskId) { sender.send(`${prefix}:task:failed`, p); cleanup() } }
+
+  queue.on('task:progress', onProgress)
+  queue.on('task:completed', onComplete)
+  queue.on('task:failed', onFailed)
+}
 
 export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
   const ensureKieModel = (params: any) => {
@@ -11,22 +74,98 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
     if (params?.model?.startsWith('minimax/')) {
       throw new Error('This model runs on fal.ai, not KIE.ai. Use the fal.ai queue.')
     }
+    if (params?.model?.startsWith('machgen/')) {
+      throw new Error('This model runs on MachGen, not KIE.ai. Use the MachGen queue.')
+    }
     return params
   }
 
   handle('openfield:generate:image', async (event, params) => {
+    const provider = detectProvider(params)
+    if (provider === 'machgen') {
+      const apiKey = requireMachgenKey()
+      const queue = getMachgenQueue(apiKey)
+      const taskId = await queue.enqueue('image', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
+    if (provider === 'fal') {
+      const apiKey = requireFalKey()
+      const queue = getFalQueue(apiKey)
+      const taskId = await queue.enqueue('image', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
+    if (provider === 'higgsfield') {
+      const apiKey = requireHiggsfieldKey()
+      const queue = getHiggsfieldQueue(apiKey)
+      const taskId = await queue.enqueue('image', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
+    if (provider === 'replicate') {
+      const apiKey = requireReplicateKey()
+      const queue = getReplicateQueue(apiKey)
+      const taskId = await queue.enqueue('image', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
     const apiKey = requireApiKey()
     const queue = getTaskQueue(apiKey)
     return queue.enqueue('image', ensureKieModel(params))
   })
 
   handle('openfield:generate:video', async (event, params) => {
+    const provider = detectProvider(params)
+    if (provider === 'machgen') {
+      const apiKey = requireMachgenKey()
+      const queue = getMachgenQueue(apiKey)
+      const taskId = await queue.enqueue('video', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
+    if (provider === 'fal') {
+      const apiKey = requireFalKey()
+      const queue = getFalQueue(apiKey)
+      const taskId = await queue.enqueue('video', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
+    if (provider === 'higgsfield') {
+      const apiKey = requireHiggsfieldKey()
+      const queue = getHiggsfieldQueue(apiKey)
+      const taskId = await queue.enqueue('video', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
+    if (provider === 'replicate') {
+      const apiKey = requireReplicateKey()
+      const queue = getReplicateQueue(apiKey)
+      const taskId = await queue.enqueue('video', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
     const apiKey = requireApiKey()
     const queue = getTaskQueue(apiKey)
     return queue.enqueue('video', ensureKieModel(params))
   })
 
   handle('openfield:generate:audio', async (event, params) => {
+    const provider = detectProvider(params)
+    if (provider === 'machgen') {
+      const apiKey = requireMachgenKey()
+      const queue = getMachgenQueue(apiKey)
+      const taskId = await queue.enqueue('audio', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
+    if (provider === 'fal') {
+      const apiKey = requireFalKey()
+      const queue = getFalQueue(apiKey)
+      const taskId = await queue.enqueue('audio', params)
+      forwardQueueEvents(event.sender, queue, taskId, 'openfield')
+      return taskId
+    }
     const apiKey = requireApiKey()
     const queue = getTaskQueue(apiKey)
     return queue.enqueue('audio', params)
@@ -80,7 +219,19 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
 
   handle('openfield:task:status', async (_e, taskId: string) => {
     if (!taskId) return null
-    const task = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(taskId) as any
+    let task = raw.prepare('SELECT * FROM openfield_tasks WHERE task_id = ?').get(taskId) as any
+    if (!task) {
+      task = raw.prepare('SELECT * FROM machgen_tasks WHERE task_id = ?').get(taskId) as any
+    }
+    if (!task) {
+      task = raw.prepare('SELECT * FROM fal_tasks WHERE task_id = ?').get(taskId) as any
+    }
+    if (!task) {
+      task = raw.prepare('SELECT * FROM higgsfield_tasks WHERE task_id = ?').get(taskId) as any
+    }
+    if (!task) {
+      task = raw.prepare('SELECT * FROM replicate_tasks WHERE task_id = ?').get(taskId) as any
+    }
     if (!task) return null
 
     let assetId = task.assetId || task.asset_id
@@ -118,6 +269,18 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
   })
 
   handle('openfield:task:cancel', (_e, taskId: string) => {
+    if (raw.prepare('SELECT 1 FROM machgen_tasks WHERE task_id = ?').get(taskId)) {
+      return getMachgenQueue(requireMachgenKey()).cancelTask(taskId)
+    }
+    if (raw.prepare('SELECT 1 FROM fal_tasks WHERE task_id = ?').get(taskId)) {
+      return getFalQueue(requireFalKey()).cancelTask(taskId)
+    }
+    if (raw.prepare('SELECT 1 FROM higgsfield_tasks WHERE task_id = ?').get(taskId)) {
+      return getHiggsfieldQueue(requireHiggsfieldKey()).cancelTask(taskId)
+    }
+    if (raw.prepare('SELECT 1 FROM replicate_tasks WHERE task_id = ?').get(taskId)) {
+      return getReplicateQueue(requireReplicateKey()).cancelTask(taskId)
+    }
     const apiKey = requireApiKey()
     return getTaskQueue(apiKey).cancelTask(taskId)
   })

@@ -340,13 +340,13 @@ export function VideoGenPage() {
     try {
       const api = (window as any).electronAPI
       const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('bytedance/seedance-2.0') || params?.model?.startsWith('bytedance/seedance-2.5') || params?.model?.startsWith('kling-video/')
-      const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
+      const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen') || params?.model?.includes('MiniMax-H3') || params?.model?.includes('Wan2.2') || params?.model?.includes('LTX-2.3') || params?.model?.includes('Vidu-Q3') || params?.model?.includes('Topaz-')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/')
-      if (isHiggsfieldModel) {
-        await api?.higgsfield.generate(params)
-      } else if (isMachgenModel) {
+      if (isMachgenModel) {
         await api?.machgen.generate(params)
+      } else if (isHiggsfieldModel) {
+        await api?.higgsfield.generate(params)
       } else if (isFalModel) {
         await api?.fal.generate(params)
       } else if (isReplicateModel) {

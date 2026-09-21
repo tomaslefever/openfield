@@ -345,7 +345,7 @@ export function ImageGenPage() {
       const api = (window as any).electronAPI
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/')
       const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('higgsfield/')
-      const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
+      const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('black-forest-labs/') || params?.model?.startsWith('ideogram-ai/')
       if (isHiggsfieldModel) {
         await api?.higgsfield.generate(params)

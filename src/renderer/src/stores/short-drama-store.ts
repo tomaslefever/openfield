@@ -226,6 +226,30 @@ export function extractDurationFromText(text?: string): number | undefined {
   return undefined
 }
 
+async function dispatchGeneration(api: any, type: 'video' | 'image' | 'audio', payload: any) {
+  const provider = payload?.provider || (
+    payload?.model?.startsWith('machgen/') ? 'machgen' :
+    payload?.model?.startsWith('fal-ai/') || payload?.model?.startsWith('minimax/') ? 'fal' :
+    payload?.model?.startsWith('higgsfield/') ? 'higgsfield' :
+    payload?.model?.startsWith('prunaai/') ? 'replicate' : 'kie'
+  )
+  if (provider === 'machgen' && api?.machgen?.generate) {
+    return api.machgen.generate(payload)
+  }
+  if (provider === 'fal' && api?.fal?.generate) {
+    return api.fal.generate(payload)
+  }
+  if (provider === 'higgsfield' && api?.higgsfield?.generate) {
+    return api.higgsfield.generate(payload)
+  }
+  if (provider === 'replicate' && api?.replicate?.generate) {
+    return api.replicate.generate(payload)
+  }
+  if (type === 'video') return api?.openfield?.generateVideo?.(payload)
+  if (type === 'audio') return api?.openfield?.generateAudio?.(payload)
+  return api?.openfield?.generateImage?.(payload)
+}
+
 export interface FinalVideoState {
   assetId?: string
   localPath?: string
@@ -1704,7 +1728,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
         resolution: state.imageResolution,
       })
 
-      const task = await api?.openfield.generateImage(payload)
+      const task = await dispatchGeneration(api, 'image', payload)
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -1797,7 +1821,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         resolution: state.imageResolution,
       })
 
-      const task = await api?.openfield.generateImage(payload)
+      const task = await dispatchGeneration(api, 'image', payload)
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -1896,7 +1920,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         resolution: state.imageResolution,
       })
 
-      const task = await api?.openfield.generateImage(payload)
+      const task = await dispatchGeneration(api, 'image', payload)
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -2122,7 +2146,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         imageUrl: customParams?.imageUrl || imageRefs[0]?.imageUrl,
       })
 
-      const task = await api?.openfield.generateImage(payload)
+      const task = await dispatchGeneration(api, 'image', payload)
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -2295,7 +2319,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         : cleanTextForTts(effectiveDialogue)
 
       const payload = buildAudioPayload(state.voiceModel, cleanPrompt, { voiceId: defaultVoiceId })
-      const task = await api?.openfield.generateAudio(payload)
+      const task = await dispatchGeneration(api, 'audio', payload)
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -2516,7 +2540,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         payload.imageRefs = imageRefs
       }
 
-      const task = await api?.openfield.generateVideo(payload)
+      const task = await dispatchGeneration(api, 'video', payload)
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {

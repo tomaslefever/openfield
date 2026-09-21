@@ -70,12 +70,18 @@ export function attachTaskNotifications(queue: EventEmitter, source: string) {
 
   queue.on('task:completed', (payload: any) => {
     broadcast(COMPLETED_CHANNEL[source], payload)
+    if (source !== 'Openfield') {
+      broadcast('openfield:task:completed', payload)
+    }
     const type = getAssetType(payload?.taskId)
     show('Generación completada', `${typeLabel(type)} (${source})`)
   })
 
   queue.on('task:failed', (payload: any) => {
     broadcast(FAILED_CHANNEL[source], payload)
+    if (source !== 'Openfield') {
+      broadcast('openfield:task:failed', payload)
+    }
     if (payload?.error === 'Canceled by user') return
     show('Generación fallida', `${payload?.error || 'La tarea falló'} (${source})`)
   })

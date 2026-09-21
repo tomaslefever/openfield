@@ -30,6 +30,25 @@ import { GenerationHistoryModal } from './GenerationHistoryModal'
 import { srcUrl } from '../../../services/file-url'
 import { ModelPricing, cleanModelName } from '../../../lib/models'
 
+function getAspectRatioClass(ratio?: string): string {
+  switch (ratio) {
+    case '9:16':
+      return 'aspect-[9/16]'
+    case '16:9':
+      return 'aspect-video'
+    case '1:1':
+      return 'aspect-square'
+    case '4:3':
+      return 'aspect-[4/3]'
+    case '3:4':
+      return 'aspect-[3/4]'
+    case '21:9':
+      return 'aspect-[21/9]'
+    default:
+      return ratio ? `aspect-[${ratio.replace(':', '/')}]` : 'aspect-[9/16]'
+  }
+}
+
 export function Stage4VideoGen() {
   const {
     characters,
@@ -474,7 +493,7 @@ function VideoShotCard({
       </div>
 
       {/* ─── MEDIA PREVIEW AREA (PURE VISUALIZATION) ─── */}
-      <div className="relative aspect-video bg-[#07080c] overflow-hidden flex items-center justify-center border-b border-white/5">
+      <div className={`relative ${getAspectRatioClass(aspectRatio)} bg-[#07080c] overflow-hidden flex items-center justify-center border-b border-white/5 transition-all duration-300`}>
         {isCompleted ? (
           <video
             src={srcUrl(shot.videoLocalPath || shot.videoUrl)}
@@ -502,7 +521,7 @@ function VideoShotCard({
           /* FF Mode Active */
           hasFirstFrame && hasLastFrame ? (
             /* Split View: First Frame & Last Frame */
-            <div className="w-full h-full grid grid-cols-2 gap-1.5 p-1.5 bg-black/40">
+            <div className={`w-full h-full grid ${(aspectRatio === '9:16' || aspectRatio === '3:4') ? 'grid-rows-2 grid-cols-1' : 'grid-cols-2'} gap-1.5 p-1.5 bg-black/40`}>
               <div className="relative rounded-lg overflow-hidden bg-[#090a10] border border-white/10 flex items-center justify-center">
                 <img src={firstFrameSrc!} alt="Inicio (FF)" className="w-full h-full object-cover" />
                 <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-md text-[9px] font-bold text-accent-300 border border-white/10">
@@ -657,6 +676,7 @@ function VideoShotCard({
                 prompt: params.prompt,
                 duration: params.duration || shot.estimatedDuration || 5,
                 resolution: videoResolution || params.resolution,
+                aspectRatio: params.aspectRatio || aspectRatio,
                 inputMode,
                 firstFrameBase64: params.firstFrameBase64,
                 firstFrameUrl: params.firstFrameUrl || shot.keyframeUrl,

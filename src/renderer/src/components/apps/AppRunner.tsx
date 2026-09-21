@@ -312,7 +312,19 @@ export function AppRunner({ app, onClose }: AppRunnerProps) {
     const api = (window as any).electronAPI
     try {
       if (params.prompt) {
-        if (app.kind === 'ugc' || app.kind === 'transition') {
+        const isMachgen = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
+        const isHiggsfield = params?.provider === 'higgsfield' || params?.model?.startsWith('higgsfield/')
+        const isFal = params?.provider === 'fal' || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('minimax/')
+        const isReplicate = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/')
+        if (isMachgen && api?.machgen?.generate) {
+          await api.machgen.generate(params)
+        } else if (isHiggsfield && api?.higgsfield?.generate) {
+          await api.higgsfield.generate(params)
+        } else if (isFal && api?.fal?.generate) {
+          await api.fal.generate(params)
+        } else if (isReplicate && api?.replicate?.generate) {
+          await api.replicate.generate(params)
+        } else if (app.kind === 'ugc' || app.kind === 'transition') {
           await api?.openfield.generateVideo(params)
         } else {
           await api?.openfield.generateImage(params)

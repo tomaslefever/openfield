@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
 import * as crypto from 'crypto'
 import * as fs from 'fs/promises'
+import * as syncFs from 'fs'
 import { getRawDb } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import { ensurePlayableVideo } from './asset-manager'
@@ -77,6 +78,7 @@ export class MachgenQueue extends EventEmitter {
   }
 
   public buildInput(payload: any): MachgenTaskInput {
+    const raw = getRawDb()
     const rawModel = payload?.model || ''
     const modelDef = getMachgenModel(rawModel)
     const modelId = modelDef?.id || rawModel.replace(/^machgen\//, '').replace(/\/(t2v|i2v|fflf|ref|upscale|t2i|i2i|t2s|t2d|t2sfx|t2m)$/, '').trim()
@@ -85,33 +87,52 @@ export class MachgenQueue extends EventEmitter {
     const toDataUri = (b64: string, mime: string) =>
       b64.startsWith('data:') || b64.startsWith('http') ? b64 : `data:${mime || 'image/png'};base64,${b64}`
 
+    const resolveBase64 = (b64?: string, assetId?: string) => {
+      if (b64 && b64.length > 50) return b64
+      if (assetId) {
+        try {
+          const asset = raw.prepare('SELECT local_path FROM assets WHERE id = ?').get(assetId) as any
+          if (asset?.local_path && syncFs.existsSync(asset.local_path)) {
+            return syncFs.readFileSync(asset.local_path).toString('base64')
+          }
+        } catch {}
+      }
+      return b64 || ''
+    }
+
+    const firstFrame = resolveBase64(payload.firstFrameBase64, payload.firstFrameAssetId)
+    const lastFrame = resolveBase64(payload.lastFrameBase64, payload.lastFrameAssetId)
+    const imageBase64 = resolveBase64(payload.imageBase64, payload.imageAssetId)
+
     // Collect image URLs
     const srcImageUrls: string[] = []
     let keyframeIndices: (0 | -1)[] | null = null
 
     // Check payload image inputs
-    if (payload.firstFrameBase64 && payload.lastFrameBase64 && modelDef?.supportsEndFrame) {
-      srcImageUrls.push(toDataUri(payload.firstFrameBase64, 'image/png'))
-      srcImageUrls.push(toDataUri(payload.lastFrameBase64, 'image/png'))
+    if (firstFrame && lastFrame && modelDef?.supportsEndFrame) {
+      srcImageUrls.push(toDataUri(firstFrame, 'image/png'))
+      srcImageUrls.push(toDataUri(lastFrame, 'image/png'))
       keyframeIndices = [0, -1]
-    } else if (payload.lastFrameBase64 && !payload.firstFrameBase64 && (modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo')) {
+    } else if (lastFrame && !firstFrame && (modelId === 'MiniMax-H3' || modelId === 'MiniMax-H3-Turbo')) {
       // Lone end frame uniquely supported by MiniMax-H3 and MiniMax-H3-Turbo
-      srcImageUrls.push(toDataUri(payload.lastFrameBase64, 'image/png'))
+      srcImageUrls.push(toDataUri(lastFrame, 'image/png'))
       keyframeIndices = [-1]
-    } else if (payload.firstFrameBase64) {
-      srcImageUrls.push(toDataUri(payload.firstFrameBase64, 'image/png'))
+    } else if (firstFrame) {
+      srcImageUrls.push(toDataUri(firstFrame, 'image/png'))
       keyframeIndices = [0]
     } else if (payload.imageRefs && payload.imageRefs.length > 0) {
+      const ref0 = resolveBase64(payload.imageRefs[0].base64, payload.imageRefs[0].assetId) || payload.imageRefs[0].url
       if (payload.imageRefs.length > 1 && modelDef?.supportsEndFrame) {
-        srcImageUrls.push(toDataUri(payload.imageRefs[0].base64 || payload.imageRefs[0].url, payload.imageRefs[0].mime || 'image/png'))
-        srcImageUrls.push(toDataUri(payload.imageRefs[1].base64 || payload.imageRefs[1].url, payload.imageRefs[1].mime || 'image/png'))
+        const ref1 = resolveBase64(payload.imageRefs[1].base64, payload.imageRefs[1].assetId) || payload.imageRefs[1].url
+        srcImageUrls.push(toDataUri(ref0, payload.imageRefs[0].mime || 'image/png'))
+        srcImageUrls.push(toDataUri(ref1, payload.imageRefs[1].mime || 'image/png'))
         keyframeIndices = [0, -1]
       } else {
-        srcImageUrls.push(toDataUri(payload.imageRefs[0].base64 || payload.imageRefs[0].url, payload.imageRefs[0].mime || 'image/png'))
+        srcImageUrls.push(toDataUri(ref0, payload.imageRefs[0].mime || 'image/png'))
         keyframeIndices = [0]
       }
-    } else if (payload.imageBase64) {
-      srcImageUrls.push(toDataUri(payload.imageBase64, payload.imageMime || 'image/png'))
+    } else if (imageBase64) {
+      srcImageUrls.push(toDataUri(imageBase64, payload.imageMime || 'image/png'))
       keyframeIndices = [0]
     }
 
