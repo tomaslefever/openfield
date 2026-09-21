@@ -508,6 +508,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       const existing = prev.filter(r => (r as any).elementName)
       const existingKeys = new Set(existing.map(r => r.base64 || r.url || (r as any).assetId).filter(Boolean))
 
+      let addedCount = 0
       for (const w of wanted) {
         const key = w.base64 || w.url || w.assetId
         if (key && !existingKeys.has(key)) {
@@ -521,6 +522,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             refType: w.refType,
           } as any)
           existingKeys.add(key)
+          addedCount++
         }
       }
 
@@ -532,6 +534,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           || String((e as any).refType || '').startsWith('Mood')
         return keep && (!key || !removedElementRefs.current.has(key))
       })
+
+      if (addedCount === 0 && keptElements.length === existing.length) {
+        return prev
+      }
 
       return [...nonElement, ...keptElements]
     })
@@ -844,8 +850,29 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isFFLFRef = useRef(isFFLF)
   isFFLFRef.current = isFFLF
 
+  const onMediaStateChangeRef = useRef(onMediaStateChange)
+  onMediaStateChangeRef.current = onMediaStateChange
+  const lastEmittedMediaSignatureRef = useRef<string>('')
+
   useEffect(() => {
-    onMediaStateChange?.({
+    if (!onMediaStateChangeRef.current) return
+
+    const signature = JSON.stringify({
+      isFFLF,
+      hasFFB64: !!firstFrameBase64,
+      firstFrameUrl: firstFrameUrl || null,
+      hasLFB64: !!lastFrameBase64,
+      lastFrameUrl: lastFrameUrl || null,
+      refCount: refs.length,
+      refKeys: refs.map((r) => r.url || r.assetId || (r.base64 ? r.base64.slice(0, 32) : '')),
+    })
+
+    if (signature === lastEmittedMediaSignatureRef.current) {
+      return
+    }
+    lastEmittedMediaSignatureRef.current = signature
+
+    onMediaStateChangeRef.current({
       isFFLF,
       firstFrameBase64,
       firstFrameUrl,
@@ -854,7 +881,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       refCount: refs.length,
       refs,
     })
-  }, [isFFLF, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, refs, onMediaStateChange])
+  }, [isFFLF, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, refs])
 
   const isRefMode = (!!(currentModel.fflfId) && seedanceMode === 'ref') || currentModel.provider === 'fal' || (currentModel.provider === 'machgen' && seedanceMode === 'ref')
   const isOmniHuman = currentModel.t2vId === 'omnihuman-1-5'

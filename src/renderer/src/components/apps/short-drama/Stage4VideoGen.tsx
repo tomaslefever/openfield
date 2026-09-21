@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   Video,
   Sparkles,
@@ -310,6 +310,33 @@ function VideoShotCard({
     lastFrameUrl: shot.lastFrameUrl || null,
     refs: [],
   })
+
+  const handleMediaStateChange = useCallback(
+    (newState: {
+      isFFLF: boolean
+      firstFrameBase64: string | null
+      firstFrameUrl?: string | null
+      lastFrameBase64: string | null
+      lastFrameUrl?: string | null
+      refs: Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string }>
+    }) => {
+      setMediaState((prev) => {
+        if (
+          prev.isFFLF === newState.isFFLF &&
+          prev.firstFrameBase64 === newState.firstFrameBase64 &&
+          prev.firstFrameUrl === newState.firstFrameUrl &&
+          prev.lastFrameBase64 === newState.lastFrameBase64 &&
+          prev.lastFrameUrl === newState.lastFrameUrl &&
+          prev.refs.length === newState.refs.length &&
+          (prev.refs === newState.refs || (prev.refs.length === 0 && newState.refs.length === 0))
+        ) {
+          return prev
+        }
+        return newState
+      })
+    },
+    []
+  )
 
   // Next shot for automatic LF in FF/LF mode if defined
   const nextShot = shots.find((s) => s.order === shot.order + 1)
@@ -664,9 +691,7 @@ function VideoShotCard({
             initialFirstFrameUrl={shot.keyframeUrl}
             initialLastFrameUrl={shot.lastFrameUrl}
             disabled={isGenerating}
-            onMediaStateChange={(state) => {
-              setMediaState(state)
-            }}
+            onMediaStateChange={handleMediaStateChange}
             onGenerate={(params) => {
               const inputMode = !mediaState.isFFLF
                 ? (activeReferences.length > 0 ? 'ref' : 't2v')
