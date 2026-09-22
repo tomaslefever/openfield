@@ -324,23 +324,194 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
     const kieApiKey = readSetting('openfieldApiKey') || readSetting('kieApiKey')
     const openaiApiKey = readSetting('openaiApiKey')
     const anthropicApiKey = readSetting('anthropicApiKey')
+    const deepseekApiKey = readSetting('deepseekApiKey')
+    const geminiApiKey = readSetting('geminiApiKey')
     const openrouterApiKey = readSetting('openrouterApiKey')
 
     const messages = params?.messages || []
-    const requestedModel = params?.model || 'claude-3-7-sonnet'
+    const requestedModel = params?.model || 'deepseek-chat'
+    const requestedProvider = (params?.provider || '').toLowerCase()
 
     const formattedMessages = messages.map((m: any) => ({
       role: m.role === 'tool' ? 'user' : m.role,
       content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
     }))
 
-    // 1. Try KIE.ai API with current KIE credentials
-    if (kieApiKey) {
+    // Determine target provider
+    let provider = requestedProvider
+    if (!provider) {
+      if (requestedModel.startsWith('deepseek')) provider = 'deepseek'
+      else if (requestedModel.startsWith('gpt') || requestedModel.startsWith('o3')) provider = 'openai'
+      else if (requestedModel.startsWith('claude') && anthropicApiKey) provider = 'anthropic'
+      else if (requestedModel.startsWith('gemini') && geminiApiKey) provider = 'gemini'
+      else if (kieApiKey) provider = 'kie'
+      else if (deepseekApiKey) provider = 'deepseek'
+      else if (openaiApiKey) provider = 'openai'
+      else if (anthropicApiKey) provider = 'anthropic'
+      else if (geminiApiKey) provider = 'gemini'
+      else provider = 'kie'
+    }
+
+    // 1. DeepSeek Native API
+    if (provider === 'deepseek') {
+      if (!deepseekApiKey) {
+        throw new Error('No se ha configurado la API Key de DeepSeek. Ve a Ajustes > Proveedores para configurarla.')
+      }
+      try {
+        const res = await fetch('https://api.deepseek.com/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${deepseekApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: requestedModel.includes('reasoner') || requestedModel.includes('r1') ? 'deepseek-reasoner' : 'deepseek-chat',
+            messages: formattedMessages,
+            temperature: 0.7,
+            max_tokens: 4096,
+          }),
+        })
+
+        if (!res.ok) {
+          const errBody = await res.text()
+          throw new Error(`DeepSeek API Error [${res.status}]: ${errBody.slice(0, 200)}`)
+        }
+
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content || ''
+        if (text) {
+          return { content: text, message: { role: 'assistant', content: text } }
+        }
+        throw new Error('DeepSeek no devolvió contenido en la respuesta.')
+      } catch (err: any) {
+        throw new Error(`Error en DeepSeek: ${err?.message || String(err)}`)
+      }
+    }
+
+    // 2. OpenAI Native API
+    if (provider === 'openai') {
+      if (!openaiApiKey) {
+        throw new Error('No se ha configurado la API Key de OpenAI. Ve a Ajustes > Proveedores para configurarla.')
+      }
+      try {
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: requestedModel || 'gpt-4o',
+            messages: formattedMessages,
+            temperature: 0.7,
+            max_tokens: 4096,
+          }),
+        })
+
+        if (!res.ok) {
+          const errBody = await res.text()
+          throw new Error(`OpenAI API Error [${res.status}]: ${errBody.slice(0, 200)}`)
+        }
+
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content || ''
+        if (text) {
+          return { content: text, message: { role: 'assistant', content: text } }
+        }
+        throw new Error('OpenAI no devolvió contenido en la respuesta.')
+      } catch (err: any) {
+        throw new Error(`Error en OpenAI: ${err?.message || String(err)}`)
+      }
+    }
+
+    // 3. Anthropic Native API
+    if (provider === 'anthropic') {
+      if (!anthropicApiKey) {
+        throw new Error('No se ha configurado la API Key de Anthropic. Ve a Ajustes > Proveedores para configurarla.')
+      }
+      try {
+        const sysMsg = formattedMessages.find((m: any) => m.role === 'system')?.content || ''
+        const userMsgs = formattedMessages.filter((m: any) => m.role !== 'system')
+        const messagesPayload = userMsgs.length > 0 ? userMsgs : [{ role: 'user', content: 'Hola' }]
+
+        const bodyPayload: any = {
+          model: requestedModel || 'claude-3-7-sonnet-20250219',
+          messages: messagesPayload,
+          max_tokens: 4096,
+        }
+        if (sysMsg) bodyPayload.system = sysMsg
+
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': anthropicApiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(bodyPayload),
+        })
+
+        if (!res.ok) {
+          const errBody = await res.text()
+          throw new Error(`Anthropic API Error [${res.status}]: ${errBody.slice(0, 200)}`)
+        }
+
+        const data = await res.json()
+        const text = data.content?.[0]?.text || ''
+        if (text) {
+          return { content: text, message: { role: 'assistant', content: text } }
+        }
+        throw new Error('Anthropic no devolvió contenido en la respuesta.')
+      } catch (err: any) {
+        throw new Error(`Error en Anthropic: ${err?.message || String(err)}`)
+      }
+    }
+
+    // 4. Google Gemini API (v1beta OpenAI-compatible endpoint)
+    if (provider === 'gemini') {
+      if (!geminiApiKey) {
+        throw new Error('No se ha configurado la API Key de Google Gemini. Ve a Ajustes > Proveedores para configurarla.')
+      }
+      try {
+        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${geminiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: requestedModel || 'gemini-2.5-flash',
+            messages: formattedMessages,
+            temperature: 0.7,
+            max_tokens: 4096,
+          }),
+        })
+
+        if (!res.ok) {
+          const errBody = await res.text()
+          throw new Error(`Gemini API Error [${res.status}]: ${errBody.slice(0, 200)}`)
+        }
+
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content || ''
+        if (text) {
+          return { content: text, message: { role: 'assistant', content: text } }
+        }
+        throw new Error('Gemini no devolvió contenido en la respuesta.')
+      } catch (err: any) {
+        throw new Error(`Error en Gemini: ${err?.message || String(err)}`)
+      }
+    }
+
+    // 5. KIE.ai Hosted API
+    if (provider === 'kie') {
+      if (!kieApiKey) {
+        throw new Error('No se ha configurado la API Key de KIE.ai. Ve a Ajustes > Proveedores para configurarla.')
+      }
+
       const isClaude = requestedModel.toLowerCase().includes('claude')
       let lastError = ''
 
-      // For Claude models (Claude Opus 4.7, Claude Opus 4.8, Claude Fable 5, Claude 3.7 Sonnet),
-      // prioritize the official KIE Claude Messages endpoint
       if (isClaude) {
         const sysMsg = formattedMessages.find((m: any) => m.role === 'system')?.content || ''
         const userMsgs = formattedMessages.filter((m: any) => m.role !== 'system')
@@ -426,16 +597,14 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
             } else {
               const errBody = await res.text()
               lastError = `[HTTP ${res.status}] ${errBody.slice(0, 160)}`
-              console.warn(`[KIE Claude Messages] ${cUrl} error (${res.status}):`, errBody)
             }
           } catch (err: any) {
             lastError = err?.message || String(err)
-            console.warn(`[KIE Claude Messages] ${cUrl} connection error:`, err)
           }
         }
       }
 
-      // OpenAI-compatible Chat Completions endpoints
+      // OpenAI-compatible Chat Completions endpoints for KIE
       const sanitizedModel = requestedModel.replace(/\./g, '-').replace(/\//g, '-')
       const endpoints = [
         `https://api.kie.ai/${sanitizedModel}/v1/chat/completions`,
@@ -481,20 +650,18 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
           } else {
             const errBody = await res.text()
             lastError = `[HTTP ${res.status}] ${errBody.slice(0, 160)}`
-            console.warn(`[KIE Agent Chat] ${url} error (${res.status}):`, errBody)
           }
         } catch (err: any) {
           lastError = err?.message || String(err)
-          console.warn(`[KIE Agent Chat] ${url} connection error:`, err)
         }
       }
 
-      if (lastError && !openrouterApiKey && !openaiApiKey && !anthropicApiKey) {
+      if (lastError && !openrouterApiKey) {
         throw new Error(`KIE.ai Chat Error: ${lastError}`)
       }
     }
 
-    // 2. Try OpenRouter
+    // 6. OpenRouter Fallback
     if (openrouterApiKey) {
       try {
         const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -504,7 +671,7 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'anthropic/claude-3.5-sonnet',
+            model: requestedModel.includes('/') ? requestedModel : `anthropic/${requestedModel}`,
             messages: formattedMessages,
           }),
         })
@@ -518,30 +685,6 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
       } catch {}
     }
 
-    // 3. Try OpenAI
-    if (openaiApiKey) {
-      try {
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openaiApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o',
-            messages: formattedMessages,
-          }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          const text = data.choices?.[0]?.message?.content || ''
-          if (text) {
-            return { content: text, message: { role: 'assistant', content: text } }
-          }
-        }
-      } catch {}
-    }
-
-    throw new Error('No se pudo conectar a ningún servicio de IA para el chat o desglose. Configura tus API Keys de KIE en Ajustes.')
+    throw new Error('No se pudo conectar a ningún proveedor de IA configurado. Por favor configura tu API Key en Ajustes > Proveedores.')
   })
 }

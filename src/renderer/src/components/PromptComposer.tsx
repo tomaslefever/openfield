@@ -76,7 +76,7 @@ interface PromptComposerProps {
     imageBase64?: string
     imageMime?: string
     imageRefs?: { base64: string; mime: string; name?: string; refType?: string }[]
-    videoRefs?: { base64: string; mime: string }[]
+    videoRefs?: { base64?: string; url?: string; localPath?: string; assetId?: string; mime: string; name?: string; duration?: number }[]
     audioRefs?: { base64: string; mime: string }[]
     firstFrameBase64?: string
     lastFrameBase64?: string
@@ -105,7 +105,7 @@ interface PromptComposerProps {
   onPromptChange?: (prompt: string) => void
   initialDuration?: number
   onDurationChange?: (duration: number) => void
-  initialRefs?: Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>
+  initialRefs?: Array<{ base64?: string; url?: string; localPath?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>
   initialResolution?: string
   onResolutionChange?: (resolution: string) => void
   initialModel?: string
@@ -124,7 +124,7 @@ interface PromptComposerProps {
     lastFrameBase64: string | null
     lastFrameUrl?: string | null
     refCount: number
-    refs: Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>
+    refs: Array<{ base64?: string; url?: string; localPath?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>
   }) => void
   className?: string
 }
@@ -362,7 +362,18 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const [batchSize, setBatchSize] = useState(1)
   const [imageBase64, setImageBase64] = useState<string | null>(null)
   const [imageMime, setImageMime] = useState<string>('image/png')
-  const [refs, setRefs] = useState<Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>>(() => initialRefs ? [...initialRefs] : [])
+  const [refs, setRefs] = useState<Array<{ base64?: string; url?: string; localPath?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>>(() => initialRefs ? [...initialRefs] : [])
+
+  const prevInitialRefsSigRef = useRef<string>(initialRefs ? JSON.stringify(initialRefs) : '')
+  useEffect(() => {
+    if (initialRefs !== undefined) {
+      const sig = JSON.stringify(initialRefs)
+      if (sig !== prevInitialRefsSigRef.current) {
+        prevInitialRefsSigRef.current = sig
+        setRefs(initialRefs ? [...initialRefs] : [])
+      }
+    }
+  }, [initialRefs])
 
   const [firstFrameBase64, setFirstFrameBase64] = useState<string | null>(initialFirstFrameBase64 || null)
   const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(initialFirstFrameUrl || null)
@@ -1545,7 +1556,15 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       imageBase64: isReplicate ? (imageBase64 || finalImageRefs[0]?.base64 || undefined) : (mode === 'image' && finalImageRefs.length > 0) ? undefined : (namedRefItems.length > 0 ? namedRefItems[0].base64 : (imageRefItems.length > 0) ? imageRefItems[0].base64 : ((activeId !== currentModel.t2iId && activeId !== currentModel.t2vId) ? (imageBase64 || undefined) : undefined)),
       imageMime: isReplicate ? (imageMime || finalImageRefs[0]?.mime || 'image/png') : (namedRefItems[0]?.mime || imageRefItems[0]?.mime || imageMime),
       imageRefs: isReplicate ? undefined : (finalImageRefs.length > 0 ? finalImageRefs : undefined),
-      videoRefs: videoRefItems.length > 0 ? videoRefItems.map(r => ({ base64: r.base64 || '', mime: r.mime, duration: r.duration })) : undefined,
+      videoRefs: videoRefItems.length > 0 ? videoRefItems.map(r => ({
+        base64: r.base64 || '',
+        url: r.url,
+        localPath: r.localPath,
+        assetId: r.assetId,
+        mime: r.mime || 'video/mp4',
+        name: r.name,
+        duration: r.duration,
+      })) : undefined,
       audioRefs: audioRefItems.length > 0 ? audioRefItems.map(r => ({ base64: r.base64 || '', mime: r.mime, duration: r.duration })) : undefined,
       firstFrameBase64: isFFLF ? (firstFrameBase64 || undefined) : undefined,
       firstFrameUrl: isFFLF ? (firstFrameUrl || undefined) : undefined,

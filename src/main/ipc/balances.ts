@@ -101,6 +101,76 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
       })
     }
 
+    const deepseekKey = readSetting('deepseekApiKey')
+    if (deepseekKey) {
+      try {
+        const res = await fetch('https://api.deepseek.com/user/balance', {
+          headers: { 'Authorization': `Bearer ${deepseekKey}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const info = data?.balance_infos?.[0]
+          const totalBal = info?.total_balance
+          balances.push({
+            provider: 'deepseek',
+            label: 'DeepSeek',
+            kind: totalBal != null ? 'dollars' : 'account',
+            value: totalBal != null ? parseFloat(totalBal) : 'Conectado',
+            url: 'https://platform.deepseek.com/top_up',
+          })
+        } else {
+          balances.push({
+            provider: 'deepseek',
+            label: 'DeepSeek',
+            kind: 'account',
+            value: 'Conectado',
+            url: 'https://platform.deepseek.com',
+          })
+        }
+      } catch {
+        balances.push({
+          provider: 'deepseek',
+          label: 'DeepSeek',
+          kind: 'account',
+          value: 'Conectado',
+          url: 'https://platform.deepseek.com',
+        })
+      }
+    }
+
+    const openaiKey = readSetting('openaiApiKey')
+    if (openaiKey) {
+      balances.push({
+        provider: 'openai',
+        label: 'OpenAI',
+        kind: 'account',
+        value: 'Conectado',
+        url: 'https://platform.openai.com/usage',
+      })
+    }
+
+    const anthropicKey = readSetting('anthropicApiKey')
+    if (anthropicKey) {
+      balances.push({
+        provider: 'anthropic',
+        label: 'Anthropic',
+        kind: 'account',
+        value: 'Conectado',
+        url: 'https://console.anthropic.com/settings/billing',
+      })
+    }
+
+    const geminiKey = readSetting('geminiApiKey')
+    if (geminiKey) {
+      balances.push({
+        provider: 'gemini',
+        label: 'Google Gemini',
+        kind: 'account',
+        value: 'Conectado',
+        url: 'https://aistudio.google.com',
+      })
+    }
+
     return balances
   })
 }

@@ -91,7 +91,15 @@ function stripForStorage(payload: any): any {
         return s
       })
     } else if (k === 'videoRefs' && Array.isArray(v)) {
-      cleaned[k] = (v as any[]).map((r: any) => ({ name: r.name, mime: r.mime, assetId: r.assetId, ...(!r.assetId && r.base64 ? { base64: r.base64 } : {}) }))
+      cleaned[k] = (v as any[]).map((r: any) => ({
+        name: r.name,
+        mime: r.mime,
+        assetId: r.assetId,
+        url: r.url,
+        localPath: r.localPath,
+        duration: r.duration,
+        ...(!r.assetId && r.base64 ? { base64: r.base64 } : {}),
+      }))
     } else if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
       cleaned[k] = stripForStorage(v)
     } else {

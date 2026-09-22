@@ -17,6 +17,7 @@ import {
   getMasterSystemPrompt,
 } from '../lib/content-type-prompts'
 import { useWorkspaceStore } from './workspace-store'
+import { useProvidersStore, isModelConfigured } from './providers-store'
 
 export interface GenerationHistoryItem {
   id: string
@@ -94,6 +95,10 @@ export interface DramaShot {
   videoProgress?: number
   videoHistory?: GenerationHistoryItem[]
   videoInputMode?: 'ff' | 'fflf' | 'ref' | 't2v'
+  videoRefUrl?: string
+  videoRefLocalPath?: string
+  videoRefAssetId?: string
+  videoRefName?: string
   lastFrameUrl?: string
   lastFrameAssetId?: string
   audioAssetId?: string
@@ -307,7 +312,15 @@ function uid(): string {
 const DEFAULT_IMAGE_MODEL = IMAGE_MODELS.find(m => m.t2iId === 'seedream/5-pro-text-to-image' || m.t2iId === 'seedream-5-pro-text-to-image') || IMAGE_MODELS[0]
 const DEFAULT_VIDEO_MODEL = VIDEO_MODELS.find(m => m.t2vId === 'kling-3.0/video') || VIDEO_MODELS[0]
 const DEFAULT_VOICE_MODEL = AUDIO_MODELS.find(m => m.t2aId === 'minimax-text-to-speech') || AUDIO_MODELS[0]
-const DEFAULT_LLM_MODEL = LLM_MODELS.find(m => m.modelId === 'gemini-3-pro') || LLM_MODELS[0]
+export const getDefaultLlmModel = (): ModelPricing => {
+  try {
+    const configured = useProvidersStore.getState().configuredProviders
+    const found = LLM_MODELS.find((m) => isModelConfigured(m, configured))
+    if (found) return found
+  } catch {}
+  return LLM_MODELS[0]
+}
+const DEFAULT_LLM_MODEL = getDefaultLlmModel()
 
 interface ShortDramaState {
   // Navigation & View Mode
@@ -344,6 +357,10 @@ interface ShortDramaState {
   videoModel: ModelPricing
   videoResolution: string
   videoDuration: number
+  isSequentialVideoGen: boolean
+  videoGenBatchSize: number
+  setIsSequentialVideoGen: (enabled: boolean) => void
+  setVideoGenBatchSize: (size: number) => void
   voiceModel: ModelPricing
   voiceId: string
 
@@ -436,6 +453,7 @@ interface ShortDramaState {
       lastFrameUrl?: string
       lastFrameAssetId?: string
       imageRefs?: any[]
+      videoRefs?: any[]
       cameraMovement?: string
       cameraLens?: string
       cameraShot?: string
@@ -468,6 +486,30 @@ interface ShortDramaState {
 
 let autoSaveTimer: any = null
 const activePolling = new Map<string, any>()
+
+function waitForShotVideo(shotId: string, maxWaitMs = 900000): Promise<DramaShot | null> {
+  return new Promise((resolve) => {
+    const start = Date.now()
+    const timer = setInterval(() => {
+      const currentShot = useShortDramaStore.getState().shots.find((s) => s.id === shotId)
+      if (!currentShot) {
+        clearInterval(timer)
+        resolve(null)
+        return
+      }
+      if (currentShot.videoStatus === 'completed' || currentShot.videoStatus === 'failed') {
+        clearInterval(timer)
+        resolve(currentShot)
+        return
+      }
+      if (Date.now() - start > maxWaitMs) {
+        clearInterval(timer)
+        resolve(currentShot)
+        return
+      }
+    }, 1200)
+  })
+}
 
 export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
   viewMode: 'hub',
@@ -516,6 +558,8 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
   videoModel: DEFAULT_VIDEO_MODEL,
   videoResolution: '720p',
   videoDuration: 5,
+  isSequentialVideoGen: true,
+  videoGenBatchSize: 2,
   voiceModel: DEFAULT_VOICE_MODEL,
   voiceId: 'male-qn-qingse',
 
@@ -786,6 +830,14 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
     get().saveCurrentProject()
   },
 
+  setIsSequentialVideoGen: (enabled) => {
+    set({ isSequentialVideoGen: enabled })
+  },
+
+  setVideoGenBatchSize: (size) => {
+    set({ videoGenBatchSize: Math.max(1, Math.min(10, size)) })
+  },
+
   setVoiceModel: (model, voiceId) => {
     set((s) => ({
       voiceModel: model,
@@ -995,12 +1047,13 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
           { role: 'user', content: userContent },
         ],
         model: modelId,
+        provider: state.llmModel.provider || 'kie',
         stream: false,
       })
 
       const text = res?.content || res?.message?.content || ''
       if (!text) {
-        throw new Error(`El modelo LLM (${state.llmModel.name}) no devolvió contenido. Verifica las credenciales de KIE.`)
+        throw new Error(`El modelo LLM (${state.llmModel.name}) no devolvió contenido. Verifica las credenciales del proveedor ${state.llmModel.provider?.toUpperCase() || 'KIE'}.`)
       }
 
       let jsonStr = text
@@ -1782,6 +1835,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         { role: 'user', content: userContent },
       ],
       model: modelId,
+      provider: state.llmModel.provider || 'kie',
       stream: false,
     })
 
@@ -1874,6 +1928,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         { role: 'user', content: userContent },
       ],
       model: modelId,
+      provider: state.llmModel.provider || 'kie',
       stream: false,
     })
 
@@ -1966,6 +2021,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         { role: 'user', content: userContent },
       ],
       model: modelId,
+      provider: state.llmModel.provider || 'kie',
       stream: false,
     })
 
@@ -2207,6 +2263,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         { role: 'user', content: userContent },
       ],
       model: modelId,
+      provider: state.llmModel.provider || 'kie',
       stream: false,
     })
 
@@ -2357,6 +2414,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
     lastFrameUrl?: string
     lastFrameAssetId?: string
     imageRefs?: any[]
+    videoRefs?: any[]
     cameraMovement?: string
     cameraLens?: string
     cameraShot?: string
@@ -2496,6 +2554,18 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         }
       }
 
+      // Video References Handling (supports chained sequential video reference)
+      let videoRefs = customParams?.videoRefs || []
+      if (videoRefs.length === 0 && (shot.videoRefUrl || shot.videoRefAssetId || shot.videoRefLocalPath)) {
+        videoRefs.push({
+          url: shot.videoRefUrl,
+          localPath: shot.videoRefLocalPath,
+          assetId: shot.videoRefAssetId,
+          name: shot.videoRefName || 'Ref Video Anterior',
+          mime: 'video/mp4',
+        })
+      }
+
       // Gather audio reference from Storyboard if available
       let audioRefs: Array<{ assetId?: string; audioUrl?: string; base64?: string; mime?: string; name?: string }> = []
       if (shot.audioAssetId || shot.audioUrl) {
@@ -2528,6 +2598,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         firstFrameUrl: inputMode !== 't2v' ? firstFrameUrl : undefined,
         lastFrameAssetId: inputMode === 'fflf' ? lastFrameAssetId : undefined,
         lastFrameBase64: inputMode === 'fflf' ? lastFrameBase64 : undefined,
+        videoRefs: videoRefs.length > 0 ? videoRefs : undefined,
         audioAssetId: shot.audioAssetId,
         audioUrl: shot.audioUrl,
         audioBase64: audioRefs[0]?.base64,
@@ -2538,6 +2609,9 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
       // If reference mode and imageRefs exist, ensure they're assigned to payload
       if (inputMode === 'ref' && imageRefs.length > 0) {
         payload.imageRefs = imageRefs
+      }
+      if (videoRefs.length > 0) {
+        payload.videoRefs = videoRefs
       }
 
       const task = await dispatchGeneration(api, 'video', payload)
@@ -2562,9 +2636,82 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
   },
 
   generateAllVideos: async () => {
-    const shots = get().shots
-    for (const shot of shots) {
-      await get().generateShotVideo(shot.id)
+    const state = get()
+    const isSequential = state.isSequentialVideoGen
+    const shots = [...state.shots].sort((a, b) => a.order - b.order)
+    if (shots.length === 0) return
+
+    if (isSequential) {
+      let lastCompletedVideo: {
+        url?: string
+        localPath?: string
+        assetId?: string
+        order: number
+      } | null = null
+
+      for (const shot of shots) {
+        // If already completed and has valid video, preserve as reference and skip regeneration
+        if (shot.videoStatus === 'completed' && (shot.videoUrl || shot.videoLocalPath || shot.videoAssetId)) {
+          lastCompletedVideo = {
+            url: shot.videoUrl,
+            localPath: shot.videoLocalPath,
+            assetId: shot.videoAssetId,
+            order: shot.order,
+          }
+          continue
+        }
+
+        const activeModel = get().videoModel
+        const supportsVideoRef = Boolean(activeModel.supportsVideoRef)
+        const customParams: any = {}
+
+        if (supportsVideoRef && lastCompletedVideo) {
+          const vRef = {
+            url: lastCompletedVideo.url,
+            localPath: lastCompletedVideo.localPath,
+            assetId: lastCompletedVideo.assetId,
+            name: `Toma ${lastCompletedVideo.order}`,
+            mime: 'video/mp4',
+          }
+          customParams.videoRefs = [vRef]
+
+          // Sync into shot state so card visual pill updates immediately
+          get().updateShot(shot.id, {
+            videoRefUrl: lastCompletedVideo.url,
+            videoRefLocalPath: lastCompletedVideo.localPath,
+            videoRefAssetId: lastCompletedVideo.assetId,
+            videoRefName: `Toma ${lastCompletedVideo.order}`,
+          })
+        }
+
+        await get().generateShotVideo(shot.id, customParams)
+        const finishedShot = await waitForShotVideo(shot.id)
+
+        if (
+          finishedShot &&
+          finishedShot.videoStatus === 'completed' &&
+          (finishedShot.videoUrl || finishedShot.videoLocalPath || finishedShot.videoAssetId)
+        ) {
+          lastCompletedVideo = {
+            url: finishedShot.videoUrl,
+            localPath: finishedShot.videoLocalPath,
+            assetId: finishedShot.videoAssetId,
+            order: finishedShot.order,
+          }
+        }
+      }
+    } else {
+      // Batch mode: concurrent execution in chunks of videoGenBatchSize
+      const batchSize = Math.max(1, state.videoGenBatchSize || 2)
+      const pendingShots = shots.filter(
+        (s) => s.videoStatus !== 'completed' || (!s.videoUrl && !s.videoLocalPath && !s.videoAssetId)
+      )
+
+      for (let i = 0; i < pendingShots.length; i += batchSize) {
+        const batch = pendingShots.slice(i, i + batchSize)
+        await Promise.all(batch.map((shot) => get().generateShotVideo(shot.id)))
+        await Promise.all(batch.map((shot) => waitForShotVideo(shot.id)))
+      }
     }
   },
 

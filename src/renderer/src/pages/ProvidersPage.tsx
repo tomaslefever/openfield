@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   Trash2,
+  Bot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -129,9 +130,12 @@ export function ProvidersPage() {
             </div>
           </div>
 
-          {/* Provider Cards List - Full Width Cards */}
-          <div className="space-y-3.5">
-            {PROVIDER_DEFS.map((p) => {
+          {/* Provider Sections */}
+          {(() => {
+            const mediaProviders = PROVIDER_DEFS.filter((p) => p.category !== 'llm')
+            const llmProviders = PROVIDER_DEFS.filter((p) => p.category === 'llm')
+
+            const renderCard = (p: ProviderDef) => {
               const isConfigured = !!keys[p.id]
               const status = statuses[p.id]
               const statusText = formatStatus(status)
@@ -304,8 +308,40 @@ export function ProvidersPage() {
                   </CardContent>
                 </Card>
               )
-            })}
-          </div>
+            }
+
+            return (
+              <div className="space-y-8">
+                {/* Generación Audiovisual */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 px-1">
+                    <Sparkles size={16} className="text-accent-400" />
+                    <div>
+                      <h2 className="text-sm font-semibold text-surface-200">Generación Audiovisual (Video, Imagen, Audio)</h2>
+                      <p className="text-[11px] text-surface-500">Modelos para renderizar video, imágenes fijas y síntesis de voz.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3.5">
+                    {mediaProviders.map(renderCard)}
+                  </div>
+                </div>
+
+                {/* Modelos de Lenguaje (LLM) */}
+                <div className="space-y-3 pt-4 border-t border-surface-800/80">
+                  <div className="flex items-center gap-2 px-1">
+                    <Bot size={16} className="text-purple-400" />
+                    <div>
+                      <h2 className="text-sm font-semibold text-surface-200">Modelos de Lenguaje (LLM)</h2>
+                      <p className="text-[11px] text-surface-500">Proveedores para la generación de guiones, escaletas, desgloses y prompts creativos.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3.5">
+                    {llmProviders.map(renderCard)}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {!loaded && (
             <div className="flex items-center justify-center py-8 text-surface-500 text-sm">

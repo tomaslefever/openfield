@@ -14,6 +14,8 @@ import {
   GripVertical,
   Copy,
   Trash2,
+  Layers,
+  Info,
 } from 'lucide-react'
 import {
   useShortDramaStore,
@@ -27,6 +29,8 @@ import { ResolutionSelector } from '../../models/ResolutionSelector'
 import { AspectRatioSelector } from '../../models/AspectRatioSelector'
 import { PromptComposer } from '../../PromptComposer'
 import { GenerationHistoryModal } from './GenerationHistoryModal'
+import { Switch } from '../../ui/switch'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../../ui/tooltip'
 import { srcUrl } from '../../../services/file-url'
 import { ModelPricing, cleanModelName } from '../../../lib/models'
 
@@ -50,6 +54,10 @@ export function Stage4VideoGen() {
     videoDuration,
     aspectRatio,
     visualStyle,
+    isSequentialVideoGen,
+    videoGenBatchSize,
+    setIsSequentialVideoGen,
+    setVideoGenBatchSize,
     setVideoModel,
     setMetadata,
     updateShot,
@@ -144,17 +152,100 @@ export function Stage4VideoGen() {
             compact
           />
 
+          {/* Secuencia Switcher & Tooltip */}
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 bg-surface-900/90 hover:bg-surface-800/90 border border-white/10 px-2.5 py-1.5 rounded-xl transition-all cursor-pointer shadow-sm select-none">
+                  <Switch
+                    id="seq-switch"
+                    checked={isSequentialVideoGen}
+                    onCheckedChange={setIsSequentialVideoGen}
+                    className="data-[state=checked]:bg-accent-500 scale-90"
+                  />
+                  <label
+                    htmlFor="seq-switch"
+                    className="text-xs font-semibold text-surface-200 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>Secuencia</span>
+                    <Info size={12} className="text-surface-400 hover:text-accent-300" />
+                  </label>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className="max-w-xs bg-[#12131c] border border-white/15 text-xs text-surface-200 p-3 shadow-2xl rounded-xl space-y-1.5"
+              >
+                <div className="font-semibold text-accent-300 flex items-center gap-1.5">
+                  <span>Modo Secuencia (Encadenado)</span>
+                </div>
+                <p className="text-[11px] text-surface-300 leading-relaxed">
+                  Renderiza las tomas una tras otra en orden cronológico. En modelos compatibles con referencia de video (MiniMax H3, ByteDance Seedance 2, Wan 3.0, etc.), el video generado de la toma anterior se transfiere automáticamente como video de referencia al Prompt Composer de la siguiente toma para garantizar la continuidad cinematográfica.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Batch Size Selector (Blocked when Secuencia is ON) */}
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs transition-all ${
+                    isSequentialVideoGen
+                      ? 'bg-surface-950/40 border-white/5 opacity-45 cursor-not-allowed text-surface-500'
+                      : 'bg-surface-900/90 hover:bg-surface-800/90 border-white/10 text-surface-200 shadow-sm'
+                  }`}
+                >
+                  <Layers size={13} className={isSequentialVideoGen ? 'text-surface-500' : 'text-accent-400'} />
+                  <span className="font-semibold text-[11px]">Lote:</span>
+                  <select
+                    disabled={isSequentialVideoGen}
+                    value={videoGenBatchSize}
+                    onChange={(e) => setVideoGenBatchSize(Number(e.target.value))}
+                    className="bg-transparent border-none text-xs font-bold text-surface-100 focus:outline-none cursor-pointer disabled:cursor-not-allowed disabled:text-surface-500"
+                  >
+                    <option value={1} className="bg-surface-900 text-surface-200">1</option>
+                    <option value={2} className="bg-surface-900 text-surface-200">2</option>
+                    <option value={3} className="bg-surface-900 text-surface-200">3</option>
+                    <option value={4} className="bg-surface-900 text-surface-200">4</option>
+                    <option value={5} className="bg-surface-900 text-surface-200">5</option>
+                  </select>
+                </div>
+              </TooltipTrigger>
+              {isSequentialVideoGen ? (
+                <TooltipContent
+                  side="bottom"
+                  className="max-w-xs bg-[#12131c] border border-white/15 text-xs text-surface-300 p-2.5 shadow-2xl rounded-xl"
+                >
+                  <p className="text-[11px] text-amber-300/90 font-medium">
+                    Selector de lotes bloqueado: En modo Secuencia los videos se renderizan uno después de otro para encadenar las referencias visuales.
+                  </p>
+                </TooltipContent>
+              ) : (
+                <TooltipContent
+                  side="bottom"
+                  className="max-w-xs bg-[#12131c] border border-white/15 text-xs text-surface-300 p-2.5 shadow-2xl rounded-xl"
+                >
+                  <p className="text-[11px] text-surface-300">
+                    Cantidad de tomas que se procesarán simultáneamente en paralelo cuando Secuencia está desactivado.
+                  </p>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
+
           <button
             onClick={() => generateAllVideos()}
             disabled={isAnyGenerating || shots.length === 0}
-            className="btn-primary text-xs flex items-center gap-1.5 px-3 py-1.5 ml-2 shadow-lg"
+            className="btn-primary text-xs flex items-center gap-1.5 px-3.5 py-1.5 ml-1 shadow-lg font-semibold"
           >
             {isAnyGenerating ? (
               <RefreshCw size={13} className="animate-spin" />
             ) : (
               <Sparkles size={13} />
             )}
-            Generar Todos los Videos ({shots.length})
+            {isSequentialVideoGen ? 'Generar Todos (Secuencia)' : `Generar en Lotes (${shots.length})`}
           </button>
         </div>
       </div>
@@ -291,7 +382,7 @@ function VideoShotCard({
     firstFrameUrl?: string | null
     lastFrameBase64: string | null
     lastFrameUrl?: string | null
-    refs: Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string }>
+    refs: Array<{ base64?: string; url?: string; localPath?: string; mime: string; name?: string; refType?: string }>
   }>({
     isFFLF: true,
     firstFrameBase64: null,
@@ -308,8 +399,19 @@ function VideoShotCard({
       firstFrameUrl?: string | null
       lastFrameBase64: string | null
       lastFrameUrl?: string | null
-      refs: Array<{ base64?: string; url?: string; mime: string; name?: string; refType?: string }>
+      refs: Array<{ base64?: string; url?: string; localPath?: string; mime: string; name?: string; refType?: string }>
     }) => {
+      // If shot had videoRef and user removed it in PromptComposer, clear videoRef from shot
+      const hasVideoInRefs = newState.refs.some((r) => r.mime.startsWith('video/'))
+      if (!hasVideoInRefs && (shot.videoRefUrl || shot.videoRefAssetId || shot.videoRefLocalPath)) {
+        updateShot(shot.id, {
+          videoRefUrl: undefined,
+          videoRefAssetId: undefined,
+          videoRefLocalPath: undefined,
+          videoRefName: undefined,
+        })
+      }
+
       setMediaState((prev) => {
         if (
           prev.isFFLF === newState.isFFLF &&
@@ -325,12 +427,37 @@ function VideoShotCard({
         return newState
       })
     },
-    []
+    [shot.id, shot.videoRefUrl, shot.videoRefAssetId, shot.videoRefLocalPath, updateShot]
   )
 
   // Next shot for automatic LF in FF/LF mode if defined
   const nextShot = shots.find((s) => s.order === shot.order + 1)
   const effectiveLastFrameUrl = shot.lastFrameUrl || nextShot?.keyframeUrl
+
+  // Previous shot in order
+  const prevShot = shots.find((s) => s.order === shot.order - 1)
+  const isVideoRefSupported = Boolean(videoModel?.supportsVideoRef)
+
+  // Determine effective video reference from previous shot or from shot's explicit videoRef fields
+  const effectiveVideoRef = useMemo(() => {
+    if (shot.videoRefUrl || shot.videoRefLocalPath || shot.videoRefAssetId) {
+      return {
+        url: shot.videoRefUrl,
+        localPath: shot.videoRefLocalPath,
+        assetId: shot.videoRefAssetId,
+        name: shot.videoRefName || (prevShot ? `Toma ${prevShot.order}` : 'Video Anterior'),
+      }
+    }
+    if (prevShot && (prevShot.videoUrl || prevShot.videoLocalPath || prevShot.videoAssetId) && isVideoRefSupported) {
+      return {
+        url: prevShot.videoUrl,
+        localPath: prevShot.videoLocalPath,
+        assetId: prevShot.videoAssetId,
+        name: `Toma ${prevShot.order}`,
+      }
+    }
+    return null
+  }, [shot.videoRefUrl, shot.videoRefLocalPath, shot.videoRefAssetId, shot.videoRefName, prevShot, isVideoRefSupported])
 
   // Build initial prompt for PromptComposer
   const initialPrompt = useMemo(() => {
@@ -345,7 +472,20 @@ function VideoShotCard({
 
   // Build references for PromptComposer
   const initialRefs = useMemo(() => {
-    const list: Array<{ url?: string; assetId?: string; mime: string; name?: string; refType?: string }> = []
+    const list: Array<{ url?: string; localPath?: string; assetId?: string; mime: string; name?: string; refType?: string }> = []
+    
+    // Previous video reference chained
+    if (effectiveVideoRef) {
+      list.push({
+        url: effectiveVideoRef.url,
+        localPath: effectiveVideoRef.localPath,
+        assetId: effectiveVideoRef.assetId,
+        name: effectiveVideoRef.name,
+        mime: 'video/mp4',
+        refType: 'video',
+      })
+    }
+
     for (const char of charsInShot) {
       if (char.imageUrl || char.imageAssetId) {
         list.push({
@@ -369,7 +509,7 @@ function VideoShotCard({
       }
     }
     return list
-  }, [charsInShot, propsInShot])
+  }, [effectiveVideoRef, charsInShot, propsInShot])
 
   // Active references for visualization when FF is deactivated
   const activeReferences = useMemo(() => {
@@ -456,6 +596,15 @@ function VideoShotCard({
           <span className="text-[11px] text-surface-400 truncate max-w-[130px]">
             Escena {shot.sceneNumber} · {shot.scenarioName || 'Escena'}
           </span>
+          {effectiveVideoRef && (
+            <span
+              className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1"
+              title={`Referencia de video encadenada desde ${effectiveVideoRef.name}`}
+            >
+              <Video size={9} />
+              <span>Ref: {effectiveVideoRef.name}</span>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -701,6 +850,7 @@ function VideoShotCard({
                 lastFrameBase64: params.lastFrameBase64,
                 lastFrameUrl: params.lastFrameUrl || shot.lastFrameUrl,
                 imageRefs: params.imageRefs,
+                videoRefs: params.videoRefs,
               })
             }}
           />

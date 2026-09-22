@@ -12,7 +12,12 @@ import {
 import { Selector } from '../ui/Selector'
 import { SelectorOption } from '../ui/SelectorOption'
 import { ProviderLogo, getProviderForModel } from '../icons/ProviderLogos'
-import { PROVIDER_DEFS, type ProviderId } from '../../stores/providers-store'
+import {
+  useProvidersStore,
+  isModelConfigured,
+  PROVIDER_DEFS,
+  type ProviderId,
+} from '../../stores/providers-store'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -25,6 +30,7 @@ interface Props {
   showCost?: boolean
   resolution?: string
   filterProvider?: ProviderId
+  onlyConfigured?: boolean
   dropUp?: boolean
 }
 
@@ -38,8 +44,11 @@ export function ModelSelectorDropdown({
   showCost = true,
   resolution,
   filterProvider,
+  onlyConfigured = false,
   dropUp = false,
 }: Props) {
+  const { configuredProviders } = useProvidersStore()
+
   const allModels = useMemo(() => {
     let list: ModelPricing[] = []
     if (kind === 'image') list = IMAGE_MODELS
@@ -50,8 +59,14 @@ export function ModelSelectorDropdown({
     if (filterProvider) {
       list = list.filter((m) => (m.provider || 'kie') === filterProvider)
     }
+
+    // Only show integrated/configured models for LLM or when requested
+    if (onlyConfigured || kind === 'llm') {
+      list = list.filter((m) => isModelConfigured(m, configuredProviders))
+    }
+
     return list
-  }, [kind, filterProvider])
+  }, [kind, filterProvider, onlyConfigured, configuredProviders])
 
   const selectedModel = useMemo(() => {
     return (
@@ -64,7 +79,7 @@ export function ModelSelectorDropdown({
           m.t2aId === selectedModelId ||
           m.modelId === selectedModelId ||
           m.name === selectedModelId
-      ) || allModels[0]
+      ) || (allModels.length > 0 ? allModels[0] : null)
     )
   }, [allModels, selectedModelId])
 
@@ -153,7 +168,7 @@ export function ModelSelectorDropdown({
               <ProviderLogo provider={getProviderForModel(selectedModel)} size={compact ? 13 : 14} />
             </span>
             <span className="font-medium truncate max-w-[140px] text-surface-100">
-              {cleanModelName(selectedModel?.name) || (allModels.length === 0 ? 'Sin proveedor' : 'Seleccionar Modelo')}
+              {cleanModelName(selectedModel?.name) || (allModels.length === 0 ? 'Sin proveedor integrado' : 'Seleccionar Modelo')}
             </span>
           </div>
 

@@ -108,6 +108,7 @@ export function buildVideoPayload(
     firstFrameUrl?: string
     lastFrameAssetId?: string
     lastFrameBase64?: string
+    videoRefs?: Array<{ assetId?: string; base64?: string; url?: string; localPath?: string; mime?: string; name?: string; duration?: number }>
     audioAssetId?: string
     audioBase64?: string
     audioUrl?: string
@@ -115,8 +116,13 @@ export function buildVideoPayload(
     sound?: boolean
   }
 ): VideoGenerationPayload {
+  const hasVideoRefs = Boolean(options?.videoRefs && options.videoRefs.length > 0)
   const hasFirstFrame = Boolean(options?.firstFrameAssetId || options?.firstFrameBase64 || options?.firstFrameUrl)
-  const modelId = hasFirstFrame ? (model.i2vId || model.t2vId || model.name) : (model.t2vId || model.name)
+  const modelId = (hasVideoRefs && model.refId)
+    ? model.refId
+    : hasFirstFrame
+    ? (model.i2vId || model.t2vId || model.name)
+    : (model.t2vId || model.name)
 
   const payload: VideoGenerationPayload = {
     model: modelId,
@@ -158,6 +164,10 @@ export function buildVideoPayload(
 
   if (options?.lastFrameBase64) {
     payload.lastFrameBase64 = options.lastFrameBase64
+  }
+
+  if (options?.videoRefs && options.videoRefs.length > 0) {
+    payload.videoRefs = options.videoRefs
   }
 
   if (options?.audioRefs && options.audioRefs.length > 0) {

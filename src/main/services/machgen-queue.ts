@@ -196,12 +196,10 @@ export class MachgenQueue extends EventEmitter {
       // Video model
       if (rawModel.endsWith('/upscale') || (modelDef?.supportsUpscale && !modelDef.supportsT2V && !modelDef.supportsI2V && !modelDef.supportsR2V)) {
         taskType = 'UPSCALE'
-      } else if (rawModel.endsWith('/ref') || payload.inputMode === 'ref') {
-        taskType = modelDef?.supportsR2V ? 'R2V' : (modelDef?.supportsI2V ? 'I2V' : 'T2V')
+      } else if ((payload.videoRefs?.length > 0 || rawModel.endsWith('/ref') || payload.inputMode === 'ref' || (payload.audioRefs?.length > 0 && modelDef?.supportsAudioRef)) && modelDef?.supportsR2V) {
+        taskType = 'R2V'
       } else if (rawModel.endsWith('/fflf') || rawModel.endsWith('/i2v') || payload.inputMode === 'ff' || payload.inputMode === 'fflf') {
         taskType = modelDef?.supportsI2V ? 'I2V' : (modelDef?.supportsR2V ? 'R2V' : 'T2V')
-      } else if ((payload.videoRefs?.length > 0 || (payload.audioRefs?.length > 0 && modelDef?.supportsAudioRef)) && modelDef?.supportsR2V) {
-        taskType = 'R2V'
       } else if (srcImageUrls.length > 0 && modelDef?.supportsI2V) {
         taskType = 'I2V'
       } else {

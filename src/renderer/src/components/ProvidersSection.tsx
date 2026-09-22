@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
-import { KeyRound, Check, Loader, ExternalLink } from 'lucide-react'
+import { KeyRound, Check, Loader, ExternalLink, Bot, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { ProviderLogo } from './icons/ProviderLogos'
 
 interface ProviderStatus {
-  provider: 'kie' | 'replicate' | 'fal' | 'elevenlabs' | 'machgen' | 'higgsfield'
+  provider:
+    | 'kie'
+    | 'replicate'
+    | 'fal'
+    | 'elevenlabs'
+    | 'machgen'
+    | 'higgsfield'
+    | 'deepseek'
+    | 'openai'
+    | 'anthropic'
+    | 'gemini'
   label: string
   kind: 'credits' | 'account' | 'dollars' | 'token'
   value?: number | string
@@ -21,9 +31,11 @@ interface ProviderDef {
   keyName: string
   keyPlaceholder: string
   helperUrl?: string
+  category?: 'media' | 'llm'
 }
 
 const PROVIDERS: ProviderDef[] = [
+  // Generación Audiovisual
   {
     id: 'machgen',
     label: 'MachGen',
@@ -32,6 +44,7 @@ const PROVIDERS: ProviderDef[] = [
     keyName: 'machgenApiKey',
     keyPlaceholder: 'MGA_... (MachGen API key)',
     helperUrl: 'https://www.machgen.ai',
+    category: 'media',
   },
   {
     id: 'higgsfield',
@@ -41,6 +54,7 @@ const PROVIDERS: ProviderDef[] = [
     keyName: 'higgsfieldApiKey',
     keyPlaceholder: 'KEY_ID:KEY_SECRET (Higgsfield key)',
     helperUrl: 'https://console.higgsfield.ai',
+    category: 'media',
   },
   {
     id: 'kie',
@@ -50,6 +64,7 @@ const PROVIDERS: ProviderDef[] = [
     keyName: 'openfieldApiKey',
     keyPlaceholder: 'Enter your KIE.ai API key',
     helperUrl: 'https://app.kie.ai',
+    category: 'media',
   },
   {
     id: 'replicate',
@@ -59,6 +74,7 @@ const PROVIDERS: ProviderDef[] = [
     keyName: 'replicateApiKey',
     keyPlaceholder: 'r8_... (Replicate token)',
     helperUrl: 'https://replicate.com/account/api-tokens',
+    category: 'media',
   },
   {
     id: 'fal',
@@ -68,6 +84,7 @@ const PROVIDERS: ProviderDef[] = [
     keyName: 'falApiKey',
     keyPlaceholder: 'FAL_KEY (fal.ai key)',
     helperUrl: 'https://fal.ai/dashboard/keys',
+    category: 'media',
   },
   {
     id: 'elevenlabs',
@@ -77,6 +94,48 @@ const PROVIDERS: ProviderDef[] = [
     keyName: 'elevenlabsApiKey',
     keyPlaceholder: 'sk_... (ElevenLabs API key)',
     helperUrl: 'https://elevenlabs.io/app/settings/api-keys',
+    category: 'media',
+  },
+  // Modelos de Lenguaje (LLM)
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    description: 'DeepSeek V3 y razonamiento R1',
+    icon: <ProviderLogo provider="deepseek" size={18} />,
+    keyName: 'deepseekApiKey',
+    keyPlaceholder: 'sk-... (DeepSeek API key)',
+    helperUrl: 'https://platform.deepseek.com/api_keys',
+    category: 'llm',
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    description: 'GPT-4o, GPT-4.5, o3-mini y modelos GPT',
+    icon: <ProviderLogo provider="openai" size={18} />,
+    keyName: 'openaiApiKey',
+    keyPlaceholder: 'sk-proj-... (OpenAI API key)',
+    helperUrl: 'https://platform.openai.com/api-keys',
+    category: 'llm',
+  },
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    description: 'Claude 3.7 Sonnet, Claude 3.5 Sonnet y Haiku',
+    icon: <ProviderLogo provider="anthropic" size={18} />,
+    keyName: 'anthropicApiKey',
+    keyPlaceholder: 'sk-ant-... (Anthropic API key)',
+    helperUrl: 'https://console.anthropic.com/settings/keys',
+    category: 'llm',
+  },
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    description: 'Gemini 2.5 Pro, 2.5 Flash y modelos Gemini',
+    icon: <ProviderLogo provider="gemini" size={18} />,
+    keyName: 'geminiApiKey',
+    keyPlaceholder: 'AIza... (Google Gemini API key)',
+    helperUrl: 'https://aistudio.google.com/app/apikey',
+    category: 'llm',
   },
 ]
 
@@ -156,120 +215,141 @@ export function ProvidersSection() {
     return 'Connected'
   }
 
+  const mediaProviders = PROVIDERS.filter((p) => p.category !== 'llm')
+  const llmProviders = PROVIDERS.filter((p) => p.category === 'llm')
+
+  const renderCard = (p: ProviderDef) => {
+    const configured = !!keys[p.id]
+    const status = statuses[p.id]
+    const statusText = formatStatus(status)
+    return (
+      <Card key={p.id} className="bg-surface-900 border-surface-800">
+        <CardContent className="p-4 flex flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-950 border border-surface-700/60 p-1 shadow-sm">
+              {p.icon}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold text-surface-100 truncate">{p.label}</p>
+              <p className="text-[10px] text-surface-500 truncate">{p.description}</p>
+            </div>
+            {configured ? (
+              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                <Check size={10} /> Connected
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full bg-surface-800 px-2 py-0.5 text-[10px] font-medium text-surface-500">
+                Not configured
+              </span>
+            )}
+          </div>
+
+          {configured && statusText && (
+            <div className="flex items-center justify-between rounded-lg bg-surface-950/60 border border-surface-800 px-3 py-2">
+              <span className="text-[11px] text-surface-500">Status</span>
+              <span className="text-xs font-medium text-surface-100">{statusText}</span>
+            </div>
+          )}
+
+          {editing === p.id ? (
+            <div className="flex flex-col gap-2">
+              <Input
+                type="password"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={p.keyPlaceholder}
+                className="h-8 text-xs bg-surface-950 border-surface-700"
+                autoFocus
+              />
+              {error && <p className="text-[10px] text-red-400">{error}</p>}
+              <div className="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={() => handleSave(p)}
+                  disabled={!draft.trim() || saving === p.id}
+                  className="h-7 text-xs"
+                >
+                  {saving === p.id ? <Loader size={12} className="animate-spin" /> : <Check size={12} />}
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setEditing(null); setDraft(''); setError(null) }}
+                  className="h-7 text-xs"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : configured ? (
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleConfigure(p)}
+                className="h-7 text-xs"
+              >
+                Update key
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleRemove(p)}
+                className="h-7 text-xs text-surface-500 hover:text-red-400"
+              >
+                Disconnect
+              </Button>
+              {status?.url && (
+                <a
+                  href={status.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-auto flex items-center gap-1 text-[10px] text-accent-400 hover:text-accent-300"
+                >
+                  Dashboard <ExternalLink size={9} />
+                </a>
+              )}
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => handleConfigure(p)}
+              className="h-7 w-full text-xs"
+            >
+              <KeyRound size={12} /> Configure
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <div className="card">
-      <div className="flex items-center gap-2 mb-4">
-        <KeyRound size={16} className="text-accent-400" />
-        <h2 className="text-sm font-semibold text-surface-100">Providers</h2>
+    <div className="card space-y-6">
+      {/* Generación Audiovisual */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles size={16} className="text-accent-400" />
+          <h2 className="text-sm font-semibold text-surface-100">Generación Audiovisual (Video, Imagen, Audio)</h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {mediaProviders.map(renderCard)}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {PROVIDERS.map((p) => {
-          const configured = !!keys[p.id]
-          const status = statuses[p.id]
-          const statusText = formatStatus(status)
-          return (
-            <Card key={p.id} className="bg-surface-900 border-surface-800">
-              <CardContent className="p-4 flex flex-col gap-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-950 border border-surface-700/60 p-1 shadow-sm">
-                    {p.icon}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-surface-100 truncate">{p.label}</p>
-                    <p className="text-[10px] text-surface-500 truncate">{p.description}</p>
-                  </div>
-                  {configured ? (
-                    <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                      <Check size={10} /> Connected
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 rounded-full bg-surface-800 px-2 py-0.5 text-[10px] font-medium text-surface-500">
-                      Not configured
-                    </span>
-                  )}
-                </div>
-
-                {configured && statusText && (
-                  <div className="flex items-center justify-between rounded-lg bg-surface-950/60 border border-surface-800 px-3 py-2">
-                    <span className="text-[11px] text-surface-500">Status</span>
-                    <span className="text-xs font-medium text-surface-100">{statusText}</span>
-                  </div>
-                )}
-
-                {editing === p.id ? (
-                  <div className="flex flex-col gap-2">
-                    <Input
-                      type="password"
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      placeholder={p.keyPlaceholder}
-                      className="h-8 text-xs bg-surface-950 border-surface-700"
-                      autoFocus
-                    />
-                    {error && <p className="text-[10px] text-red-400">{error}</p>}
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        onClick={() => handleSave(p)}
-                        disabled={!draft.trim() || saving === p.id}
-                        className="h-7 text-xs"
-                      >
-                        {saving === p.id ? <Loader size={12} className="animate-spin" /> : <Check size={12} />}
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => { setEditing(null); setDraft(''); setError(null) }}
-                        className="h-7 text-xs"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ) : configured ? (
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleConfigure(p)}
-                      className="h-7 text-xs"
-                    >
-                      Update key
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleRemove(p)}
-                      className="h-7 text-xs text-surface-500 hover:text-red-400"
-                    >
-                      Disconnect
-                    </Button>
-                    {status?.url && (
-                      <a
-                        href={status.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="ml-auto flex items-center gap-1 text-[10px] text-accent-400 hover:text-accent-300"
-                      >
-                        Dashboard <ExternalLink size={9} />
-                      </a>
-                    )}
-                  </div>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => handleConfigure(p)}
-                    className="h-7 w-full text-xs"
-                  >
-                    <KeyRound size={12} /> Configure
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          )
-        })}
+      {/* Modelos de Lenguaje (LLM) */}
+      <div className="pt-4 border-t border-surface-800">
+        <div className="flex items-center gap-2 mb-3">
+          <Bot size={16} className="text-purple-400" />
+          <div>
+            <h2 className="text-sm font-semibold text-surface-100">Modelos de Lenguaje (LLM)</h2>
+            <p className="text-[11px] text-surface-500">DeepSeek, OpenAI, Anthropic y Google Gemini para guiones y prompts.</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {llmProviders.map(renderCard)}
+        </div>
       </div>
 
       {!loaded && (

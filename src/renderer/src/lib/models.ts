@@ -442,21 +442,25 @@ export const VIDEO_MODELS: ModelPricing[] = [
     t2vId: 'machgen/Seedance-2.5/t2v', i2vId: 'machgen/Seedance-2.5/i2v', fflfId: 'machgen/Seedance-2.5/fflf', refId: 'machgen/Seedance-2.5/ref',
     prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.09 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
   { name: 'Seedance 2.0 (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Seedance-2.0/t2v', i2vId: 'machgen/Seedance-2.0/i2v', fflfId: 'machgen/Seedance-2.0/fflf', refId: 'machgen/Seedance-2.0/ref',
     prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.07 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Seedance 2.0 Fast (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Seedance-2.0-Fast/t2v', i2vId: 'machgen/Seedance-2.0-Fast/i2v', fflfId: 'machgen/Seedance-2.0-Fast/fflf', refId: 'machgen/Seedance-2.0-Fast/ref',
     prices: [{ resolution: '720p', cost: 0.025 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Seedance 2.0 Mini (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Seedance-2.0-Mini/t2v', i2vId: 'machgen/Seedance-2.0-Mini/i2v', fflfId: 'machgen/Seedance-2.0-Mini/fflf', refId: 'machgen/Seedance-2.0-Mini/ref',
     prices: [{ resolution: '720p', cost: 0.02 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Kling-v3 (MachGen)', category: 'Kling', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Kling-v3/t2v', i2vId: 'machgen/Kling-v3/i2v', fflfId: 'machgen/Kling-v3/fflf',
@@ -935,6 +939,111 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
 // ─── LLM / Chat models ───────────────────────────────────────────────────
 
 export const LLM_MODELS: ModelPricing[] = [
+  // ─── DeepSeek Native ──────────────────────────────────────────────
+  {
+    name: 'DeepSeek V3',
+    category: 'DeepSeek',
+    unit: 'img',
+    modelId: 'deepseek-chat',
+    prices: [{ resolution: 'default', cost: 0.002 }],
+    provider: 'deepseek',
+  },
+  {
+    name: 'DeepSeek R1',
+    category: 'DeepSeek',
+    unit: 'img',
+    modelId: 'deepseek-reasoner',
+    prices: [{ resolution: 'default', cost: 0.004 }],
+    provider: 'deepseek',
+  },
+
+  // ─── OpenAI Native ────────────────────────────────────────────────
+  {
+    name: 'GPT-4o',
+    category: 'OpenAI',
+    unit: 'img',
+    modelId: 'gpt-4o',
+    prices: [{ resolution: 'default', cost: 0.005 }],
+    provider: 'openai',
+  },
+  {
+    name: 'GPT-4o mini',
+    category: 'OpenAI',
+    unit: 'img',
+    modelId: 'gpt-4o-mini',
+    prices: [{ resolution: 'default', cost: 0.001 }],
+    provider: 'openai',
+  },
+  {
+    name: 'o3-mini',
+    category: 'OpenAI',
+    unit: 'img',
+    modelId: 'o3-mini',
+    prices: [{ resolution: 'default', cost: 0.003 }],
+    provider: 'openai',
+  },
+  {
+    name: 'GPT-4.5 Preview',
+    category: 'OpenAI',
+    unit: 'img',
+    modelId: 'gpt-4.5-preview',
+    prices: [{ resolution: 'default', cost: 0.075 }],
+    provider: 'openai',
+  },
+
+  // ─── Anthropic Native ─────────────────────────────────────────────
+  {
+    name: 'Claude 3.7 Sonnet',
+    category: 'Anthropic',
+    unit: 'img',
+    modelId: 'claude-3-7-sonnet-20250219',
+    prices: [{ resolution: 'default', cost: 0.015 }],
+    provider: 'anthropic',
+  },
+  {
+    name: 'Claude 3.5 Sonnet',
+    category: 'Anthropic',
+    unit: 'img',
+    modelId: 'claude-3-5-sonnet-20241022',
+    prices: [{ resolution: 'default', cost: 0.015 }],
+    provider: 'anthropic',
+  },
+  {
+    name: 'Claude 3.5 Haiku',
+    category: 'Anthropic',
+    unit: 'img',
+    modelId: 'claude-3-5-haiku-20241022',
+    prices: [{ resolution: 'default', cost: 0.002 }],
+    provider: 'anthropic',
+  },
+
+  // ─── Google Gemini Native ─────────────────────────────────────────
+  {
+    name: 'Gemini 2.5 Pro',
+    category: 'Google',
+    unit: 'img',
+    modelId: 'gemini-2.5-pro',
+    prices: [{ resolution: 'default', cost: 0.005 }],
+    provider: 'gemini',
+  },
+  {
+    name: 'Gemini 2.5 Flash',
+    category: 'Google',
+    unit: 'img',
+    modelId: 'gemini-2.5-flash',
+    prices: [{ resolution: 'default', cost: 0.001 }],
+    provider: 'gemini',
+  },
+  {
+    name: 'Gemini 2.0 Flash',
+    category: 'Google',
+    unit: 'img',
+    modelId: 'gemini-2.0-flash',
+    prices: [{ resolution: 'default', cost: 0.0005 }],
+    provider: 'gemini',
+  },
+
+  // ─── KIE.ai Hosted LLMs ───────────────────────────────────────────
   {
     name: 'Claude Opus 4.7 (KIE)',
     category: 'Anthropic',

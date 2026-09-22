@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Sparkles,
   FileText,
@@ -15,6 +15,9 @@ import {
   SlidersHorizontal,
 } from 'lucide-react'
 import { useShortDramaStore } from '../../../stores/short-drama-store'
+import { useProvidersStore, isModelConfigured } from '../../../stores/providers-store'
+import { useAppStore } from '../../../stores/app-store'
+import { LLM_MODELS } from '../../../lib/models'
 import { AspectRatioSelector } from '../../models/AspectRatioSelector'
 import { ModelSelectorDropdown } from '../../models/ModelSelectorDropdown'
 import { StreamDuration } from '../../StreamDuration'
@@ -24,6 +27,7 @@ import {
 } from '../../../lib/content-type-prompts'
 
 export function Stage1Script() {
+  const { configuredProviders } = useProvidersStore()
   const {
     title,
     contentType,
@@ -54,6 +58,20 @@ export function Stage1Script() {
     removeShot,
     setStage,
   } = useShortDramaStore()
+
+  const hasConfiguredLlm = useMemo(() => {
+    return LLM_MODELS.some((m) => isModelConfigured(m, configuredProviders))
+  }, [configuredProviders])
+
+  // Automatically select first configured LLM if current selected model is not integrated
+  useEffect(() => {
+    if (!isModelConfigured(llmModel, configuredProviders)) {
+      const firstConfigured = LLM_MODELS.find((m) => isModelConfigured(m, configuredProviders))
+      if (firstConfigured) {
+        setLlmModel(firstConfigured)
+      }
+    }
+  }, [configuredProviders, llmModel, setLlmModel])
 
   const activeConfig = CONTENT_TYPES_CONFIG[contentType || 'microdrama'] || CONTENT_TYPES_CONFIG.microdrama
   const [activeTab, setActiveTab] = useState<'shots' | 'markdown'>('shots')
@@ -109,6 +127,7 @@ export function Stage1Script() {
                 selectedModelId={llmModel.modelId || llmModel.name}
                 onSelect={(m) => setLlmModel(m)}
                 compact
+                onlyConfigured
               />
             </div>
 
@@ -343,6 +362,28 @@ export function Stage1Script() {
           </div>
         </div>
 
+        {/* Unconfigured LLM Warning Banner */}
+        {!hasConfiguredLlm && (
+          <div className="mt-4 bg-amber-500/10 border border-amber-500/25 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle size={18} className="text-amber-400 shrink-0" />
+              <div>
+                <p className="font-semibold text-amber-300">No hay ningún proveedor de LLM integrado</p>
+                <p className="text-[11px] text-amber-400/90 mt-0.5">
+                  Para generar guiones y desgloses necesitas configurar al menos una API Key de DeepSeek, OpenAI, Anthropic, Google Gemini o KIE.ai.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => useAppStore.getState().setPage('providers')}
+              className="px-3.5 py-1.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white font-medium text-xs whitespace-nowrap shadow-sm shrink-0 self-start sm:self-center"
+            >
+              Configurar Proveedores
+            </button>
+          </div>
+        )}
+
         {/* Error Banner */}
         {scriptError && (
           <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3.5 flex items-start gap-3 text-xs text-red-200">
@@ -365,13 +406,16 @@ export function Stage1Script() {
         {/* Generate Button */}
         <div className="flex items-center justify-between mt-6 pt-4 border-t border-surface-800">
           <span className="text-xs text-surface-500">
-            {hasGeneratedContent
+            {!hasConfiguredLlm
+              ? 'Configura un proveedor de LLM en Ajustes para continuar.'
+              : hasGeneratedContent
               ? `${shots.length} tomas, ${characters.length} personajes, ${scenarios.length} locaciones y ${props.length} objetos extraídos con ${llmModel.name}.`
               : `Listo para desglosar con ${llmModel.name}.`}
           </span>
           <button
             onClick={handleGenerate}
-            disabled={!ideaPrompt.trim() || isGeneratingScript}
+            disabled={!ideaPrompt.trim() || isGeneratingScript || !hasConfiguredLlm || !isModelConfigured(llmModel, configuredProviders)}
+            title={!hasConfiguredLlm ? 'Configura un proveedor de LLM en Ajustes para generar' : undefined}
             className="btn-primary text-xs flex items-center gap-2 px-4 py-2"
           >
             {isGeneratingScript ? (

@@ -1,7 +1,18 @@
 import { create } from 'zustand'
 import type { ModelPricing } from '../lib/models'
 
-export type ProviderId = 'kie' | 'replicate' | 'fal' | 'elevenlabs' | 'machgen' | 'higgsfield' | 'local'
+export type ProviderId =
+  | 'kie'
+  | 'replicate'
+  | 'fal'
+  | 'elevenlabs'
+  | 'machgen'
+  | 'higgsfield'
+  | 'local'
+  | 'deepseek'
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
 
 export interface ProviderStatus {
   provider: ProviderId
@@ -18,9 +29,11 @@ export interface ProviderDef {
   keyName: string
   keyPlaceholder: string
   helperUrl?: string
+  category?: 'media' | 'llm'
 }
 
 export const PROVIDER_DEFS: ProviderDef[] = [
+  // Generación Audiovisual (Video, Imagen, Audio)
   {
     id: 'machgen',
     label: 'MachGen',
@@ -28,6 +41,7 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'machgenApiKey',
     keyPlaceholder: 'MGA_... (MachGen API key)',
     helperUrl: 'https://www.machgen.ai',
+    category: 'media',
   },
   {
     id: 'higgsfield',
@@ -36,6 +50,7 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'higgsfieldApiKey',
     keyPlaceholder: 'KEY_ID:KEY_SECRET (Higgsfield key)',
     helperUrl: 'https://console.higgsfield.ai',
+    category: 'media',
   },
   {
     id: 'kie',
@@ -44,6 +59,7 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'openfieldApiKey',
     keyPlaceholder: 'Enter your KIE.ai API key',
     helperUrl: 'https://app.kie.ai',
+    category: 'media',
   },
   {
     id: 'replicate',
@@ -52,6 +68,7 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'replicateApiKey',
     keyPlaceholder: 'r8_... (Replicate token)',
     helperUrl: 'https://replicate.com/account/api-tokens',
+    category: 'media',
   },
   {
     id: 'fal',
@@ -60,6 +77,7 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'falApiKey',
     keyPlaceholder: 'FAL_KEY (fal.ai key)',
     helperUrl: 'https://fal.ai/dashboard/keys',
+    category: 'media',
   },
   {
     id: 'elevenlabs',
@@ -68,6 +86,44 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'elevenlabsApiKey',
     keyPlaceholder: 'sk_... (ElevenLabs API key)',
     helperUrl: 'https://elevenlabs.io/app/settings/api-keys',
+    category: 'media',
+  },
+  // Modelos de Lenguaje (LLM)
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    description: 'DeepSeek V3 y razonamiento R1',
+    keyName: 'deepseekApiKey',
+    keyPlaceholder: 'sk-... (DeepSeek API key)',
+    helperUrl: 'https://platform.deepseek.com/api_keys',
+    category: 'llm',
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    description: 'GPT-4o, GPT-4.5, o3-mini y modelos GPT',
+    keyName: 'openaiApiKey',
+    keyPlaceholder: 'sk-proj-... (OpenAI API key)',
+    helperUrl: 'https://platform.openai.com/api-keys',
+    category: 'llm',
+  },
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    description: 'Claude 3.7 Sonnet, Claude 3.5 Sonnet y Haiku',
+    keyName: 'anthropicApiKey',
+    keyPlaceholder: 'sk-ant-... (Anthropic API key)',
+    helperUrl: 'https://console.anthropic.com/settings/keys',
+    category: 'llm',
+  },
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    description: 'Gemini 2.5 Pro, 2.5 Flash y modelos Gemini',
+    keyName: 'geminiApiKey',
+    keyPlaceholder: 'AIza... (Gemini API key)',
+    helperUrl: 'https://aistudio.google.com/app/apikey',
+    category: 'llm',
   },
 ]
 
