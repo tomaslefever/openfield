@@ -17,6 +17,7 @@ interface ProviderStatus {
     | 'openai'
     | 'anthropic'
     | 'gemini'
+    | 'openrouter'
   label: string
   kind: 'credits' | 'account' | 'dollars' | 'token'
   value?: number | string
@@ -135,6 +136,16 @@ const PROVIDERS: ProviderDef[] = [
     keyName: 'geminiApiKey',
     keyPlaceholder: 'AIza... (Google Gemini API key)',
     helperUrl: 'https://aistudio.google.com/app/apikey',
+    category: 'llm',
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    description: 'Acceso unificado a cientos de LLMs (Claude, Llama, DeepSeek, GPT)',
+    icon: <ProviderLogo provider="openrouter" size={18} />,
+    keyName: 'openrouterApiKey',
+    keyPlaceholder: 'sk-or-v1-... (OpenRouter API key)',
+    helperUrl: 'https://openrouter.ai/keys',
     category: 'llm',
   },
 ]

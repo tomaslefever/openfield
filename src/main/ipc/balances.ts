@@ -171,6 +171,47 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
       })
     }
 
+    const openrouterKey = readSetting('openrouterApiKey')
+    if (openrouterKey) {
+      try {
+        const res = await fetch('https://openrouter.ai/api/v1/credits', {
+          headers: { 'Authorization': `Bearer ${openrouterKey}` },
+        })
+        if (res.ok) {
+          const json = await res.json()
+          const totalCredits = json?.data?.total_credits
+          const totalUsage = json?.data?.total_usage
+          const remaining = (typeof totalCredits === 'number' && typeof totalUsage === 'number')
+            ? Math.max(0, Math.round((totalCredits - totalUsage) * 100) / 100)
+            : null
+
+          balances.push({
+            provider: 'openrouter',
+            label: 'OpenRouter',
+            kind: remaining != null ? 'dollars' : 'account',
+            value: remaining != null ? remaining : 'Conectado',
+            url: 'https://openrouter.ai/credits',
+          })
+        } else {
+          balances.push({
+            provider: 'openrouter',
+            label: 'OpenRouter',
+            kind: 'account',
+            value: 'Conectado',
+            url: 'https://openrouter.ai/credits',
+          })
+        }
+      } catch {
+        balances.push({
+          provider: 'openrouter',
+          label: 'OpenRouter',
+          kind: 'account',
+          value: 'Conectado',
+          url: 'https://openrouter.ai/credits',
+        })
+      }
+    }
+
     return balances
   })
 }

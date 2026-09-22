@@ -13,6 +13,7 @@ export type ProviderId =
   | 'openai'
   | 'anthropic'
   | 'gemini'
+  | 'openrouter'
 
 export interface ProviderStatus {
   provider: ProviderId
@@ -123,6 +124,15 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'geminiApiKey',
     keyPlaceholder: 'AIza... (Gemini API key)',
     helperUrl: 'https://aistudio.google.com/app/apikey',
+    category: 'llm',
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    description: 'Acceso unificado a cientos de LLMs (Claude, Llama, DeepSeek, GPT)',
+    keyName: 'openrouterApiKey',
+    keyPlaceholder: 'sk-or-v1-... (OpenRouter API key)',
+    helperUrl: 'https://openrouter.ai/keys',
     category: 'llm',
   },
 ]

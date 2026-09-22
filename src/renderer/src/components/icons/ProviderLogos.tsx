@@ -14,6 +14,7 @@ export type ProviderId =
   | 'openai'
   | 'anthropic'
   | 'gemini'
+  | 'openrouter'
 
 export interface ProviderLogoProps extends React.SVGProps<SVGSVGElement> {
   size?: number | string
@@ -289,6 +290,25 @@ export function GeminiLogo({ size = 16, className = '', ...props }: ProviderLogo
   )
 }
 
+/**
+ * OpenRouter Official Logo
+ */
+export function OpenRouterLogo({ size = 16, className = '', ...props }: ProviderLogoProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      fillRule="evenodd"
+      className={`shrink-0 text-[#6543CC] ${className}`}
+      {...props}
+    >
+      <path d="M18.654 3.87a5.087 5.087 0 1 1 0 10.174L23.7 19.09c.64.641.187 1.737-.72 1.737H8.48a8.479 8.479 0 0 1 0-16.958h10.175zM8.479 7.26a5.087 5.087 0 1 0 0 10.176 5.087 5.087 0 0 0 0-10.175z" />
+    </svg>
+  )
+}
+
 export function getProviderForModel(model?: { provider?: string; local?: boolean } | null): ProviderId {
   if (!model) return 'kie'
   if (model.local) return 'local'
@@ -315,5 +335,6 @@ export function ProviderLogo({ provider, size = 16, className = '' }: ProviderLo
   if (norm === 'openai') return <OpenAILogo size={size} className={className} />
   if (norm === 'anthropic') return <AnthropicLogo size={size} className={className} />
   if (norm === 'gemini') return <GeminiLogo size={size} className={className} />
+  if (norm === 'openrouter') return <OpenRouterLogo size={size} className={className} />
   return <KieLogo size={size} className={className} />
 }

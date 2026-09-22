@@ -340,10 +340,12 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
     // Determine target provider
     let provider = requestedProvider
     if (!provider) {
-      if (requestedModel.startsWith('deepseek')) provider = 'deepseek'
+      if (requestedModel.includes('/') && openrouterApiKey) provider = 'openrouter'
+      else if (requestedModel.startsWith('deepseek')) provider = 'deepseek'
       else if (requestedModel.startsWith('gpt') || requestedModel.startsWith('o3')) provider = 'openai'
       else if (requestedModel.startsWith('claude') && anthropicApiKey) provider = 'anthropic'
       else if (requestedModel.startsWith('gemini') && geminiApiKey) provider = 'gemini'
+      else if (openrouterApiKey) provider = 'openrouter'
       else if (kieApiKey) provider = 'kie'
       else if (deepseekApiKey) provider = 'deepseek'
       else if (openaiApiKey) provider = 'openai'
@@ -503,7 +505,45 @@ export function registerOpenfieldHandlers({ raw, handle }: IpcContext) {
       }
     }
 
-    // 5. KIE.ai Hosted API
+    // 5. OpenRouter Native API (Universal gateway)
+    if (provider === 'openrouter') {
+      if (!openrouterApiKey) {
+        throw new Error('No se ha configurado la API Key de OpenRouter. Ve a Ajustes > Proveedores para configurarla.')
+      }
+      try {
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openrouterApiKey}`,
+            'HTTP-Referer': 'https://openfield.studio',
+            'X-Title': 'Openfield',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: requestedModel || 'anthropic/claude-3.7-sonnet',
+            messages: formattedMessages,
+            temperature: 0.7,
+            max_tokens: 4096,
+          }),
+        })
+
+        if (!res.ok) {
+          const errBody = await res.text()
+          throw new Error(`OpenRouter API Error [${res.status}]: ${errBody.slice(0, 250)}`)
+        }
+
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content || ''
+        if (text) {
+          return { content: text, message: { role: 'assistant', content: text } }
+        }
+        throw new Error('OpenRouter no devolvió contenido en la respuesta.')
+      } catch (err: any) {
+        throw new Error(`Error en OpenRouter: ${err?.message || String(err)}`)
+      }
+    }
+
+    // 6. KIE.ai Hosted API
     if (provider === 'kie') {
       if (!kieApiKey) {
         throw new Error('No se ha configurado la API Key de KIE.ai. Ve a Ajustes > Proveedores para configurarla.')
