@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Monitor, Palette, Globe, Folder, Save, Shapes, RotateCcw, Cable, Copy, Check, RefreshCw, Download, ScrollText, Cpu } from 'lucide-react'
 import { useAppStore } from '../stores/app-store'
+import { setThemePreference, type ThemePreference } from '../lib/theme'
 
 export function SettingsPage() {
   const setPage = useAppStore((s) => s.setPage)
@@ -11,6 +12,8 @@ export function SettingsPage() {
   const [gridRenderScale, setGridRenderScaleState] = useState<string>('0.25')
   const [assetPath, setAssetPath] = useState('')
   const [saveWebp, setSaveWebp] = useState(true)
+  const [exportImageFormat, setExportImageFormat] = useState<'png' | 'webp' | 'jpeg'>('png')
+  const [exportImageQuality, setExportImageQuality] = useState(90)
   const [webpStats, setWebpStats] = useState<{ total: number; pending: number }>({ total: 0, pending: 0 })
   const [convertingWebp, setConvertingWebp] = useState(false)
   const [webpResult, setWebpResult] = useState<string | null>(null)
@@ -46,6 +49,8 @@ export function SettingsPage() {
         setGridRenderScaleState(scale)
         useAppStore.getState().setGridRenderScale(scale)
         setSaveWebp(settings.saveImagesAsWebp !== false)
+        if (settings.exportImageFormat === 'png' || settings.exportImageFormat === 'webp' || settings.exportImageFormat === 'jpeg') setExportImageFormat(settings.exportImageFormat)
+        if (Number.isFinite(Number(settings.exportImageQuality)) && settings.exportImageQuality) setExportImageQuality(Math.min(100, Math.max(1, Number(settings.exportImageQuality))))
         setPrimaryBasePrompt(settings['elements:primaryBasePrompt'] || PRIMARY_DEFAULT)
         setPoseBasePrompt(settings['elements:poseBasePrompt'] || POSE_DEFAULT)
         setMoodboardBasePrompt(settings['elements:moodboardBasePrompt'] || MOODBOARD_DEFAULT)
@@ -141,6 +146,8 @@ export function SettingsPage() {
     await (window as any).electronAPI?.settings.set('defaultVideoModel', defaultVideoModel)
     await (window as any).electronAPI?.settings.set('gridRenderScale', gridRenderScale)
     await (window as any).electronAPI?.settings.set('saveImagesAsWebp', saveWebp)
+    await (window as any).electronAPI?.settings.set('exportImageFormat', exportImageFormat)
+    await (window as any).electronAPI?.settings.set('exportImageQuality', exportImageQuality)
     await (window as any).electronAPI?.settings.set('elements:primaryBasePrompt', primaryBasePrompt)
     await (window as any).electronAPI?.settings.set('elements:poseBasePrompt', poseBasePrompt)
     await (window as any).electronAPI?.settings.set('elements:moodboardBasePrompt', moodboardBasePrompt)
@@ -175,7 +182,14 @@ export function SettingsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs text-surface-500 mb-1">Theme</label>
-                  <select value={theme} onChange={(e) => setTheme(e.target.value)} className="input-field">
+                  <select
+                    value={theme}
+                    onChange={(e) => {
+                      setTheme(e.target.value)
+                      setThemePreference(e.target.value as ThemePreference)
+                    }}
+                    className="input-field"
+                  >
                     <option value="dark">Dark</option>
                     <option value="light">Light</option>
                     <option value="system">System</option>
@@ -316,7 +330,7 @@ export function SettingsPage() {
               <div className="flex items-center gap-2 mb-4">
                 <Cable size={16} className="text-accent-400" />
                 <h2 className="text-sm font-semibold text-surface-100">Local MCP Bridge</h2>
-                <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 ${bridgeStatus?.running ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 ${bridgeStatus?.running ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${bridgeStatus?.running ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                   {bridgeStatus?.running ? 'Running' : 'Stopped'}
                 </span>
@@ -334,10 +348,10 @@ export function SettingsPage() {
                     setCopiedEndpoint(true)
                     setTimeout(() => setCopiedEndpoint(false), 1500)
                   }}
-                  className="p-1.5 rounded-lg text-surface-500 hover:text-surface-200 hover:bg-surface-700 transition-colors"
+                  className="p-1.5 rounded-full text-surface-500 hover:text-surface-200 hover:bg-surface-700 transition-colors"
                   title="Copy endpoint"
                 >
-                  {copiedEndpoint ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                  {copiedEndpoint ? <Check size={12} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={12} />}
                 </button>
               </div>
               <div className="mt-3 flex items-center gap-3 text-[10px] text-surface-500">
@@ -368,8 +382,45 @@ export function SettingsPage() {
                   className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${saveWebp ? 'bg-accent-500' : 'bg-surface-700'}`}
                   aria-label="Toggle WebP saving"
                 >
-                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${saveWebp ? 'left-[22px]' : 'left-0.5'}`} />
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-canvas shadow-sm transition-all ${saveWebp ? 'left-[22px]' : 'left-0.5'}`} />
                 </button>
+              </div>
+              <div className="mt-4 pt-4 border-t border-surface-800">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <label className="block text-xs text-surface-500">Export image format</label>
+                    <p className="text-[10px] text-surface-600 mt-0.5">Format used when saving or exporting images (videos are always exported as MP4)</p>
+                  </div>
+                  <div className="flex rounded-pill border border-surface-700 overflow-hidden flex-shrink-0">
+                    {([['png', 'PNG'], ['webp', 'WebP'], ['jpeg', 'JPEG']] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => setExportImageFormat(value)}
+                        className={`px-3 py-1 text-xs transition-colors ${exportImageFormat === value ? 'bg-accent-500 text-on-accent' : 'bg-surface-900 text-surface-400 hover:text-surface-200 hover:bg-surface-800'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {exportImageFormat !== 'png' ? (
+                  <div className="mt-3 flex items-center gap-3">
+                    <label className="text-xs text-surface-500 flex-shrink-0 w-14">Quality</label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={100}
+                      value={exportImageQuality}
+                      onChange={(e) => setExportImageQuality(Number(e.target.value))}
+                      className="flex-1 accent-accent-500"
+                      aria-label="Export image quality"
+                    />
+                    <span className="text-xs font-mono text-surface-300 w-8 text-right">{exportImageQuality}</span>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[10px] text-surface-600">PNG is lossless — no quality setting.</p>
+                )}
+                <p className="mt-2 text-[10px] text-surface-600">Images already in the chosen format are exported unchanged.</p>
               </div>
               <div className="mt-4 pt-4 border-t border-surface-800 flex items-center justify-between">
                 <div>
@@ -410,7 +461,7 @@ export function SettingsPage() {
                 <RefreshCw size={16} className="text-accent-400" />
                 <h2 className="text-sm font-semibold text-surface-100">Updates</h2>
                 {updateState === 'downloaded' && (
-                  <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400">Update ready</span>
+                  <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">Update ready</span>
                 )}
               </div>
               <div className="flex items-center gap-3">

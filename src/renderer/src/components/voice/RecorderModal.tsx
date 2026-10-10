@@ -149,20 +149,20 @@ export function RecorderModal({ onClose, onConfirm }: RecorderModalProps) {
   const trimPct = trimEnd > trimStart && duration > 0 ? Math.round(((trimEnd - trimStart) / duration) * 100) : 0
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="bg-surface-950 border border-surface-800 rounded-2xl w-[420px] max-w-[92vw] p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="modal-surface w-[420px] max-w-[92vw] p-5" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <p className="text-sm font-semibold text-surface-100 flex items-center gap-2">
             <Mic size={15} className="text-accent-400" /> Record audio
           </p>
-          <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
+          <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-ink hover:bg-surface-800 transition-colors">
             <X size={15} />
           </button>
         </div>
 
         {/* Timer / status */}
         <div className="flex flex-col items-center gap-3 py-4">
-          <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 transition-colors ${phase === 'recording' ? 'border-red-500 text-red-400 animate-pulse' : 'border-surface-700 text-surface-400'}`}>
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 transition-colors ${phase === 'recording' ? 'border-red-500 text-red-600 dark:text-red-400 animate-pulse' : 'border-surface-700 text-surface-400'}`}>
             {phase === 'recording' ? <Square size={22} className="fill-current" /> : <Mic size={26} />}
           </div>
           <p className="text-2xl font-mono text-surface-200 tabular-nums">
@@ -174,18 +174,18 @@ export function RecorderModal({ onClose, onConfirm }: RecorderModalProps) {
              phase === 'review' ? 'Review, trim and confirm' :
              'Click Record to start'}
           </p>
-          {error && <p className="text-[11px] text-red-400 flex items-center gap-1"><AlertCircle size={11} /> {error}</p>}
+          {error && <p className="text-[11px] text-red-600 dark:text-red-400 flex items-center gap-1"><AlertCircle size={11} /> {error}</p>}
         </div>
 
         {/* Controls */}
         <div className="flex items-center justify-center gap-2 mb-3">
           {phase === 'idle' && (
-            <button onClick={startRecording} className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-medium transition-colors flex items-center gap-1.5">
+            <button onClick={startRecording} className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-pill text-xs font-medium transition-colors flex items-center gap-1.5">
               <Mic size={13} /> Record
             </button>
           )}
           {phase === 'recording' && (
-            <button onClick={stopRecording} className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-medium transition-colors flex items-center gap-1.5">
+            <button onClick={stopRecording} className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-pill text-xs font-medium transition-colors flex items-center gap-1.5">
               <Square size={12} className="fill-current" /> Stop
             </button>
           )}
@@ -196,10 +196,10 @@ export function RecorderModal({ onClose, onConfirm }: RecorderModalProps) {
           )}
           {phase === 'review' && (
             <>
-              <button onClick={togglePreview} className="px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded-xl text-xs font-medium transition-colors flex items-center gap-1.5">
+              <button onClick={togglePreview} className="px-4 py-2 bg-accent-600 hover:bg-accent-500 text-on-accent rounded-pill text-xs font-medium transition-colors flex items-center gap-1.5">
                 {playing ? <Pause size={13} /> : <Play size={13} />} {playing ? 'Pause' : 'Play'}
               </button>
-              <button onClick={resetRecording} title="Record again" className="px-3 py-2 bg-surface-800 hover:bg-surface-700 text-surface-300 rounded-xl text-xs font-medium transition-colors flex items-center gap-1.5">
+              <button onClick={resetRecording} title="Record again" className="px-3 py-2 bg-surface-800 hover:bg-surface-700 text-surface-300 rounded-pill text-xs font-medium transition-colors flex items-center gap-1.5">
                 <RotateCcw size={12} /> Record again
               </button>
             </>
@@ -210,7 +210,7 @@ export function RecorderModal({ onClose, onConfirm }: RecorderModalProps) {
         {phase === 'review' && (
           <div className="mb-4">
             <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider flex items-center gap-1"><Scissors size={10} /> Trim</p>
+              <p className="eyebrow flex items-center gap-1"><Scissors size={10} /> Trim</p>
               <div className="flex items-center gap-1 text-[10px] text-surface-500 font-mono">
                 <span>{formatTime(trimStart)}</span> – <span>{formatTime(trimEnd)}</span>
               </div>
@@ -245,8 +245,8 @@ export function RecorderModal({ onClose, onConfirm }: RecorderModalProps) {
         {/* Actions */}
         {phase === 'review' && (
           <div className="flex items-center gap-2 justify-end border-t border-surface-800 pt-3">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg text-xs text-surface-400 hover:text-surface-200 transition-colors">Cancel</button>
-            <button onClick={confirm} className="px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5">
+            <button onClick={onClose} className="px-4 py-2 rounded-pill text-xs text-surface-400 hover:text-surface-200 transition-colors">Cancel</button>
+            <button onClick={confirm} className="px-4 py-2 bg-accent-600 hover:bg-accent-500 text-on-accent rounded-pill text-xs font-medium transition-colors flex items-center gap-1.5">
               <Check size={12} /> Use this audio
             </button>
           </div>

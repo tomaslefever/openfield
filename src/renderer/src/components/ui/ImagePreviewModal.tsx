@@ -138,8 +138,8 @@ export function ImagePreviewModal({
   const isGeneratingOrError = isError || isGenerating
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="modal-surface max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div
           ref={containerRef}
           className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative overflow-hidden"
@@ -246,7 +246,7 @@ export function ImagePreviewModal({
           <div className="w-96 min-w-[380px] flex-shrink-0 bg-surface-900/80 border-l border-surface-800 flex flex-col">
             <div className="flex items-center justify-end px-3 py-2 border-b border-surface-800 flex-shrink-0">
               <button onClick={(e) => { e.stopPropagation(); onClose() }} title="Close"
-                className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
+                className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-ink hover:bg-surface-800 transition-colors">
                 <X size={16} />
               </button>
             </div>

@@ -2,14 +2,144 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Theme tokens (see DESIGN.md). Values are RGB channels so Tailwind opacity modifiers work
+ * (`bg-surface-900/25`). `:root` is the light theme, `.dark` (set on <html>) the dark one.
+ * The `surface` scale is inverted in light mode: 950 is the canvas and 50 the strongest ink,
+ * so existing `bg-surface-950 text-surface-100` markup renders correctly in both themes.
+ * `accent` is a monochrome ink scale (no brand hue): solid fills are the primary surface and
+ * take `text-on-accent`.
+ */
 @layer base {
+  :root {
+    color-scheme: light;
+
+    --surface-50: 10 10 10;
+    --surface-100: 26 26 26;
+    --surface-200: 51 51 51;
+    --surface-300: 64 64 64;
+    --surface-400: 92 92 92;
+    --surface-500: 112 112 112;
+    --surface-600: 158 158 158;
+    --surface-700: 214 214 214;
+    --surface-800: 230 230 230;
+    --surface-900: 244 244 242;
+    --surface-950: 255 255 255;
+
+    --accent-50: 0 0 0;
+    --accent-100: 10 10 10;
+    --accent-200: 23 23 23;
+    --accent-300: 26 26 26;
+    --accent-400: 20 20 20;
+    --accent-500: 0 0 0;
+    --accent-600: 10 10 10;
+    --accent-700: 38 38 38;
+    --accent-800: 64 64 64;
+    --accent-900: 89 89 89;
+    --accent-950: 214 214 214;
+
+    --canvas: 255 255 255;
+    --ink: 0 0 0;
+    --ink-muted: 92 92 92;
+    --ink-subtle: 128 128 128;
+    --hairline: 230 230 230;
+    --hairline-soft: 241 241 241;
+    --surface-soft: 247 247 245;
+    --popover: 255 255 255;
+    --on-accent: 255 255 255;
+    --overlay: 0 0 0;
+    --accent-magenta: 255 61 139;
+
+    --block-lime: 220 238 177;
+    --block-lilac: 197 176 244;
+    --block-cream: 244 236 214;
+    --block-mint: 200 230 205;
+    --block-pink: 239 212 212;
+    --block-coral: 243 201 182;
+    --block-navy: 31 29 61;
+    --block-lime-ink: 0 0 0;
+    --block-lilac-ink: 0 0 0;
+    --block-cream-ink: 0 0 0;
+    --block-mint-ink: 0 0 0;
+    --block-pink-ink: 0 0 0;
+    --block-coral-ink: 0 0 0;
+    --block-navy-ink: 255 255 255;
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    --surface-50: 247 247 247;
+    --surface-100: 228 228 228;
+    --surface-200: 199 199 199;
+    --surface-300: 161 161 161;
+    --surface-400: 125 125 125;
+    --surface-500: 98 98 98;
+    --surface-600: 77 77 77;
+    --surface-700: 63 63 63;
+    --surface-800: 53 53 53;
+    --surface-900: 44 44 44;
+    --surface-950: 14 14 14;
+
+    --accent-50: 255 255 255;
+    --accent-100: 252 252 252;
+    --accent-200: 248 248 248;
+    --accent-300: 244 244 244;
+    --accent-400: 238 238 238;
+    --accent-500: 255 255 255;
+    --accent-600: 242 242 242;
+    --accent-700: 214 214 214;
+    --accent-800: 163 163 163;
+    --accent-900: 115 115 115;
+    --accent-950: 38 38 38;
+
+    --canvas: 14 14 14;
+    --ink: 236 236 236;
+    --ink-muted: 161 161 161;
+    --ink-subtle: 115 115 115;
+    --hairline: 44 44 44;
+    --hairline-soft: 32 32 32;
+    --surface-soft: 24 24 24;
+    --popover: 30 30 30;
+    --on-accent: 10 10 10;
+    --overlay: 0 0 0;
+    --accent-magenta: 255 61 139;
+
+    /* Pastel blocks on dark: deep grounds with the pastel as ink */
+    --block-lime: 36 44 24;
+    --block-lilac: 40 33 64;
+    --block-cream: 46 41 30;
+    --block-mint: 26 42 31;
+    --block-pink: 50 32 35;
+    --block-coral: 52 35 27;
+    --block-navy: 24 22 48;
+    --block-lime-ink: 220 238 177;
+    --block-lilac-ink: 207 190 247;
+    --block-cream-ink: 244 236 214;
+    --block-mint-ink: 200 230 205;
+    --block-pink-ink: 239 212 212;
+    --block-coral-ink: 243 201 182;
+    --block-navy-ink: 230 228 255;
+  }
+
   * {
     @apply border-surface-800;
   }
 
+  /* Set for one frame while the theme switches (lib/theme.ts) */
+  .theme-switching *,
+  .theme-switching *::before,
+  .theme-switching *::after {
+    transition: none !important;
+  }
+
+  html {
+    font-feature-settings: 'kern', 'cv11';
+  }
+
   body {
     @apply bg-surface-950 text-surface-100 antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Inter Variable', 'Inter', system-ui, sans-serif;
   }
 
   ::-webkit-scrollbar {
@@ -27,52 +157,70 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-surface-600;
   }
-  :root {
-    --sidebar-background: 240 9% 7%;
-    --sidebar-foreground: 240 6% 89%;
-    --sidebar-primary: 243 75% 59%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 6% 22%;
-    --sidebar-accent-foreground: 240 6% 89%;
-    --sidebar-border: 240 7% 26%;
-    --sidebar-ring: 239 84% 67%;
-  }
-  .dark {
-    --sidebar-background: 240 9% 7%;
-    --sidebar-foreground: 240 6% 89%;
-    --sidebar-primary: 243 75% 59%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 6% 22%;
-    --sidebar-accent-foreground: 240 6% 89%;
-    --sidebar-border: 240 7% 26%;
-    --sidebar-ring: 239 84% 67%;
-  }
 }
 
 @layer components {
+  /* Buttons: every CTA is a pill, icon buttons are circles (DESIGN.md) */
   .btn-primary {
-    @apply bg-accent-600 hover:bg-accent-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-accent-600 hover:bg-accent-500 text-on-accent px-4 py-2 rounded-pill text-sm font-emphasis transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-surface-900 hover:bg-surface-800 text-ink border border-hairline px-4 py-2 rounded-pill text-sm font-emphasis transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
   .btn-ghost {
-    @apply text-surface-400 hover:text-surface-100 hover:bg-surface-800 px-3 py-1.5 rounded-lg text-sm transition-colors;
+    @apply text-ink-muted hover:text-ink hover:bg-surface-800 px-3 py-1.5 rounded-pill text-sm transition-colors;
   }
 
   .btn-danger {
-    @apply bg-red-600/10 text-red-400 hover:bg-red-600/20 px-3 py-1.5 rounded-lg text-sm transition-colors;
+    @apply bg-red-600/10 text-red-500 dark:text-red-400 hover:bg-red-600/20 px-3 py-1.5 rounded-pill text-sm transition-colors;
+  }
+
+  .btn-icon {
+    @apply inline-flex items-center justify-center size-8 rounded-full bg-surface-soft text-ink-muted hover:text-ink hover:bg-surface-800 transition-colors;
   }
 
   .input-field {
-    @apply bg-surface-900/50 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-100 placeholder-surface-500 focus:outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500/50 transition-colors w-full;
+    @apply bg-surface-900/50 border border-surface-700 rounded-lg px-3 py-2 text-sm text-ink placeholder-ink-subtle focus:outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500/30 transition-colors w-full;
   }
 
+  /* Containers: hairline, not shadow */
   .card {
-    @apply bg-surface-900/25 border border-surface-800/60 rounded-xl p-4;
+    @apply bg-surface-soft border border-hairline rounded-2xl p-4;
   }
 
   .panel {
-    @apply bg-surface-900/25 border border-surface-800/60 rounded-xl;
+    @apply bg-surface-soft border border-hairline rounded-2xl;
   }
+
+  /* Popovers / dropdowns: hairline + soft elevation */
+  .popover-surface {
+    @apply bg-popover/95 backdrop-blur-xl border border-surface-800 shadow-float;
+  }
+
+  /* Modal frame + scrim */
+  .modal-scrim {
+    @apply fixed inset-0 bg-overlay/60 backdrop-blur-sm;
+  }
+
+  .modal-surface {
+    @apply bg-canvas border border-hairline rounded-block shadow-float;
+  }
+
+  /* Mono uppercase taxonomy label (figmaMono eyebrow) */
+  .eyebrow {
+    @apply font-mono text-eyebrow uppercase text-ink-subtle;
+  }
+
+  /* Pastel color blocks — use at most one per viewport */
+  .block-lime { @apply bg-block-lime text-block-lime-ink; }
+  .block-lilac { @apply bg-block-lilac text-block-lilac-ink; }
+  .block-cream { @apply bg-block-cream text-block-cream-ink; }
+  .block-mint { @apply bg-block-mint text-block-mint-ink; }
+  .block-pink { @apply bg-block-pink text-block-pink-ink; }
+  .block-coral { @apply bg-block-coral text-block-coral-ink; }
+  .block-navy { @apply bg-block-navy text-block-navy-ink; }
 }
 
 @keyframes pop-in {

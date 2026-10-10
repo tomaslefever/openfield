@@ -277,29 +277,39 @@ export function updateTransition(id: string, data: any): boolean {
 
 // ─── Generation ────────────────────────────────────────────
 
+// Rows come back camelCased from the DB wrapper (storyboard_id → storyboardId).
+
 export async function generateSceneImage(sceneId: string, params: any): Promise<{ taskId: string; sceneId: string }> {
   const scene = getScene(sceneId)
-  const board = scene ? getBoard(scene.storyboard_id) : null
+  if (!scene) throw new Error(`Scene ${sceneId} not found`)
+  const board = getBoard(scene.storyboardId)
   const apiKey = requireApiKey()
   const queue = getTaskQueue(apiKey)
-  let prompt = params.prompt || scene?.prompt || ''
+  let prompt = params.prompt || scene.prompt || ''
   if (board?.style) prompt = applyStyle(prompt, board.style)
   const taskId = await queue.enqueue('image', {
     sceneId,
     prompt,
     model: params.model || 'gpt-image-2-text-to-image',
-    aspectRatio: params.aspectRatio || scene?.aspect_ratio || '1:1',
-    resolution: params.resolution || scene?.resolution || '1K',
+    aspectRatio: params.aspectRatio || scene.aspectRatio || '1:1',
+    resolution: params.resolution || scene.resolution || '1K',
   })
   return { taskId, sceneId }
 }
 
 export async function generateSceneVideo(sceneId: string, params: any): Promise<{ taskId: string; sceneId: string }> {
   const scene = getScene(sceneId)
-  const board = scene ? getBoard(scene.storyboard_id) : null
+  if (!scene) throw new Error(`Scene ${sceneId} not found`)
+  // Callers without the image in memory (MCP bridge) fall back to the scene's own image asset;
+  // the queue re-hydrates it from disk before sending.
+  const imageAssetId = params.imageBase64 ? undefined : (params.imageAssetId || scene.imageAssetId || undefined)
+  if (!params.imageBase64 && !imageAssetId) {
+    throw new Error(`Scene ${sceneId} has no image yet — generate the scene image first`)
+  }
+  const board = getBoard(scene.storyboardId)
   const apiKey = requireApiKey()
   const queue = getTaskQueue(apiKey)
-  let prompt = params.prompt || scene?.prompt || ''
+  let prompt = params.prompt || scene.prompt || ''
   if (board?.style) prompt = applyStyle(prompt, board.style)
   const taskId = await queue.enqueue('video', {
     sceneId,
@@ -307,27 +317,42 @@ export async function generateSceneVideo(sceneId: string, params: any): Promise<
     model: params.model || 'kling-3.0/video',
     duration: params.duration || 5,
     imageBase64: params.imageBase64,
+    imageAssetId,
     imageMime: 'image/png',
-    aspectRatio: params.aspectRatio || '16:9',
+    aspectRatio: params.aspectRatio || scene.aspectRatio || '16:9',
     resolution: params.resolution || '1K',
   })
   return { taskId, sceneId }
 }
 
 export async function generateTransition(transitionId: string, params: any): Promise<{ taskId: string; transitionId: string }> {
+  const transition = getTransition(transitionId)
+  if (!transition) throw new Error(`Transition ${transitionId} not found`)
+  // Same fallback as scene video: use the from/to scene images when no frames were passed.
+  const firstFrameAssetId = params.firstFrameBase64 ? undefined : (getScene(transition.fromSceneId)?.imageAssetId || undefined)
+  const lastFrameAssetId = params.lastFrameBase64 ? undefined : (getScene(transition.toSceneId)?.imageAssetId || undefined)
+  if (!params.firstFrameBase64 && !firstFrameAssetId) {
+    throw new Error(`Transition ${transitionId}: the "from" scene has no image yet — generate it first`)
+  }
   const apiKey = requireApiKey()
   const queue = getTaskQueue(apiKey)
   const taskId = await queue.enqueue('video', {
     transitionId,
     prompt: params.prompt || 'Smooth cinematic transition',
     model: params.model || 'pixverse-v6/image-to-video',
-    duration: params.duration || 5,
+    duration: params.duration || transition.duration || 5,
     firstFrameBase64: params.firstFrameBase64,
     lastFrameBase64: params.lastFrameBase64,
+    firstFrameAssetId,
+    lastFrameAssetId,
     aspectRatio: params.aspectRatio || '16:9',
     resolution: params.resolution || '1K',
   })
   return { taskId, transitionId }
+}
+
+export function getTransition(id: string): any {
+  return getRawDb().prepare('SELECT * FROM storyboard_transitions WHERE id = ?').get(id)
 }
 
 export function getTask(taskId: string): any {
@@ -337,16 +362,16 @@ export function getTask(taskId: string): any {
   let payload: any = {}
   try { payload = JSON.parse(row.payload || '{}') } catch {}
   return {
-    taskId: row.task_id,
+    taskId: row.taskId,
     status: row.status,
     type: row.type,
-    error: row.error_message || null,
+    error: row.errorMessage || null,
     progress: row.progress ?? 0,
-    resultAssetId: row.result_asset_id || null,
-    creditsUsed: row.credits_used ?? null,
-    createdAt: row.created_at,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
+    resultAssetId: row.resultAssetId || null,
+    creditsUsed: row.creditsUsed ?? null,
+    createdAt: row.createdAt,
+    startedAt: row.startedAt ?? null,
+    completedAt: row.completedAt ?? null,
     prompt: payload.prompt || null,
   }
 }

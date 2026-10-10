@@ -11,7 +11,7 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
   const ar = params.aspectRatio || (params as any).aspect_ratio || '1:1'
   const res = params.resolution || (params as any).resolution || '1K'
 
-  // Model name normalizer: KIE expects 'seedream/5-pro-...' with a slash
+  // Model name normalizer: KIE expects specific slash or prefix formats
   let model = params.model
   if (model === 'seedream-5-pro-text-to-image' || model === 'seedream-5-pro') {
     model = 'seedream/5-pro-text-to-image'
@@ -21,18 +21,42 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
     model = 'seedream/5-lite-text-to-image'
   } else if (model === 'seedream-5-lite-image-to-image') {
     model = 'seedream/5-lite-image-to-image'
+  } else if (model === 'flux2-pro-text-to-image' || model === 'flux-2-pro') {
+    model = 'flux-2/pro-text-to-image'
+  } else if (model === 'flux2-pro-image-to-image') {
+    model = 'flux-2/pro-image-to-image'
+  } else if (model === 'imagen4-fast') {
+    model = 'google/imagen4-fast'
+  } else if (model === 'nano-banana-2') {
+    model = 'google/nano-banana-2'
+  } else if (model === 'ideogram-2-0' || model === 'ideogram-2' || model === 'ideogram') {
+    model = 'ideogram/v3-text-to-image'
+  } else if (model === 'qwen-image-3' || model === 'qwen-image' || model === 'qwen-3' || model === 'qwen3' || model === 'alibaba/qwen-image-3') {
+    model = 'qwen3/text-to-image'
   }
 
-  const hasImages = Boolean(params.imageBase64 || (params.imageRefs && params.imageRefs.length > 0))
+  const hasImages = Boolean(
+    params.imageBase64 ||
+    (params.imageRefs && params.imageRefs.length > 0) ||
+    ((params as any).imageUrl && typeof (params as any).imageUrl === 'string' && (params as any).imageUrl.startsWith('http')) ||
+    ((params as any).image_url && typeof (params as any).image_url === 'string' && (params as any).image_url.startsWith('http'))
+  )
   if (hasImages) {
     if (model === 'seedream/5-pro-text-to-image') model = 'seedream/5-pro-image-to-image'
+    else if (model === 'seedream/5-lite-text-to-image') model = 'seedream/5-lite-image-to-image'
+    else if (model === 'flux-2/pro-text-to-image') model = 'flux-2/pro-image-to-image'
     else if (model === 'gpt-image-2-text-to-image') model = 'gpt-image-2-image-to-image'
     else if (model === 'gpt-image-2-5-flare-text-to-image') model = 'gpt-image-2-5-flare-image-to-image'
     else if (model === 'gpt-image-2-5-sunburst-text-to-image') model = 'gpt-image-2-5-sunburst-image-to-image'
+    else if (model === 'qwen3/text-to-image' || model.startsWith('qwen') || model === 'qwen-image-3') model = 'qwen3/image-to-image'
   } else {
     if (model === 'gpt-image-2-image-to-image') model = 'gpt-image-2-text-to-image'
     else if (model === 'gpt-image-2-5-flare-image-to-image') model = 'gpt-image-2-5-flare-text-to-image'
     else if (model === 'gpt-image-2-5-sunburst-image-to-image') model = 'gpt-image-2-5-sunburst-text-to-image'
+    else if (model === 'flux-2/pro-image-to-image') model = 'flux-2/pro-text-to-image'
+    else if (model === 'seedream/5-pro-image-to-image') model = 'seedream/5-pro-text-to-image'
+    else if (model === 'seedream/5-lite-image-to-image') model = 'seedream/5-lite-text-to-image'
+    else if (model === 'qwen3/image-to-image') model = 'qwen3/text-to-image'
   }
 
   console.log('[OF] generateImage:', {
@@ -46,7 +70,9 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
 
   const isGptImage = model.startsWith('gpt-image')
   const isSeedream = model.startsWith('seedream')
-  const imageKey = isGptImage ? 'input_urls' : isSeedream ? 'image_urls' : 'image_input'
+  const isQwen = model.startsWith('qwen') || model.startsWith('alibaba/qwen')
+  const isFlux = model.startsWith('flux-2') || model.startsWith('flux2')
+  const imageKey = (isGptImage || isFlux) ? 'input_urls' : (isSeedream || isQwen) ? 'image_urls' : 'image_input'
 
   const input: Record<string, any> = {
     prompt: params.prompt,
@@ -59,6 +85,12 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
     input.quality = (res === '2K' || res === '4K') ? 'high' : 'basic'
     input.output_format = 'png'
     input.nsfw_checker = true
+  } else if (isQwen) {
+    const validAspectRatios = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9']
+    const finalAr = validAspectRatios.includes(ar) ? ar : '1:1'
+    input.aspect_ratio = finalAr
+    input.image_size = finalAr
+    input.resolution = (res === '2K' || res === '4K') ? '2K' : '1K'
   } else {
     input.resolution = res
   }
@@ -98,11 +130,19 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
     if (imageUrl) input[imageKey] = [imageUrl]
   } else if ((params as any).imageUrl && typeof (params as any).imageUrl === 'string' && (params as any).imageUrl.startsWith('http')) {
     input[imageKey] = [(params as any).imageUrl]
+  } else if ((params as any).image_url && typeof (params as any).image_url === 'string' && (params as any).image_url.startsWith('http')) {
+    input[imageKey] = [(params as any).image_url]
   }
 
-  // Safety fallback for Seedream: image-to-image requires image_urls; if none, use text-to-image
+  // Safety fallback: if image-to-image requires image_urls but none was uploaded/provided, fall back to text-to-image
   if (model === 'seedream/5-pro-image-to-image' && (!input.image_urls || input.image_urls.length === 0)) {
     model = 'seedream/5-pro-text-to-image'
+  }
+  if (model === 'seedream/5-lite-image-to-image' && (!input.image_urls || input.image_urls.length === 0)) {
+    model = 'seedream/5-lite-text-to-image'
+  }
+  if (model === 'qwen3/image-to-image' && (!input.image_urls || input.image_urls.length === 0)) {
+    model = 'qwen3/text-to-image'
   }
 
   console.log('[OF] createTask:', model, JSON.stringify(input).substring(0, 250))

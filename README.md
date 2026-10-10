@@ -59,6 +59,8 @@ A structured, end-to-end 5-stage automated & interactive production studio:
 ### 🔌 Model Context Protocol (MCP) Server
 - Built-in HTTP MCP bridge (`openfield-storyboard-bridge`).
 - Allows external AI assistants (Claude, OpenCode, Antigravity) to introspect installed endpoints, query available models, orchestrate storyboards, and trigger generations autonomously.
+- Playground parity: browse the library (`list_assets`, `get_asset`), generate with references or reuse the references of any previous generation (`generate`), recreate a generation with overrides (`recreate_generation`), queue up to 4 variants and preview them numbered to pick one (`wait_for_tasks` / `preview_assets`), and manage assets (`update_assets`, `delete_assets`, `import_asset`).
+- Local-only: requests from non-loopback hosts or web origins are rejected.
 
 ### 🔄 Automatic Updates
 - In-app auto-updater powered by `electron-updater` and GitHub Releases.

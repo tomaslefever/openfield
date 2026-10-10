@@ -18,6 +18,7 @@ import { registerMachgenHandlers } from './machgen'
 import { registerHiggsfieldHandlers } from './higgsfield'
 import { registerBalancesHandlers } from './balances'
 import { registerElevenLabsHandlers } from './elevenlabs'
+import { registerApimartHandlers } from './apimart'
 import { registerUpdaterHandlers } from './updater'
 import { registerWorkspacesHandlers } from './workspaces'
 import { registerPromptsHandlers } from './prompts'
@@ -44,6 +45,7 @@ export function registerIpcHandlers() {
   registerHiggsfieldHandlers(ctx)
   registerBalancesHandlers(ctx)
   registerElevenLabsHandlers(ctx)
+  registerApimartHandlers(ctx)
   registerUpdaterHandlers(ctx)
   registerWorkspacesHandlers(ctx)
   registerPromptsHandlers(ctx)

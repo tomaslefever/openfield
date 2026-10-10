@@ -2,8 +2,15 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Video, ChevronUp, ChevronDown, X, Copy, Check, Clipboard, Info } from 'lucide-react'
 
+export type CameraOptionKey = 'camera' | 'lens' | 'shot' | 'level' | 'movement' | 'lighting' | 'filmLook' | 'speed'
+
+export const CAMERA_OPTION_KEYS: CameraOptionKey[] = ['camera', 'lens', 'shot', 'level', 'movement', 'lighting', 'filmLook', 'speed']
+
 export interface CameraControlState {
   enabled: boolean
+  /** Options unchecked by the user — left out of the [camera_control] block. */
+  disabled: CameraOptionKey[]
+  camera: string
   lens: string
   shot: string
   level: string
@@ -12,6 +19,27 @@ export interface CameraControlState {
   filmLook: string
   speed: string
 }
+
+export const CAMERA_BODIES = [
+  { value: 'shot on Mitchell BNC 35mm film camera', label: 'Mitchell BNC', group: 'Film' },
+  { value: 'shot on Technicolor three-strip camera', label: 'Technicolor 3-strip', group: 'Film' },
+  { value: 'shot on Arriflex 35 BL 35mm film camera', label: 'Arriflex 35 BL', group: 'Film' },
+  { value: 'shot on Panavision Panaflex Gold II 35mm film camera', label: 'Panavision Panaflex Gold II', group: 'Film' },
+  { value: 'shot on Panavision Millennium XL2 35mm film camera', label: 'Panavision Millennium XL2', group: 'Film' },
+  { value: 'shot on Arricam LT 35mm film camera', label: 'Arricam LT', group: 'Film' },
+  { value: 'shot on Panavision Super 70 65mm film camera', label: 'Panavision 65mm', group: 'Film' },
+  { value: 'shot on IMAX MSM 9802 65mm film camera', label: 'IMAX MSM 9802', group: 'Film' },
+  { value: 'shot on Aaton XTR Prod 16mm film camera', label: 'Aaton XTR Prod (16mm)', group: 'Film' },
+  { value: 'shot on Bolex H16 16mm film camera', label: 'Bolex H16 (16mm)', group: 'Film' },
+  { value: 'shot on Canon 1014 Super 8 film camera', label: 'Canon 1014 (Super 8)', group: 'Film' },
+  { value: 'shot on ARRI Alexa 65 digital cinema camera', label: 'ARRI Alexa 65', group: 'Digital' },
+  { value: 'shot on ARRI Alexa Mini LF digital cinema camera', label: 'ARRI Alexa Mini LF', group: 'Digital' },
+  { value: 'shot on Sony Venice 2 digital cinema camera', label: 'Sony Venice 2', group: 'Digital' },
+  { value: 'shot on RED V-Raptor digital cinema camera', label: 'RED V-Raptor', group: 'Digital' },
+  { value: 'shot on Panavision Millennium DXL2 digital cinema camera', label: 'Panavision DXL2', group: 'Digital' },
+]
+
+export const CAMERA_BODY_GROUPS = ['Film', 'Digital']
 
 export const CAMERA_LENSES = [
   '16mm fisheye lens',
@@ -68,7 +96,6 @@ export const CAMERA_MOVEMENTS = [
 ]
 
 export const CAMERA_LIGHTING = [
-  { value: '', label: 'None' },
   { value: 'golden hour lighting', label: 'Golden hour' },
   { value: 'blue hour lighting', label: 'Blue hour' },
   { value: 'film noir lighting', label: 'Film noir' },
@@ -83,7 +110,6 @@ export const CAMERA_LIGHTING = [
 ]
 
 export const CAMERA_FILM_LOOKS = [
-  { value: '', label: 'None' },
   { value: 'anamorphic lens flare', label: 'Anamorphic' },
   { value: 'film grain', label: 'Film grain' },
   { value: 'teal and orange color grade', label: 'Teal & orange' },
@@ -92,7 +118,6 @@ export const CAMERA_FILM_LOOKS = [
 ]
 
 export const CAMERA_SPEEDS = [
-  { value: '', label: 'None' },
   { value: 'slow motion', label: 'Slow Motion' },
   { value: 'fast forward', label: 'Fast Forward' },
   { value: 'timelapse', label: 'Timelapse' },
@@ -101,13 +126,15 @@ export const CAMERA_SPEEDS = [
 
 export const DEFAULT_CAMERA_STATE: CameraControlState = {
   enabled: false,
+  disabled: ['camera', 'lighting', 'filmLook', 'speed'],
+  camera: CAMERA_BODIES[3].value,
   lens: CAMERA_LENSES[2],
   shot: CAMERA_SHOTS[3],
   level: CAMERA_LEVELS[0],
   movement: CAMERA_MOVEMENTS[0],
-  lighting: '',
-  filmLook: '',
-  speed: '',
+  lighting: CAMERA_LIGHTING[0].value,
+  filmLook: CAMERA_FILM_LOOKS[0].value,
+  speed: CAMERA_SPEEDS[0].value,
 }
 
 export const CAMERA_BLOCK_RE = /\[camera_control\]([\s\S]*?)\[\/camera_control\]/g
@@ -119,6 +146,8 @@ export function stripCameraBlock(text: string): string {
 export function parseCameraBlock(text: string): CameraControlState {
   const empty: CameraControlState = {
     enabled: false,
+    disabled: [],
+    camera: '',
     lens: '',
     shot: '',
     level: '',
@@ -129,7 +158,7 @@ export function parseCameraBlock(text: string): CameraControlState {
   }
   const match = text.match(/\[camera_control\]([\s\S]*?)\[\/camera_control\]/)
   if (!match) return empty
-  const body = match[1].replace(/^Camera composition:\s*/i, '').replace(/\.\s*$/, '').trim()
+  const body = match[1].trim().replace(/^Camera composition:\s*/i, '').replace(/\.\s*$/, '').trim()
   const items = body.split(',').map(s => s.trim()).filter(Boolean)
   const pick = (list: string[]) => {
     const exact = items.find(it => list.includes(it))
@@ -139,6 +168,7 @@ export function parseCameraBlock(text: string): CameraControlState {
       return items.some(it => it.toLowerCase().replace(/[\s-_]+/g, '') === normOpt)
     }) || ''
   }
+  const camera = pick(CAMERA_BODIES.map(c => c.value))
   const lens = pick(CAMERA_LENSES)
   const shot = pick(CAMERA_SHOTS)
   const level = pick(CAMERA_LEVELS)
@@ -148,16 +178,21 @@ export function parseCameraBlock(text: string): CameraControlState {
   const rawSpeed = pick(CAMERA_SPEEDS.map(s => s.value))
   const speed = rawSpeed || (items.some(it => it.toLowerCase().includes('speed ramp')) ? 'Speed Ramp [300% - 40% - 300%]' : '')
 
-  const hasAny = !!(lens || shot || level || movement || lighting || filmLook || speed)
+  const hasAny = !!(camera || lens || shot || level || movement || lighting || filmLook || speed)
+  // Options missing from the block were unchecked when it was written.
+  const found: Record<CameraOptionKey, string> = { camera, lens, shot, level, movement, lighting, filmLook, speed }
+  const disabled = hasAny ? CAMERA_OPTION_KEYS.filter(k => !found[k]) : []
   return {
     enabled: hasAny,
-    lens: lens || CAMERA_LENSES[2],
-    shot: shot || CAMERA_SHOTS[3],
-    level: level || CAMERA_LEVELS[0],
-    movement: movement || CAMERA_MOVEMENTS[0],
-    lighting,
-    filmLook,
-    speed,
+    disabled,
+    camera: camera || DEFAULT_CAMERA_STATE.camera,
+    lens: lens || DEFAULT_CAMERA_STATE.lens,
+    shot: shot || DEFAULT_CAMERA_STATE.shot,
+    level: level || DEFAULT_CAMERA_STATE.level,
+    movement: movement || DEFAULT_CAMERA_STATE.movement,
+    lighting: lighting || DEFAULT_CAMERA_STATE.lighting,
+    filmLook: filmLook || DEFAULT_CAMERA_STATE.filmLook,
+    speed: speed || DEFAULT_CAMERA_STATE.speed,
   }
 }
 
@@ -166,15 +201,37 @@ export function formatCameraBlock(
   mode: 'image' | 'video' | 'audio' = 'video'
 ): string {
   if (!state.enabled) return ''
+  const off = new Set(state.disabled ?? [])
+  const on = (key: CameraOptionKey) => !off.has(key) && !!state[key]
   const parts: string[] = []
-  if (state.lens) parts.push(state.lens)
-  if (state.shot) parts.push(state.shot)
-  if (state.level) parts.push(state.level)
-  if (mode === 'video' && state.movement) parts.push(state.movement)
-  if (state.lighting) parts.push(state.lighting)
-  if (state.filmLook) parts.push(state.filmLook)
-  if (mode === 'video' && state.speed) parts.push(state.speed)
+  if (on('camera')) parts.push(state.camera!)
+  if (on('lens')) parts.push(state.lens!)
+  if (on('shot')) parts.push(state.shot!)
+  if (on('level')) parts.push(state.level!)
+  if (mode === 'video' && on('movement')) parts.push(state.movement!)
+  if (on('lighting')) parts.push(state.lighting!)
+  if (on('filmLook')) parts.push(state.filmLook!)
+  if (mode === 'video' && on('speed')) parts.push(state.speed!)
+  if (!parts.length) return ''
   return `[camera_control]\nCamera composition: ${parts.join(', ')}.\n[/camera_control]`
+}
+
+export function OptionCheckbox({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={`${checked ? 'Desactivar' : 'Activar'} ${label}`}
+      title={checked ? `Desactivar ${label}` : `Activar ${label}`}
+      onClick={() => onChange(!checked)}
+      className={`w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center rounded-[4px] border transition-colors ${
+        checked ? 'bg-accent-500 border-accent-500 text-on-accent' : 'bg-surface-800/80 border-surface-600 hover:border-surface-400'
+      }`}
+    >
+      {checked && <Check size={10} strokeWidth={3} />}
+    </button>
+  )
 }
 
 export interface CameraWheelProps {
@@ -182,9 +239,12 @@ export interface CameraWheelProps {
   options: string[]
   value: string
   onChange: (value: string) => void
+  /** When set, a checkbox next to the label toggles whether this option is used. */
+  active?: boolean
+  onActiveChange?: (active: boolean) => void
 }
 
-export function CameraWheel({ label, options, value, onChange }: CameraWheelProps) {
+export function CameraWheel({ label, options, value, onChange, active = true, onActiveChange }: CameraWheelProps) {
   const [shift, setShift] = useState(0)
   const [anim, setAnim] = useState(false)
   const animRef = useRef(false)
@@ -231,19 +291,23 @@ export function CameraWheel({ label, options, value, onChange }: CameraWheelProp
 
   return (
     <div className="flex flex-col items-center gap-1 flex-shrink-0">
-      <span className="text-[10px] uppercase tracking-wider text-surface-500">{label}</span>
+      <div className="flex items-center gap-1.5">
+        {onActiveChange && <OptionCheckbox checked={active} onChange={onActiveChange} label={label} />}
+        <span className="eyebrow">{label}</span>
+      </div>
+      <div className={`flex flex-col items-center gap-1 transition-opacity ${active ? '' : 'opacity-40'}`}>
       <button
         type="button"
         onClick={() => select(-1)}
-        className="w-[140px] h-7 flex items-center justify-center rounded-lg bg-surface-800/80 text-surface-400 hover:text-surface-100 hover:bg-surface-700 transition-colors"
+        className="w-[140px] h-7 flex items-center justify-center rounded-pill bg-surface-800/80 text-surface-400 hover:text-surface-100 hover:bg-surface-700 transition-colors"
         title="Previous"
       >
         <ChevronUp size={14} />
       </button>
       <div ref={boxRef} className="relative h-[90px] w-[140px] overflow-hidden rounded-lg bg-surface-800/40 select-none">
         <div className="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-[30px] rounded-md bg-accent-500/10 border-y border-accent-500/20" />
-        <div className="pointer-events-none absolute top-0 inset-x-0 h-[16px] z-30 bg-gradient-to-b from-surface-900 to-transparent" />
-        <div className="pointer-events-none absolute bottom-0 inset-x-0 h-[16px] z-30 bg-gradient-to-t from-surface-900 to-transparent" />
+        <div className="pointer-events-none absolute top-0 inset-x-0 h-[16px] z-30 bg-gradient-to-b from-canvas to-transparent" />
+        <div className="pointer-events-none absolute bottom-0 inset-x-0 h-[16px] z-30 bg-gradient-to-t from-canvas to-transparent" />
         <div
           className="absolute inset-x-0 will-change-transform"
           style={{ transform: `translateY(${-30 + shift}px)`, transition: anim ? 'transform 180ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none' }}
@@ -279,11 +343,12 @@ export function CameraWheel({ label, options, value, onChange }: CameraWheelProp
       <button
         type="button"
         onClick={() => select(1)}
-        className="w-[140px] h-7 flex items-center justify-center rounded-lg bg-surface-800/80 text-surface-400 hover:text-surface-100 hover:bg-surface-700 transition-colors"
+        className="w-[140px] h-7 flex items-center justify-center rounded-pill bg-surface-800/80 text-surface-400 hover:text-surface-100 hover:bg-surface-700 transition-colors"
         title="Next"
       >
         <ChevronDown size={14} />
       </button>
+      </div>
     </div>
   )
 }
@@ -293,6 +358,10 @@ export interface CameraControlModalProps {
   onClose: () => void
   enabled: boolean
   onToggleEnabled: (enabled: boolean) => void
+  disabled?: CameraOptionKey[]
+  onDisabledChange?: (disabled: CameraOptionKey[]) => void
+  camera?: string
+  onCameraChange?: (camera: string) => void
   lens: string
   onLensChange: (lens: string) => void
   shot: string
@@ -315,6 +384,10 @@ export function CameraControlModal({
   onClose,
   enabled,
   onToggleEnabled,
+  disabled = [],
+  onDisabledChange,
+  camera = DEFAULT_CAMERA_STATE.camera,
+  onCameraChange,
   lens,
   onLensChange,
   shot,
@@ -337,6 +410,8 @@ export function CameraControlModal({
   const handleCopy = useCallback(() => {
     const data: CameraControlState = {
       enabled,
+      disabled,
+      camera,
       lens,
       shot,
       level,
@@ -348,7 +423,7 @@ export function CameraControlModal({
     navigator.clipboard.writeText(JSON.stringify(data, null, 2))
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
-  }, [enabled, lens, shot, level, movement, lighting, filmLook, speed, mode])
+  }, [enabled, disabled, camera, lens, shot, level, movement, lighting, filmLook, speed, mode])
 
   const handlePaste = useCallback(async () => {
     try {
@@ -362,6 +437,12 @@ export function CameraControlModal({
         const data = JSON.parse(trimmed)
         if (data && typeof data === 'object') {
           let matched = false
+          if (onCameraChange && typeof data.camera === 'string' && data.camera) {
+            const norm = data.camera.toLowerCase()
+            const found = CAMERA_BODIES.find(c => c.value.toLowerCase() === norm || c.label.toLowerCase() === norm)
+            if (found) { onCameraChange(found.value); matched = true }
+          }
+
           if (data.lens && CAMERA_LENSES.includes(data.lens)) {
             onLensChange(data.lens)
             matched = true
@@ -399,22 +480,22 @@ export function CameraControlModal({
           if (data.lighting !== undefined) {
             const found = CAMERA_LIGHTING.find(l => l.value === data.lighting || (l.label && l.label.toLowerCase() === data.lighting.toLowerCase()))
             if (found) { onLightingChange(found.value); matched = true }
-            else if (data.lighting === '') { onLightingChange(''); matched = true }
           }
 
           if (data.filmLook !== undefined) {
             const found = CAMERA_FILM_LOOKS.find(f => f.value === data.filmLook || (f.label && f.label.toLowerCase() === data.filmLook.toLowerCase()))
             if (found) { onFilmLookChange(found.value); matched = true }
-            else if (data.filmLook === '') { onFilmLookChange(''); matched = true }
           }
 
           if (onSpeedChange && data.speed !== undefined) {
             const found = CAMERA_SPEEDS.find(s => s.value === data.speed || (s.label && s.label.toLowerCase() === data.speed.toLowerCase()))
             if (found) { onSpeedChange(found.value); matched = true }
-            else if (data.speed === '') { onSpeedChange(''); matched = true }
           }
 
           if (matched) {
+            if (onDisabledChange && Array.isArray(data.disabled)) {
+              onDisabledChange(data.disabled.filter((k: unknown): k is CameraOptionKey => CAMERA_OPTION_KEYS.includes(k as CameraOptionKey)))
+            }
             if (data.enabled !== undefined) {
               onToggleEnabled(Boolean(data.enabled))
             } else {
@@ -435,7 +516,8 @@ export function CameraControlModal({
         : `[camera_control]\nCamera composition: ${trimmed}\n[/camera_control]`
       const parsed = parseCameraBlock(blockText)
 
-      if (parsed.enabled || parsed.lens || parsed.shot || parsed.level || parsed.movement || parsed.lighting || parsed.filmLook || parsed.speed) {
+      if (parsed.enabled) {
+        if (parsed.camera && onCameraChange) onCameraChange(parsed.camera)
         if (parsed.lens) onLensChange(parsed.lens)
         if (parsed.shot) onShotChange(parsed.shot)
         if (parsed.level) onLevelChange(parsed.level)
@@ -443,6 +525,7 @@ export function CameraControlModal({
         if (parsed.lighting !== undefined) onLightingChange(parsed.lighting)
         if (parsed.filmLook !== undefined) onFilmLookChange(parsed.filmLook)
         if (parsed.speed !== undefined && onSpeedChange) onSpeedChange(parsed.speed)
+        onDisabledChange?.(parsed.disabled)
         onToggleEnabled(true)
         setPasted(true)
         setTimeout(() => setPasted(false), 1500)
@@ -450,7 +533,7 @@ export function CameraControlModal({
     } catch (err) {
       console.error('Error pasting camera parameters:', err)
     }
-  }, [onLensChange, onShotChange, onLevelChange, onMovementChange, onLightingChange, onFilmLookChange, onSpeedChange, onToggleEnabled])
+  }, [onCameraChange, onLensChange, onShotChange, onLevelChange, onMovementChange, onLightingChange, onFilmLookChange, onSpeedChange, onDisabledChange, onToggleEnabled])
 
   // Keyboard shortcut listener for Ctrl+C / Ctrl+V and ⌘C / ⌘V
   useEffect(() => {
@@ -479,13 +562,30 @@ export function CameraControlModal({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, handleCopy, handlePaste])
 
+  // Per-option checkboxes: an unchecked option is left out of the prompt. Picking a value
+  // re-checks it, so a dimmed control can be used directly without ticking the box first.
+  const optionToggles = !!onDisabledChange
+  const isOn = (key: CameraOptionKey) => !disabled.includes(key)
+  const setOn = (key: CameraOptionKey, on: boolean) => {
+    if (!onDisabledChange || isOn(key) === on) return
+    onDisabledChange(on ? disabled.filter(k => k !== key) : [...disabled, key])
+  }
+  const withEnable = (key: CameraOptionKey, fn: (value: string) => void) => (value: string) => {
+    fn(value)
+    setOn(key, true)
+  }
+  const wheelToggle = (key: CameraOptionKey) =>
+    optionToggles ? { active: isOn(key), onActiveChange: (v: boolean) => setOn(key, v) } : {}
+  const dim = (key: CameraOptionKey) => (isOn(key) ? '' : 'opacity-40')
+  const selectCls = 'bg-surface-800/80 border border-surface-700 rounded-lg px-2 py-1.5 text-[11px] text-surface-300 outline-none focus:border-accent-500/50 transition-opacity'
+
   if (!isOpen) return null
 
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+      <div className="modal-scrim" />
       <div
-        className="relative bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl w-[640px] max-w-[94vw] max-h-[85vh] flex flex-col z-10"
+        className="relative modal-surface w-[640px] max-w-[94vw] max-h-[85vh] flex flex-col z-10"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-800">
@@ -494,17 +594,17 @@ export function CameraControlModal({
           </h3>
           <div className="flex items-center gap-2.5">
             {/* 3 xs action buttons: copy, paste, info */}
-            <div className="flex items-center gap-1 bg-surface-800/80 p-0.5 rounded-lg border border-surface-700/60">
+            <div className="flex items-center gap-1 bg-surface-800/80 p-0.5 rounded-pill border border-surface-700/60">
               <button
                 type="button"
                 onClick={handleCopy}
                 title="Copiar ajustes (Ctrl+C)"
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors text-surface-300 hover:text-white hover:bg-surface-700 active:scale-95 cursor-pointer"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-pill text-[10px] font-medium transition-colors text-surface-300 hover:text-ink hover:bg-surface-700 active:scale-95 cursor-pointer"
               >
                 {copied ? (
                   <>
-                    <Check size={11} className="text-emerald-400" />
-                    <span className="text-emerald-400">Copied</span>
+                    <Check size={11} className="text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-emerald-600 dark:text-emerald-400">Copied</span>
                   </>
                 ) : (
                   <>
@@ -518,12 +618,12 @@ export function CameraControlModal({
                 type="button"
                 onClick={handlePaste}
                 title="Pegar ajustes (Ctrl+V)"
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors text-surface-300 hover:text-white hover:bg-surface-700 active:scale-95 cursor-pointer"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-pill text-[10px] font-medium transition-colors text-surface-300 hover:text-ink hover:bg-surface-700 active:scale-95 cursor-pointer"
               >
                 {pasted ? (
                   <>
-                    <Check size={11} className="text-emerald-400" />
-                    <span className="text-emerald-400">Pasted</span>
+                    <Check size={11} className="text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-emerald-600 dark:text-emerald-400">Pasted</span>
                   </>
                 ) : (
                   <>
@@ -537,12 +637,12 @@ export function CameraControlModal({
               <div className="relative group">
                 <button
                   type="button"
-                  className="flex items-center justify-center p-1 rounded text-[10px] text-surface-400 hover:text-surface-200 hover:bg-surface-700 transition-colors cursor-pointer"
+                  className="flex items-center justify-center p-1 rounded-full text-[10px] text-surface-400 hover:text-surface-200 hover:bg-surface-700 transition-colors cursor-pointer"
                   aria-label="Información sobre atajos"
                 >
                   <Info size={12} />
                 </button>
-                <div className="pointer-events-none absolute right-0 top-full mt-2 hidden group-hover:flex flex-col z-50 w-60 p-2.5 bg-surface-800 border border-surface-700 rounded-xl shadow-2xl text-[11px] text-surface-200 animate-in fade-in-0 zoom-in-95">
+                <div className="pointer-events-none absolute right-0 top-full mt-2 hidden group-hover:flex flex-col z-50 w-60 p-2.5 popover-surface rounded-2xl text-[11px] text-surface-200 animate-in fade-in-0 zoom-in-95">
                   <span className="font-semibold text-accent-400 mb-1 flex items-center gap-1">
                     <Info size={12} /> Atajos de teclado
                   </span>
@@ -563,61 +663,85 @@ export function CameraControlModal({
               className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${enabled ? 'bg-accent-500' : 'bg-surface-700'}`}
               aria-label="Toggle camera control"
             >
-              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${enabled ? 'left-[22px]' : 'left-0.5'}`} />
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${enabled ? 'left-[22px] bg-on-accent' : 'left-0.5 bg-white'}`} />
             </button>
-            <button onClick={onClose} className="text-surface-500 hover:text-surface-200 p-1 rounded-lg hover:bg-surface-800 transition-colors">
+            <button onClick={onClose} className="text-surface-500 hover:text-surface-200 p-1 rounded-full hover:bg-surface-800 transition-colors">
               <X size={16} />
             </button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4">
-          <div className={`flex items-start justify-center gap-3 ${enabled ? '' : 'opacity-40 pointer-events-none'}`}>
-            <CameraWheel label="Lens" options={CAMERA_LENSES} value={lens} onChange={onLensChange} />
-            <CameraWheel label="Shot" options={CAMERA_SHOTS} value={shot} onChange={onShotChange} />
-            <CameraWheel label="Level" options={CAMERA_LEVELS} value={level} onChange={onLevelChange} />
-            {mode === 'video' && onMovementChange && (
-              <CameraWheel label="Movement" options={CAMERA_MOVEMENTS} value={movement} onChange={onMovementChange} />
-            )}
-          </div>
-          <div className={`mt-4 flex flex-wrap items-center justify-center gap-5 ${enabled ? '' : 'opacity-40 pointer-events-none'}`}>
-            <label className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-wider text-surface-500">Lighting</span>
-              <select
-                value={lighting}
-                onChange={(e) => onLightingChange(e.target.value)}
-                className="bg-surface-800/80 border border-surface-700 rounded-lg px-2 py-1.5 text-[11px] text-surface-300 outline-none focus:border-accent-500/50"
-              >
-                {CAMERA_LIGHTING.map(l => (
-                  <option key={l.value || 'none'} value={l.value}>{l.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-wider text-surface-500">Film Look</span>
-              <select
-                value={filmLook}
-                onChange={(e) => onFilmLookChange(e.target.value)}
-                className="bg-surface-800/80 border border-surface-700 rounded-lg px-2 py-1.5 text-[11px] text-surface-300 outline-none focus:border-accent-500/50"
-              >
-                {CAMERA_FILM_LOOKS.map(l => (
-                  <option key={l.value || 'none'} value={l.value}>{l.label}</option>
-                ))}
-              </select>
-            </label>
-            {mode === 'video' && onSpeedChange && (
-              <label className="flex items-center gap-2">
-                <span className="text-[10px] uppercase tracking-wider text-surface-500">Speed</span>
+          <div className={enabled ? '' : 'opacity-40 pointer-events-none'}>
+            {onCameraChange && (
+              <div className="mb-4 flex items-center justify-center gap-2">
+                {optionToggles && <OptionCheckbox checked={isOn('camera')} onChange={(v) => setOn('camera', v)} label="Camera" />}
+                <span className="eyebrow">Camera</span>
                 <select
-                  value={speed}
-                  onChange={(e) => onSpeedChange(e.target.value)}
-                  className="bg-surface-800/80 border border-surface-700 rounded-lg px-2 py-1.5 text-[11px] text-surface-300 outline-none focus:border-accent-500/50"
+                  value={camera}
+                  onChange={(e) => withEnable('camera', onCameraChange)(e.target.value)}
+                  className={`${selectCls} min-w-[220px] ${dim('camera')}`}
                 >
-                  {CAMERA_SPEEDS.map(s => (
-                    <option key={s.value || 'none'} value={s.value}>{s.label}</option>
+                  {CAMERA_BODY_GROUPS.map(group => (
+                    <optgroup key={group} label={group}>
+                      {CAMERA_BODIES.filter(c => c.group === group).map(c => (
+                        <option key={c.value} value={c.value}>{c.label}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
-              </label>
+              </div>
             )}
+            <div className="flex items-start justify-center gap-3">
+              <CameraWheel label="Lens" options={CAMERA_LENSES} value={lens} onChange={withEnable('lens', onLensChange)} {...wheelToggle('lens')} />
+              <CameraWheel label="Shot" options={CAMERA_SHOTS} value={shot} onChange={withEnable('shot', onShotChange)} {...wheelToggle('shot')} />
+              <CameraWheel label="Level" options={CAMERA_LEVELS} value={level} onChange={withEnable('level', onLevelChange)} {...wheelToggle('level')} />
+              {mode === 'video' && onMovementChange && (
+                <CameraWheel label="Movement" options={CAMERA_MOVEMENTS} value={movement} onChange={withEnable('movement', onMovementChange)} {...wheelToggle('movement')} />
+              )}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-5">
+              <div className="flex items-center gap-2">
+                {optionToggles && <OptionCheckbox checked={isOn('lighting')} onChange={(v) => setOn('lighting', v)} label="Lighting" />}
+                <span className="eyebrow">Lighting</span>
+                <select
+                  value={lighting}
+                  onChange={(e) => withEnable('lighting', onLightingChange)(e.target.value)}
+                  className={`${selectCls} ${dim('lighting')}`}
+                >
+                  {CAMERA_LIGHTING.map(l => (
+                    <option key={l.value} value={l.value}>{l.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                {optionToggles && <OptionCheckbox checked={isOn('filmLook')} onChange={(v) => setOn('filmLook', v)} label="Film Look" />}
+                <span className="eyebrow">Film Look</span>
+                <select
+                  value={filmLook}
+                  onChange={(e) => withEnable('filmLook', onFilmLookChange)(e.target.value)}
+                  className={`${selectCls} ${dim('filmLook')}`}
+                >
+                  {CAMERA_FILM_LOOKS.map(l => (
+                    <option key={l.value} value={l.value}>{l.label}</option>
+                  ))}
+                </select>
+              </div>
+              {mode === 'video' && onSpeedChange && (
+                <div className="flex items-center gap-2">
+                  {optionToggles && <OptionCheckbox checked={isOn('speed')} onChange={(v) => setOn('speed', v)} label="Speed" />}
+                  <span className="eyebrow">Speed</span>
+                  <select
+                    value={speed}
+                    onChange={(e) => withEnable('speed', onSpeedChange)(e.target.value)}
+                    className={`${selectCls} ${dim('speed')}`}
+                  >
+                    {CAMERA_SPEEDS.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -630,6 +754,10 @@ export function CameraControlModal({
 export interface CameraControlProps {
   enabled: boolean
   onToggleEnabled: (enabled: boolean) => void
+  disabled?: CameraOptionKey[]
+  onDisabledChange?: (disabled: CameraOptionKey[]) => void
+  camera?: string
+  onCameraChange?: (camera: string) => void
   lens: string
   onLensChange: (lens: string) => void
   shot: string
@@ -652,6 +780,10 @@ export interface CameraControlProps {
 export function CameraControl({
   enabled,
   onToggleEnabled,
+  disabled = [],
+  onDisabledChange,
+  camera = DEFAULT_CAMERA_STATE.camera,
+  onCameraChange,
   lens,
   onLensChange,
   shot,
@@ -673,6 +805,17 @@ export function CameraControl({
   const [showModal, setShowModal] = useState(false)
   const [showTip, setShowTip] = useState(false)
 
+  const isOn = (key: CameraOptionKey) => !disabled.includes(key)
+  const tipRows: [string, string][] = []
+  if (onCameraChange && isOn('camera')) tipRows.push(['Camera', CAMERA_BODIES.find(c => c.value === camera)?.label || camera])
+  if (isOn('lens')) tipRows.push(['Lens', lens])
+  if (isOn('shot')) tipRows.push(['Shot', shot])
+  if (isOn('level')) tipRows.push(['Level', level])
+  if (mode === 'video' && onMovementChange && isOn('movement')) tipRows.push(['Movement', movement])
+  if (isOn('lighting') && lighting) tipRows.push(['Lighting', CAMERA_LIGHTING.find(l => l.value === lighting)?.label || lighting])
+  if (isOn('filmLook') && filmLook) tipRows.push(['Film Look', CAMERA_FILM_LOOKS.find(l => l.value === filmLook)?.label || filmLook])
+  if (mode === 'video' && isOn('speed') && speed) tipRows.push(['Speed', CAMERA_SPEEDS.find(s => s.value === speed)?.label || speed])
+
   return (
     <>
       <div
@@ -684,31 +827,24 @@ export function CameraControl({
           type="button"
           onClick={() => setShowModal(true)}
           title={enabled ? 'Control de Cámara (Activo)' : 'Control de Cámara'}
-          className={`flex items-center justify-center transition-colors rounded-lg ${
+          className={`flex items-center justify-center transition-all rounded-full border shadow-sm ${
             embedded
-              ? `p-1.5 ${enabled ? 'bg-accent-600 text-white shadow-sm' : 'bg-surface-800/80 text-surface-400 hover:text-surface-200'}`
-              : `gap-1 px-2.5 py-1 text-[11px] font-medium ${enabled ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`
+              ? `p-1.5 ${enabled ? 'bg-accent-600 text-on-accent border-accent-500' : 'bg-surface-900/90 hover:bg-surface-800/90 border-surface-700/80 hover:border-surface-600 text-surface-400 hover:text-surface-200'}`
+              : `h-7 gap-1.5 px-2.5 py-1 text-[11px] font-medium ${enabled ? 'bg-accent-600 text-on-accent border-accent-500' : 'bg-surface-900/90 hover:bg-surface-800/90 border-surface-700/80 hover:border-surface-600 text-surface-200'}`
           }`}
         >
           <Video size={embedded ? 13 : 12} />
           {!embedded && <span>Camera</span>}
         </button>
         {showTip && (
-          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 shadow-xl min-w-[190px] pointer-events-none">
-            <p className="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">Camera Control</p>
+          <div className="absolute bottom-full left-0 mb-1.5 z-50 popover-surface rounded-2xl px-3 py-2 min-w-[190px] pointer-events-none">
+            <p className="eyebrow mb-1.5">Camera Control</p>
             {enabled ? (
               <div className="space-y-0.5">
-                <p className="text-[11px] text-surface-300"><span className="text-surface-500">Lens:</span> {lens}</p>
-                <p className="text-[11px] text-surface-300"><span className="text-surface-500">Shot:</span> {shot}</p>
-                <p className="text-[11px] text-surface-300"><span className="text-surface-500">Level:</span> {level}</p>
-                {mode === 'video' && onMovementChange && (
-                  <p className="text-[11px] text-surface-300"><span className="text-surface-500">Movement:</span> {movement}</p>
-                )}
-                <p className="text-[11px] text-surface-300"><span className="text-surface-500">Lighting:</span> {CAMERA_LIGHTING.find(l => l.value === lighting)?.label || '—'}</p>
-                <p className="text-[11px] text-surface-300"><span className="text-surface-500">Film Look:</span> {CAMERA_FILM_LOOKS.find(l => l.value === filmLook)?.label || '—'}</p>
-                {mode === 'video' && speed && (
-                  <p className="text-[11px] text-surface-300"><span className="text-surface-500">Speed:</span> {CAMERA_SPEEDS.find(s => s.value === speed)?.label || '—'}</p>
-                )}
+                {tipRows.map(([name, val]) => (
+                  <p key={name} className="text-[11px] text-surface-300"><span className="text-surface-500">{name}:</span> {val}</p>
+                ))}
+                {!tipRows.length && <p className="text-[11px] text-surface-500">Sin opciones activas</p>}
               </div>
             ) : (
               <p className="text-[11px] text-surface-500">Off</p>
@@ -722,6 +858,10 @@ export function CameraControl({
         onClose={() => setShowModal(false)}
         enabled={enabled}
         onToggleEnabled={onToggleEnabled}
+        disabled={disabled}
+        onDisabledChange={onDisabledChange}
+        camera={camera}
+        onCameraChange={onCameraChange}
         lens={lens}
         onLensChange={onLensChange}
         shot={shot}

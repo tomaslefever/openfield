@@ -15,10 +15,14 @@ import {
   EyeOff,
   Trash2,
   Bot,
+  Scale,
 } from 'lucide-react'
+import { PriceComparatorModal } from '../components/models/PriceComparatorModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
+import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 import { ProviderLogo } from '../components/icons/ProviderLogos'
 import {
   useProvidersStore,
@@ -30,13 +34,14 @@ import {
 export function ProvidersPage() {
   const {
     keys,
-    configuredProviders,
+    disabledProviders,
     statuses,
     loaded,
     isRefreshing,
     refreshBalances,
     setKey,
     removeKey,
+    setProviderEnabled,
   } = useProvidersStore()
 
   const [editing, setEditing] = useState<string | null>(null)
@@ -44,6 +49,7 @@ export function ProvidersPage() {
   const [showSecret, setShowSecret] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showPriceCompare, setShowPriceCompare] = useState(false)
 
   const handleStartEdit = (p: ProviderDef) => {
     setEditing(p.id)
@@ -91,7 +97,7 @@ export function ProvidersPage() {
     return 'Connected'
   }
 
-  const configuredCount = Object.values(configuredProviders).filter(Boolean).length
+  const configuredCount = PROVIDER_DEFS.filter((p) => !!keys[p.id]).length
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -125,10 +131,21 @@ export function ProvidersPage() {
                 className="h-8 gap-1.5 text-xs bg-surface-900 border-surface-700 hover:bg-surface-800 text-surface-300"
               >
                 <RefreshCw size={13} className={isRefreshing ? 'animate-spin text-accent-400' : ''} />
-                Refrescar saldos
+                Refrescar
               </Button>
+              <button
+                type="button"
+                onClick={() => setShowPriceCompare(true)}
+                title="Comparar precios de un mismo modelo entre proveedores"
+                className="btn-primary h-8 py-0 px-3.5 text-xs flex items-center gap-1.5"
+              >
+                <Scale size={13} />
+                Comparar precios
+              </button>
             </div>
           </div>
+
+          {showPriceCompare && <PriceComparatorModal onClose={() => setShowPriceCompare(false)} />}
 
           {/* Provider Sections */}
           {(() => {
@@ -137,6 +154,7 @@ export function ProvidersPage() {
 
             const renderCard = (p: ProviderDef) => {
               const isConfigured = !!keys[p.id]
+              const isEnabled = !disabledProviders.includes(p.id)
               const status = statuses[p.id]
               const statusText = formatStatus(status)
               const isEditing = editing === p.id
@@ -144,7 +162,10 @@ export function ProvidersPage() {
               return (
                 <Card
                   key={p.id}
-                  className="w-full bg-surface-900/90 border-surface-800/90 hover:border-surface-700/80 transition-all shadow-sm overflow-hidden"
+                  className={cn(
+                    'w-full bg-surface-900/90 border-surface-800/90 hover:border-surface-700/80 transition-all rounded-2xl shadow-none overflow-hidden',
+                    isConfigured && !isEnabled && 'opacity-60 hover:opacity-100'
+                  )}
                 >
                   <CardContent className="p-5 flex flex-col gap-4">
                     {/* Main Row */}
@@ -157,8 +178,12 @@ export function ProvidersPage() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <h3 className="text-sm font-semibold text-surface-100">{p.label}</h3>
-                            {isConfigured ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                            {isConfigured && !isEnabled ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-surface-800 border border-surface-700 px-2 py-0.5 text-[10px] font-medium text-surface-400">
+                                Desactivado
+                              </span>
+                            ) : isConfigured ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
                                 <Check size={10} /> Conectado
                               </span>
                             ) : (
@@ -175,13 +200,19 @@ export function ProvidersPage() {
                       <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-center">
                         {isConfigured && statusText && (
                           <div className="flex items-center gap-1.5 rounded-lg bg-surface-950/80 border border-surface-800 px-3 py-1.5 text-xs text-surface-200">
-                            <span className="text-[11px] text-surface-500">Saldo:</span>
                             <span className="font-semibold text-accent-400">{statusText}</span>
                           </div>
                         )}
 
                         {isConfigured ? (
                           <div className="flex items-center gap-1.5">
+                            <Switch
+                              checked={isEnabled}
+                              onCheckedChange={(v) => setProviderEnabled(p.id, v)}
+                              title={isEnabled ? 'Desactivar: sus modelos dejan de aparecer en los selectores' : 'Activar: sus modelos vuelven a los selectores'}
+                              aria-label={`${isEnabled ? 'Desactivar' : 'Activar'} ${p.label}`}
+                              className="mr-1"
+                            />
                             <Button
                               size="sm"
                               variant="ghost"
@@ -194,7 +225,7 @@ export function ProvidersPage() {
                               size="sm"
                               variant="ghost"
                               onClick={() => handleRemoveKey(p)}
-                              className="h-8 px-2.5 text-xs text-surface-400 hover:text-red-400 hover:bg-red-500/10"
+                              className="h-8 px-2.5 text-xs text-surface-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10"
                               title="Desconectar proveedor"
                             >
                               <Trash2 size={13} />
@@ -216,7 +247,7 @@ export function ProvidersPage() {
                             <Button
                               size="sm"
                               onClick={() => handleStartEdit(p)}
-                              className="h-8 text-xs bg-accent-600 hover:bg-accent-500 text-white font-medium gap-1.5 px-3.5"
+                              className="h-8 text-xs bg-accent-600 hover:bg-accent-500 text-on-accent font-medium gap-1.5 px-3.5"
                             >
                               <KeyRound size={13} /> Configurar
                             </Button>
@@ -283,7 +314,7 @@ export function ProvidersPage() {
                             size="sm"
                             onClick={() => handleSaveKey(p)}
                             disabled={!draft.trim() || saving === p.id}
-                            className="h-9 px-4 text-xs bg-accent-600 hover:bg-accent-500 text-white gap-1.5"
+                            className="h-9 px-4 text-xs bg-accent-600 hover:bg-accent-500 text-on-accent gap-1.5"
                           >
                             {saving === p.id ? (
                               <Loader size={13} className="animate-spin" />
@@ -302,7 +333,7 @@ export function ProvidersPage() {
                           </Button>
                         </div>
 
-                        {error && <p className="text-[11px] text-red-400">{error}</p>}
+                        {error && <p className="text-[11px] text-red-600 dark:text-red-400">{error}</p>}
                       </div>
                     )}
                   </CardContent>
@@ -329,7 +360,7 @@ export function ProvidersPage() {
                 {/* Modelos de Lenguaje (LLM) */}
                 <div className="space-y-3 pt-4 border-t border-surface-800/80">
                   <div className="flex items-center gap-2 px-1">
-                    <Bot size={16} className="text-purple-400" />
+                    <Bot size={16} className="text-purple-600 dark:text-purple-400" />
                     <div>
                       <h2 className="text-sm font-semibold text-surface-200">Modelos de Lenguaje (LLM)</h2>
                       <p className="text-[11px] text-surface-500">Proveedores para la generación de guiones, escaletas, desgloses y prompts creativos.</p>

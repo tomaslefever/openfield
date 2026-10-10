@@ -157,16 +157,16 @@ export function Selector<T>({
   }
 
   const triggerSizeClasses = {
-    sm: 'h-7 px-2.5 text-xs rounded-md',
-    md: 'h-8 px-3 text-xs rounded-lg',
-    lg: 'h-10 px-3.5 text-sm rounded-xl',
+    sm: 'h-7 px-2.5 text-xs rounded-pill',
+    md: 'h-8 px-3 text-xs rounded-pill',
+    lg: 'h-10 px-3.5 text-sm rounded-pill',
   }
 
   return (
     <div className={cn('astryx-selector relative inline-block text-left', className)} ref={containerRef}>
       {/* Optional Label */}
       {label && (
-        <label className="block text-[11px] font-medium text-surface-400 uppercase tracking-wider mb-1">
+        <label className="eyebrow block mb-1">
           {label}
         </label>
       )}
@@ -180,9 +180,9 @@ export function Selector<T>({
           disabled={disabled}
           onClick={() => !disabled && setIsOpen(!isOpen)}
           className={cn(
-            'flex items-center justify-between gap-2 w-full bg-surface-900/90 hover:bg-surface-800/90 border border-surface-700/80 hover:border-surface-600 text-surface-200 transition-all duration-150 shadow-sm',
+            'flex items-center justify-between gap-2 w-full bg-surface-900/90 hover:bg-surface-800/90 border border-surface-700/80 hover:border-surface-600 text-ink transition-all duration-150',
             triggerSizeClasses[size],
-            isOpen && 'ring-2 ring-accent-500/40 border-accent-500',
+            isOpen && 'ring-2 ring-accent-500/20 border-accent-500/60',
             disabled && 'opacity-50 cursor-not-allowed pointer-events-none',
             triggerClassName
           )}
@@ -200,7 +200,7 @@ export function Selector<T>({
       {isOpen && (
         <div
           className={cn(
-            'astryx-selector-popup absolute z-50 min-w-[240px] w-max max-w-[360px] bg-surface-900/95 backdrop-blur-xl border border-surface-700/90 rounded-xl shadow-2xl overflow-hidden flex flex-col',
+            'astryx-selector-popup popover-surface absolute z-50 min-w-[240px] w-max max-w-[360px] rounded-2xl overflow-hidden flex flex-col',
             dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5',
             'animate-in fade-in zoom-in-95 duration-150',
             contentClassName
@@ -209,7 +209,7 @@ export function Selector<T>({
         >
           {/* Search Box */}
           {searchable && (
-            <div className="astryx-selector-search p-2 border-b border-surface-800 bg-surface-950/50 flex-shrink-0">
+            <div className="astryx-selector-search p-2 border-b border-surface-800 flex-shrink-0">
               <div className="relative flex items-center">
                 <Search size={13} className="absolute left-2.5 text-surface-500 pointer-events-none" />
                 <input
@@ -218,7 +218,7 @@ export function Selector<T>({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={searchPlaceholder}
-                  className="w-full bg-surface-800/90 text-xs text-surface-200 pl-7 pr-7 py-1.5 rounded-lg border border-surface-700/80 outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500/30 placeholder:text-surface-500 transition-all"
+                  className="w-full bg-surface-900 text-xs text-ink pl-7 pr-7 py-1.5 rounded-pill border border-surface-800 outline-none focus:border-accent-500/60 focus:ring-1 focus:ring-accent-500/20 placeholder:text-ink-subtle transition-all"
                 />
                 {searchQuery && (
                   <button
@@ -242,7 +242,7 @@ export function Selector<T>({
             ) : filteredGroups ? (
               filteredGroups.map((group) => (
                 <div key={group.id} className="py-1">
-                  <div className="astryx-selector-section-heading px-2.5 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-surface-500 font-semibold flex items-center justify-between">
+                  <div className="astryx-selector-section-heading eyebrow px-2.5 pt-1.5 pb-1 flex items-center justify-between">
                     <span>{group.label}</span>
                     <span className="text-[9px] font-mono text-surface-600">
                       {group.items.length}
@@ -261,8 +261,8 @@ export function Selector<T>({
                               className={cn(
                                 'px-3 py-1.5 text-xs rounded-lg cursor-pointer transition-colors',
                                 isSelected
-                                  ? 'bg-accent-500/15 text-accent-400 font-medium'
-                                  : 'text-surface-300 hover:bg-surface-800/80 hover:text-surface-100'
+                                  ? 'bg-accent-500/10 text-ink font-strong'
+                                  : 'text-ink-muted hover:bg-surface-800/80 hover:text-ink'
                               )}
                             >
                               {getOptionLabel(item)}
@@ -288,8 +288,8 @@ export function Selector<T>({
                           className={cn(
                             'px-3 py-1.5 text-xs rounded-lg cursor-pointer transition-colors',
                             isSelected
-                              ? 'bg-accent-500/15 text-accent-400 font-medium'
-                              : 'text-surface-300 hover:bg-surface-800/80 hover:text-surface-100'
+                              ? 'bg-accent-500/10 text-ink font-strong'
+                              : 'text-ink-muted hover:bg-surface-800/80 hover:text-ink'
                           )}
                         >
                           {getOptionLabel(item)}

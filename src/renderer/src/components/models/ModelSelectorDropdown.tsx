@@ -19,6 +19,7 @@ import {
   type ProviderId,
 } from '../../stores/providers-store'
 import { cn } from '@/lib/utils'
+import { PriceBadge } from './PriceBadge'
 
 interface Props {
   kind: 'image' | 'video' | 'audio' | 'llm'
@@ -47,7 +48,7 @@ export function ModelSelectorDropdown({
   onlyConfigured = false,
   dropUp = false,
 }: Props) {
-  const { configuredProviders } = useProvidersStore()
+  const { configuredProviders, disabledProviders } = useProvidersStore()
 
   const allModels = useMemo(() => {
     let list: ModelPricing[] = []
@@ -60,13 +61,16 @@ export function ModelSelectorDropdown({
       list = list.filter((m) => (m.provider || 'kie') === filterProvider)
     }
 
+    // Providers switched off on the Providers page never appear in the picker
+    list = list.filter((m) => !disabledProviders.includes(m.provider || 'kie'))
+
     // Only show integrated/configured models for LLM or when requested
     if (onlyConfigured || kind === 'llm') {
       list = list.filter((m) => isModelConfigured(m, configuredProviders))
     }
 
     return list
-  }, [kind, filterProvider, onlyConfigured, configuredProviders])
+  }, [kind, filterProvider, onlyConfigured, configuredProviders, disabledProviders])
 
   const selectedModel = useMemo(() => {
     return (
@@ -173,9 +177,9 @@ export function ModelSelectorDropdown({
           </div>
 
           {/* Cost badge display */}
-          {showCost && currentPrice && (
-            <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border bg-amber-500/10 border-amber-500/25 text-amber-300 hidden sm:inline-flex items-center shrink-0">
-              {currentPrice}
+          {showCost && currentPrice && selectedModel && (
+            <span className="hidden sm:inline-flex items-center shrink-0">
+              <PriceBadge model={selectedModel} label={currentPrice} activeResolution={resolution} />
             </span>
           )}
 
@@ -194,7 +198,7 @@ export function ModelSelectorDropdown({
         const costDisplay =
           kind === 'llm'
             ? ''
-            : m.provider === 'replicate' || m.provider === 'fal' || m.provider === 'machgen' || m.provider === 'higgsfield'
+            : m.provider === 'replicate' || m.provider === 'fal' || m.provider === 'machgen' || m.provider === 'higgsfield' || m.provider === 'apimart'
             ? `$${cost.toFixed(3)}/${m.unit === 's' ? 's' : 'img'}`
             : `${Math.round(cost * 200)} cr`
 
@@ -211,12 +215,11 @@ export function ModelSelectorDropdown({
             description={descriptionText}
             layout="stacked"
             selected={active}
+            hideCheck
             size="sm"
             endContent={
               costDisplay ? (
-                <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border bg-amber-500/10 border-amber-500/25 text-amber-300 shrink-0 shadow-xs">
-                  {costDisplay}
-                </span>
+                <PriceBadge model={m} label={costDisplay} activeResolution={active ? resolution : undefined} />
               ) : null
             }
           />

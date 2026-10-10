@@ -92,7 +92,15 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
     }
   })
 
-  handle('elevenlabs:voices', async (_e, opts?: { pageSize?: number; nextPageToken?: string; search?: string; searchLibrary?: boolean }) => {
+  handle('elevenlabs:voices', async (_e, opts?: {
+    pageSize?: number
+    nextPageToken?: string
+    search?: string
+    searchLibrary?: boolean
+    language?: string
+    accent?: string
+    gender?: string
+  }) => {
     interface VoiceLike {
       voice_id: string
       name?: string
@@ -111,44 +119,83 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
 
     const pageSize = Math.min(100, Math.max(1, opts?.pageSize || 50))
     const searchQuery = opts?.search?.trim() || ''
+    const language = opts?.language?.trim().toLowerCase() || ''
+    const accent = opts?.accent?.trim().toLowerCase() || ''
+    const gender = opts?.gender?.trim().toLowerCase() || ''
+    const hasAttrFilters = !!(language || accent || gender)
+    const useLibrary = opts?.searchLibrary !== false && (!!searchQuery || hasAttrFilters)
     const cap = (s?: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : undefined)
 
-    // 1. Fetch from /v2/voices (Account & default catalog voices)
-    const query = new URLSearchParams({ page_size: String(pageSize) })
-    if (opts?.nextPageToken) query.set('next_page_token', opts.nextPageToken)
-    if (searchQuery) query.set('search', searchQuery)
+    // Library pages are numeric; they travel in the same token as `lib:<page>`
+    const libPage = opts?.nextPageToken?.startsWith('lib:') ? Number(opts.nextPageToken.slice(4)) || 0 : 0
+    const isLibraryContinuation = useLibrary && !!opts?.nextPageToken?.startsWith('lib:')
 
+    const normalize = (v: VoiceLike) => {
+      const verified = v.verified_languages?.[0]
+      const lang = v.language || verified?.language || v.voice_verification?.language || undefined
+      const acc = v.accent || v.labels?.accent || cap(verified?.accent) || undefined
+      const gen = v.gender || v.labels?.gender || undefined
+      const category = v.category || (v.use_case ? `${v.use_case}` : undefined)
+      return {
+        id: v.voice_id,
+        label: v.name,
+        language: lang,
+        accent: acc,
+        gender: gen ? cap(gen) : undefined,
+        category,
+        detail: [category, acc || gen || lang, v.descriptive].filter(Boolean).join(' · ') || undefined,
+        previewUrl: v.preview_url || undefined,
+      }
+    }
+
+    // /v2/voices has no language/accent/gender params, so account voices are
+    // matched here against the normalized fields
+    const matchesAttrs = (v: ReturnType<typeof normalize>) =>
+      (!language || (v.language || '').toLowerCase() === language) &&
+      (!accent || (v.accent || '').toLowerCase().includes(accent)) &&
+      (!gender || (v.gender || '').toLowerCase() === gender)
+
+    // 1. Account & default catalog voices (/v2/voices). With filters active only
+    //    the first page is merged; paging then continues through the library.
     let v2Voices: VoiceLike[] = []
     let hasMore = false
     let nextPageToken: string | undefined
 
-    try {
-      const data = await request<{ voices: VoiceLike[]; has_more?: boolean; next_page_token?: string }>(`/v2/voices?${query.toString()}`)
-      v2Voices = data.voices || []
-      hasMore = !!data.has_more
-      nextPageToken = data.has_more ? data.next_page_token : undefined
-    } catch (v2Err) {
-      console.warn('[ElevenLabs] /v2/voices query failed, trying /v1/voices:', v2Err)
+    if (!isLibraryContinuation) {
+      const query = new URLSearchParams({ page_size: String(useLibrary ? 100 : pageSize) })
+      if (!useLibrary && opts?.nextPageToken) query.set('next_page_token', opts.nextPageToken)
+      if (searchQuery) query.set('search', searchQuery)
       try {
-        const v1Data = await request<{ voices: VoiceLike[] }>('/v1/voices')
-        v2Voices = v1Data.voices || []
-      } catch (v1Err) {
-        console.error('[ElevenLabs] Failed fetching voices:', v1Err)
+        const data = await request<{ voices: VoiceLike[]; has_more?: boolean; next_page_token?: string }>(`/v2/voices?${query.toString()}`)
+        v2Voices = data.voices || []
+        if (!useLibrary) {
+          hasMore = !!data.has_more
+          nextPageToken = data.has_more ? data.next_page_token : undefined
+        }
+      } catch (v2Err) {
+        console.warn('[ElevenLabs] /v2/voices query failed, trying /v1/voices:', v2Err)
+        try {
+          const v1Data = await request<{ voices: VoiceLike[] }>('/v1/voices')
+          v2Voices = v1Data.voices || []
+        } catch (v1Err) {
+          console.error('[ElevenLabs] Failed fetching voices:', v1Err)
+        }
       }
     }
 
-    // 2. If searching, also query ElevenLabs public Voice Library (/v1/shared-voices)
+    // 2. Public Voice Library (/v1/shared-voices) filtered server-side
     let sharedVoices: VoiceLike[] = []
-    if (searchQuery && opts?.searchLibrary !== false) {
+    if (useLibrary) {
       try {
-        const sharedQuery = new URLSearchParams({
-          page_size: String(pageSize),
-          search: searchQuery,
-        })
-        const sharedData = await request<{ voices: VoiceLike[] }>(`/v1/shared-voices?${sharedQuery.toString()}`)
-        if (Array.isArray(sharedData?.voices)) {
-          sharedVoices = sharedData.voices
-        }
+        const sharedQuery = new URLSearchParams({ page_size: String(pageSize), page: String(libPage) })
+        if (searchQuery) sharedQuery.set('search', searchQuery)
+        if (language) sharedQuery.set('language', language)
+        if (accent) sharedQuery.set('accent', accent)
+        if (gender) sharedQuery.set('gender', gender)
+        const sharedData = await request<{ voices: VoiceLike[]; has_more?: boolean }>(`/v1/shared-voices?${sharedQuery.toString()}`)
+        if (Array.isArray(sharedData?.voices)) sharedVoices = sharedData.voices
+        hasMore = !!sharedData?.has_more
+        nextPageToken = hasMore ? `lib:${libPage + 1}` : undefined
       } catch (sharedErr) {
         console.warn('[ElevenLabs] /v1/shared-voices query notice:', sharedErr)
       }
@@ -156,29 +203,18 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
 
     // 3. Merge & Deduplicate
     const seenIds = new Set<string>()
-    const allRawVoices = [...v2Voices, ...sharedVoices]
-
     const voices = []
-    for (const v of allRawVoices) {
+    for (const v of v2Voices) {
+      if (!v.voice_id || seenIds.has(v.voice_id)) continue
+      const n = normalize(v)
+      if (hasAttrFilters && !matchesAttrs(n)) continue
+      seenIds.add(v.voice_id)
+      voices.push(n)
+    }
+    for (const v of sharedVoices) {
       if (!v.voice_id || seenIds.has(v.voice_id)) continue
       seenIds.add(v.voice_id)
-
-      const verified = v.verified_languages?.[0]
-      const language = v.language || verified?.language || v.voice_verification?.language || undefined
-      const accent = v.accent || v.labels?.accent || cap(verified?.accent) || undefined
-      const gender = v.gender || v.labels?.gender || undefined
-      const category = v.category || (v.use_case ? `${v.use_case}` : undefined)
-
-      voices.push({
-        id: v.voice_id,
-        label: v.name,
-        language,
-        accent,
-        gender: gender ? cap(gender) : undefined,
-        category,
-        detail: [category, accent || gender || language, v.descriptive].filter(Boolean).join(' · ') || undefined,
-        previewUrl: v.preview_url || undefined,
-      })
+      voices.push(normalize(v))
     }
 
     return {
@@ -248,7 +284,7 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
         generationTimeMs: elapsedMs,
       })
       db.prepare(
-        'UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, credits_used = 0 WHERE id = ?'
+        `UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, provider = 'elevenlabs', credits_used = 0 WHERE id = ?`
       ).run(text, `elevenlabs:${voiceId}`, storedParams, asset.id)
       db.saveSync()
       sender.send('local:audio:progress', { status: 'completed', message: 'Audio generado', pct: 100 })
@@ -317,7 +353,7 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
         generationTimeMs: elapsedMs,
       })
       db.prepare(
-        'UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, credits_used = 0 WHERE id = ?'
+        `UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, provider = 'elevenlabs', credits_used = 0 WHERE id = ?`
       ).run(combinedText, `elevenlabs:dialogue:${modelId}`, storedParams, asset.id)
       db.saveSync()
       sender.send('local:audio:progress', { status: 'completed', message: 'Diálogo generado', pct: 100 })
@@ -378,7 +414,7 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
       const asset = await getAssetManager().importFile(tmpPath, 'audio')
       const db = getRawDb()
       db.prepare(
-        'UPDATE assets SET prompt = ?, model_used = ?, credits_used = 0 WHERE id = ?'
+        `UPDATE assets SET prompt = ?, model_used = ?, provider = 'elevenlabs', credits_used = 0 WHERE id = ?`
       ).run(params?.prompt || `Voice changer → ${voiceId}`, `elevenlabs:vc:${voiceId}`, asset.id)
       db.saveSync()
       sender.send('local:audio:progress', { status: 'completed', message: 'Audio generado', pct: 100 })
@@ -426,7 +462,7 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
         model_id: modelId,
       })
       db.prepare(
-        'UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, credits_used = 0 WHERE id = ?'
+        `UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, provider = 'elevenlabs', credits_used = 0 WHERE id = ?`
       ).run(prompt.trim(), 'elevenlabs:music', storedParams, asset.id)
       db.saveSync()
       sender.send('local:audio:progress', { status: 'completed', message: 'Música generada', pct: 100 })
@@ -460,7 +496,7 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
       const asset = await getAssetManager().importFile(tmpPath, 'audio')
       const db = getRawDb()
       db.prepare(
-        'UPDATE assets SET prompt = ?, model_used = ?, credits_used = 0 WHERE id = ?'
+        `UPDATE assets SET prompt = ?, model_used = ?, provider = 'elevenlabs', credits_used = 0 WHERE id = ?`
       ).run(text, 'elevenlabs:sfx', asset.id)
       db.saveSync()
       sender.send('local:audio:progress', { status: 'completed', message: 'Audio generado', pct: 100 })

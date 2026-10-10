@@ -1,3 +1,8 @@
+const SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
+/** Color backed by a `--name` CSS variable holding RGB channels ("r g b"), alpha-aware */
+const v = (name) => `rgb(var(--${name}) / <alpha-value>)`
+const scale = (name) => Object.fromEntries(SHADES.map((s) => [s, v(`${name}-${s}`)]))
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
@@ -5,71 +10,106 @@ module.exports = {
     "./index.html",
   ],
   darkMode: 'class',
+  // Content-type badge shades derived at runtime for media overlays (DramaProjectList)
+  safelist: [{ pattern: /^text-(amber|emerald|sky|rose|purple|pink|teal|cyan|violet)-400$/ }],
   theme: {
     extend: {
+      // Every color reads a CSS variable (RGB channels) defined per theme in src/renderer/src/index.css,
+      // so the same utilities render in light and dark. See DESIGN.md.
       colors: {
-        surface: {
-          50: '#f6f6f7',
-          100: '#e1e1e4',
-          200: '#c3c3c9',
-          300: '#9e9ea8',
-          400: '#7a7a86',
-          500: '#5f5f6c',
-          600: '#4a4a55',
-          700: '#3d3d46',
-          800: '#34343b',
-          900: '#2e2e34',
-          950: '#0f0f12',
+        surface: scale('surface'),
+        // Monochrome "ink" scale (no indigo): solid fills are the primary surface, text shades are ink
+        accent: scale('accent'),
+        canvas: v('canvas'),
+        // `ink` doubles as the tint color (`bg-ink/5`, `border-ink/10`) that replaces white-on-dark overlays
+        ink: {
+          DEFAULT: v('ink'),
+          muted: v('ink-muted'),
+          subtle: v('ink-subtle'),
         },
-        accent: {
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          800: '#3730a3',
-          900: '#312e81',
-          950: '#1e1b4b',
+        hairline: {
+          DEFAULT: v('hairline'),
+          soft: v('hairline-soft'),
         },
-        // shadcn theme tokens ─ mapped to project surface/accent
-        background: '#0f0f12',
-        foreground: '#e1e1e4',
+        'surface-soft': v('surface-soft'),
+        popover: v('popover'),
+        'on-accent': v('on-accent'),
+        overlay: v('overlay'),
+        block: {
+          lime: v('block-lime'),
+          lilac: v('block-lilac'),
+          cream: v('block-cream'),
+          mint: v('block-mint'),
+          pink: v('block-pink'),
+          coral: v('block-coral'),
+          navy: v('block-navy'),
+          'lime-ink': v('block-lime-ink'),
+          'lilac-ink': v('block-lilac-ink'),
+          'cream-ink': v('block-cream-ink'),
+          'mint-ink': v('block-mint-ink'),
+          'pink-ink': v('block-pink-ink'),
+          'coral-ink': v('block-coral-ink'),
+          'navy-ink': v('block-navy-ink'),
+        },
+        magenta: v('accent-magenta'),
+        // shadcn theme tokens ─ mapped to the tokens above
+        background: v('canvas'),
+        foreground: v('ink'),
         primary: {
-          DEFAULT: '#4f46e5',
-          foreground: '#ffffff',
+          DEFAULT: v('accent-600'),
+          foreground: v('on-accent'),
         },
         secondary: {
-          DEFAULT: '#34343b',
-          foreground: '#e1e1e4',
+          DEFAULT: v('surface-800'),
+          foreground: v('ink'),
         },
         muted: {
-          DEFAULT: '#2e2e34',
-          foreground: '#7a7a86',
+          DEFAULT: v('surface-900'),
+          foreground: v('ink-muted'),
         },
         destructive: {
           DEFAULT: '#ef4444',
           foreground: '#ffffff',
         },
-        border: '#3d3d46',
-        input: '#3d3d46',
-        ring: '#4f46e5',
+        border: v('surface-700'),
+        input: v('surface-700'),
+        ring: v('accent-500'),
         sidebar: {
-          DEFAULT: 'hsl(var(--sidebar-background) / <alpha-value>)',
-          foreground: 'hsl(var(--sidebar-foreground) / <alpha-value>)',
-          primary: 'hsl(var(--sidebar-primary) / <alpha-value>)',
-          'primary-foreground': 'hsl(var(--sidebar-primary-foreground) / <alpha-value>)',
-          accent: 'hsl(var(--sidebar-accent) / <alpha-value>)',
-          'accent-foreground': 'hsl(var(--sidebar-accent-foreground) / <alpha-value>)',
-          border: 'hsl(var(--sidebar-border) / <alpha-value>)',
-          ring: 'hsl(var(--sidebar-ring) / <alpha-value>)',
+          DEFAULT: v('surface-950'),
+          foreground: v('ink'),
+          primary: v('accent-600'),
+          'primary-foreground': v('on-accent'),
+          accent: v('surface-800'),
+          'accent-foreground': v('ink'),
+          border: v('surface-800'),
+          ring: v('accent-500'),
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        sans: ['"Inter Variable"', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono Variable"', '"JetBrains Mono"', 'Fira Code', 'monospace'],
+      },
+      fontSize: {
+        // App-scale type tokens (DESIGN.md principles: weight carries hierarchy, tight tracking on titles)
+        title: ['15px', { lineHeight: '1.35', letterSpacing: '-0.2px', fontWeight: '540' }],
+        'title-lg': ['20px', { lineHeight: '1.25', letterSpacing: '-0.4px', fontWeight: '540' }],
+        body: ['13px', { lineHeight: '1.45', letterSpacing: '-0.05px' }],
+        meta: ['11px', { lineHeight: '1.35' }],
+        eyebrow: ['10px', { lineHeight: '1.2', letterSpacing: '0.6px' }],
+      },
+      fontWeight: {
+        book: '330',
+        regular: '400',
+        emphasis: '480',
+        strong: '540',
+      },
+      borderRadius: {
+        pill: '9999px',
+        block: '24px',
+      },
+      boxShadow: {
+        soft: '0 4px 16px rgb(0 0 0 / 0.06)',
+        float: '0 8px 30px rgb(0 0 0 / 0.18)',
       },
     },
   },

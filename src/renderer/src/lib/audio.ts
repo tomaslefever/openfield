@@ -117,6 +117,9 @@ export function getAudioProvider(asset: any): ProviderId | null {
   if (!asset) return null
   const model = asset.modelUsed || ''
 
+  // 0. Persisted on the asset at generation time
+  if (asset.provider) return asset.provider as ProviderId
+
   // 1. Explicit parameter check
   try {
     const p = typeof asset.parameters === 'string' ? JSON.parse(asset.parameters || '{}') : (asset.parameters || {})

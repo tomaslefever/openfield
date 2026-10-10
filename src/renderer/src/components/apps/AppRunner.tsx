@@ -13,7 +13,7 @@ function ScriptEditorPlaceholder() {
   const [script, setScript] = useState('')
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Script Editor</h3>
+      <h3 className="eyebrow mb-3">Script Editor</h3>
       <textarea
         value={script}
         onChange={(e) => setScript(e.target.value)}
@@ -34,7 +34,7 @@ function PromptListPlaceholder({ params }: { params?: Record<string, any> }) {
   const [prompts, setPrompts] = useState<string[]>(['', '', '', ''])
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Prompt Queue</h3>
+      <h3 className="eyebrow mb-3">Prompt Queue</h3>
       <div className="space-y-2">
         {prompts.map((p, i) => (
           <div key={i} className="flex items-center gap-2">
@@ -53,7 +53,7 @@ function PromptListPlaceholder({ params }: { params?: Record<string, any> }) {
               onClick={() => {
                 setPrompts(prompts.filter((_, j) => j !== i))
               }}
-              className="text-surface-600 hover:text-red-400"
+              className="text-surface-600 hover:text-red-600 dark:hover:text-red-400"
             >
               <X size={12} />
             </button>
@@ -78,13 +78,13 @@ function ElementSelectorPlaceholder() {
   const kinds = ['character', 'avatar', 'environment', 'object']
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Element Selector</h3>
+      <h3 className="eyebrow mb-3">Element Selector</h3>
       <div className="flex items-center gap-1.5 mb-3">
         {kinds.map(k => (
           <button
             key={k}
             onClick={() => setSelectedKind(k)}
-            className={`text-[10px] px-2 py-1 rounded-lg transition-all ${
+            className={`text-[10px] px-2 py-1 rounded-pill transition-all ${
               selectedKind === k
                 ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
                 : 'bg-surface-800 text-surface-500 border border-surface-700 hover:text-surface-300'
@@ -103,7 +103,7 @@ function StoryboardGridPlaceholder() {
   const shots = Array.from({ length: 6 }, (_, i) => i)
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Storyboard</h3>
+      <h3 className="eyebrow mb-3">Storyboard</h3>
       <div className="grid grid-cols-3 gap-2">
         {shots.map(i => (
           <div
@@ -124,7 +124,7 @@ function StoryboardGridPlaceholder() {
 function PipelineControlsPlaceholder() {
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Pipeline Controls</h3>
+      <h3 className="eyebrow mb-3">Pipeline Controls</h3>
       <div className="flex items-center gap-3">
         <button className="btn-primary text-xs flex items-center gap-1.5">
           <Play size={12} /> Run Pipeline
@@ -140,7 +140,7 @@ function PipelineControlsPlaceholder() {
 function TransitionTimelinePlaceholder() {
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Transition Timeline</h3>
+      <h3 className="eyebrow mb-3">Transition Timeline</h3>
       <div className="flex items-center gap-1 h-8 bg-surface-800 rounded-lg border border-surface-700 overflow-hidden px-0.5">
         {[0, 1, 2].map(i => (
           <div key={i} className="flex-1 h-6 rounded bg-accent-500/10 border border-accent-500/20 flex items-center justify-center">
@@ -163,7 +163,7 @@ function TransitionTimelinePlaceholder() {
 function MoodboardViewerPlaceholder() {
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Moodboard</h3>
+      <h3 className="eyebrow mb-3">Moodboard</h3>
       <div className="grid grid-cols-2 gap-2">
         {[0, 1, 2, 3].map(i => (
           <div
@@ -181,7 +181,7 @@ function MoodboardViewerPlaceholder() {
 function PoseGeneratorPlaceholder() {
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Pose Generator</h3>
+      <h3 className="eyebrow mb-3">Pose Generator</h3>
       <div className="grid grid-cols-4 gap-2">
         {['Front', 'Side', 'Back', 'Action'].map(pose => (
           <div
@@ -211,7 +211,7 @@ function PlatformSelectorPlaceholder() {
   const allPlatforms = ['instagram', 'tiktok', 'youtube', 'facebook', 'twitter']
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Platforms</h3>
+      <h3 className="eyebrow mb-3">Platforms</h3>
       <div className="flex items-center gap-1.5 flex-wrap">
         {allPlatforms.map(p => (
           <button
@@ -221,7 +221,7 @@ function PlatformSelectorPlaceholder() {
                 prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]
               )
             }}
-            className={`text-[10px] px-2 py-1 rounded-lg transition-all capitalize ${
+            className={`text-[10px] px-2 py-1 rounded-pill transition-all capitalize ${
               platforms.includes(p)
                 ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
                 : 'bg-surface-800 text-surface-500 border border-surface-700 hover:text-surface-300'
@@ -238,7 +238,7 @@ function PlatformSelectorPlaceholder() {
 function FrameSelectorPlaceholder() {
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Frame Selector</h3>
+      <h3 className="eyebrow mb-3">Frame Selector</h3>
       <div className="grid grid-cols-2 gap-2">
         {['First Frame', 'Last Frame'].map(label => (
           <div
@@ -257,7 +257,7 @@ function FrameSelectorPlaceholder() {
 function PreviewPlayerPlaceholder() {
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Preview</h3>
+      <h3 className="eyebrow mb-3">Preview</h3>
       <div className="aspect-video bg-surface-800 rounded-lg border border-surface-700 flex items-center justify-center">
         <Play size={24} className="text-surface-600" />
       </div>
@@ -268,7 +268,7 @@ function PreviewPlayerPlaceholder() {
 function ResultGridPlaceholder() {
   return (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Results</h3>
+      <h3 className="eyebrow mb-3">Results</h3>
       <div className="grid grid-cols-4 gap-2">
         {[0, 1, 2, 3].map(i => (
           <div
@@ -298,7 +298,7 @@ const COMPONENT_RENDERERS: Record<string, React.FC<{ params?: Record<string, any
   'result-grid': ResultGridPlaceholder,
   'element-creator': () => (
     <div className="card p-4">
-      <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">Element Creator</h3>
+      <h3 className="eyebrow mb-3">Element Creator</h3>
       <p className="text-xs text-surface-600">Create and manage character elements with consistent styling.</p>
     </div>
   ),
@@ -312,11 +312,24 @@ export function AppRunner({ app, onClose }: AppRunnerProps) {
     const api = (window as any).electronAPI
     try {
       if (params.prompt) {
+        const isApimart = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
         const isMachgen = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
-        const isHiggsfield = params?.provider === 'higgsfield' || params?.model?.startsWith('higgsfield/')
+        const isHiggsfield = params?.provider === 'higgsfield' ||
+          params?.model?.startsWith('higgsfield/') ||
+          params?.model?.startsWith('bytedance/seedance-2.0') ||
+          params?.model?.startsWith('bytedance/seedance-2.5') ||
+          params?.model?.startsWith('kling-video/') ||
+          params?.model?.startsWith('minimax/h3/') ||
+          params?.model?.startsWith('alibaba/wan-3.0') ||
+          params?.model?.startsWith('higgsfield-ai/') ||
+          params?.model?.startsWith('flux-pro/') ||
+          params?.model?.startsWith('xai/grok-imagine') ||
+          params?.model?.startsWith('marketing-studio/')
         const isFal = params?.provider === 'fal' || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('minimax/')
         const isReplicate = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/')
-        if (isMachgen && api?.machgen?.generate) {
+        if (isApimart && api?.apimart?.generate) {
+          await api.apimart.generate(params)
+        } else if (isMachgen && api?.machgen?.generate) {
           await api.machgen.generate(params)
         } else if (isHiggsfield && api?.higgsfield?.generate) {
           await api.higgsfield.generate(params)
@@ -379,11 +392,11 @@ export function AppRunner({ app, onClose }: AppRunnerProps) {
           {/* Settings panel */}
           {showSettings && (
             <div className="card p-4 mb-6">
-              <h3 className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-3">App Settings</h3>
+              <h3 className="eyebrow mb-3">App Settings</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {Object.entries(app.defaultParams).map(([key, value]) => (
                   <div key={key}>
-                    <label className="block text-[10px] text-surface-500 uppercase tracking-wider mb-1">{key}</label>
+                    <label className="block eyebrow mb-1">{key}</label>
                     {typeof value === 'boolean' ? (
                       <input type="checkbox" defaultChecked={value} className="mt-1" />
                     ) : typeof value === 'number' ? (

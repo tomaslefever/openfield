@@ -1,7 +1,9 @@
 export type SeedanceResolution = '480p' | '720p' | '1080p' | '4k'
 export type SeedanceAspectRatio = '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9'
 
-export interface Seedance20Input {
+// ─── Seedance 2.0 ───────────────────────────────────────────
+
+export interface Seedance20T2VInput {
   prompt: string
   duration?: number
   resolution?: SeedanceResolution
@@ -9,18 +11,94 @@ export interface Seedance20Input {
   generate_audio?: boolean
 }
 
-export interface Seedance25Input {
+export interface Seedance20I2VInput {
+  prompt?: string
+  image_url: string
+  end_image_url?: string
+  duration?: number
+  resolution?: SeedanceResolution
+  aspect_ratio?: SeedanceAspectRatio
+  generate_audio?: boolean
+}
+
+export interface Seedance20Ref2VInput {
+  prompt?: string
+  image_urls?: string[]
+  video_urls?: string[]
+  audio_urls?: string[]
+  duration?: number
+  resolution?: SeedanceResolution
+  aspect_ratio?: SeedanceAspectRatio
+  generate_audio?: boolean
+}
+
+export type Seedance20Input = Seedance20T2VInput | Seedance20I2VInput | Seedance20Ref2VInput
+
+// ─── Seedance 2.5 ───────────────────────────────────────────
+
+export interface Seedance25T2VInput {
   prompt: string
   duration?: number
-  resolution?: '480p' | '720p'
+  resolution?: '480p' | '720p' | '1080p'
   aspect_ratio?: SeedanceAspectRatio
   bitrate_mode?: 'standard' | 'high'
   output_format?: 'mp4' | 'mov'
   generate_audio?: boolean
 }
 
+export interface Seedance25I2VInput {
+  prompt?: string
+  image_url: string
+  end_image_url?: string
+  duration?: number
+  resolution?: '480p' | '720p' | '1080p'
+  bitrate_mode?: 'standard' | 'high'
+  output_format?: 'mp4' | 'mov'
+  generate_audio?: boolean
+}
+
+export interface Seedance25Ref2VInput {
+  prompt?: string
+  image_urls?: string[]
+  video_urls?: string[]
+  audio_urls?: string[]
+  duration?: number
+  resolution?: '480p' | '720p' | '1080p'
+  aspect_ratio?: SeedanceAspectRatio
+  bitrate_mode?: 'standard' | 'high'
+  output_format?: 'mp4' | 'mov'
+  generate_audio?: boolean
+}
+
+export interface Seedance25VideoEditInput {
+  prompt: string
+  video_url: string
+  bitrate_mode?: 'standard' | 'high'
+  output_format?: 'mp4' | 'mov'
+}
+
+export interface Seedance25VideoExtendInput {
+  prompt: string
+  video_url: string
+  duration?: number
+  bitrate_mode?: 'standard' | 'high'
+  output_format?: 'mp4' | 'mov'
+}
+
+export type Seedance25Input =
+  | Seedance25T2VInput
+  | Seedance25I2VInput
+  | Seedance25Ref2VInput
+  | Seedance25VideoEditInput
+  | Seedance25VideoExtendInput
+
+export type SeedanceInput = Seedance20Input | Seedance25Input
+
+// ─── Kling 3.0 ──────────────────────────────────────────────
+
 export interface Kling30StdInput {
   prompt?: string
+  image_url?: string
   sound?: 'on' | 'off'
   duration?: number
   elements?: string[]
@@ -33,8 +111,189 @@ export interface Kling30StdInput {
   }>
 }
 
-export type SeedanceInput = Seedance20Input | Seedance25Input
-export type HiggsfieldVideoInput = SeedanceInput | Kling30StdInput
+// ─── Wan 3.0 ────────────────────────────────────────────────
+
+export interface Wan30Input {
+  prompt?: string
+  image_url?: string
+  end_image_url?: string
+  image_urls?: string[]
+  video_urls?: string[]
+  audio_urls?: string[]
+  duration?: number
+  resolution?: '480p' | '720p' | '1080p'
+  aspect_ratio?: string
+  generate_audio?: boolean
+}
+
+// ─── Wan 3.0 Prime ──────────────────────────────────────────
+
+export type Wan30PrimeResolution = '480p' | '720p' | '1080p'
+export type Wan30PrimeAspectRatio = '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | 'adaptive'
+
+export interface Wan30PrimeCommonInput {
+  prompt: string
+  seed?: number
+  duration?: number
+  resolution?: Wan30PrimeResolution
+  aspect_ratio?: Wan30PrimeAspectRatio
+  generate_audio?: boolean
+  enable_thinking?: boolean
+}
+
+export interface Wan30PrimeT2VInput extends Wan30PrimeCommonInput {}
+
+export interface Wan30PrimeI2VInput extends Wan30PrimeCommonInput {
+  image_url: string
+  end_image_url?: string
+}
+
+export interface Wan30PrimeRef2VInput extends Wan30PrimeCommonInput {
+  image_urls?: string[]
+  video_urls?: string[]
+  audio_urls?: string[]
+  file_url?: string
+  link_url?: string
+}
+
+export type Wan30PrimeInput = Wan30PrimeT2VInput | Wan30PrimeI2VInput | Wan30PrimeRef2VInput
+
+// ─── MiniMax H3 / Hailuo ────────────────────────────────────
+
+export interface MiniMaxH3Input {
+  prompt?: string
+  image_url?: string
+  duration?: number
+  resolution?: string
+  aspect_ratio?: string
+  aigc_watermark?: boolean
+  prompt_optimizer?: boolean
+}
+
+export interface MiniMaxH3RefInput {
+  prompt: string
+  duration?: number
+  image_urls?: string[]
+  video_urls?: string[]
+  audio_urls?: string[]
+  resolution?: '2K'
+  aspect_ratio?: string
+  aigc_watermark?: boolean
+}
+
+export type MiniMaxHailuoInput = MiniMaxH3Input
+
+
+// ─── Image Models ───────────────────────────────────────────
+
+export interface HiggsfieldImageInput {
+  prompt: string
+  aspect_ratio?: string
+  resolution?: '720p' | '1080p' | string
+  batch_size?: number
+  seed?: number
+  negative_prompt?: string
+  [key: string]: any
+}
+
+// ─── Marketing Studio ───────────────────────────────────────
+
+export interface MarketingStudioPresetItem {
+  id: string
+  type: string
+  name: string
+}
+
+export interface MarketingStudioPresetsResponse {
+  total: number
+  cursor: string | null
+  items: MarketingStudioPresetItem[]
+}
+
+export interface MarketingStudioImageInput {
+  prompt: string
+  quality?: 'low' | 'medium' | 'high'
+  preset_id?: string
+  image_urls?: string[]
+  moderation?: 'auto' | 'low'
+  resolution?: '1k' | '2k' | '4k'
+  aspect_ratio?: 'auto' | '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '16:9' | '9:16' | '21:9'
+  enhance_prompt?: boolean
+}
+
+// ─── AI Influencer (character sheet) ────────────────────────
+
+export type AiInfluencerTier =
+  | 'normal' | 'freak' | 'total'
+  | 'insects' | 'frogs' | 'cats' | 'dogs' | 'capybaras' | 'birds'
+
+export interface AiInfluencerInput {
+  tier?: AiInfluencerTier
+  /** Category key → option keys (each category has its own max) */
+  selection?: Record<string, string[]>
+  /** Identity reference photo; does not count toward item_image_urls */
+  image_url?: string | null
+  /** Up to 3 clothing / footwear / item references */
+  item_image_urls?: string[]
+  /** Up to 4,000 chars */
+  brief?: string
+  /** 1 – 1,000,000 */
+  seed?: number | null
+  /** Human tiers must use 0 */
+  variation_index?: number
+  /** #RRGGBB, animal tiers only */
+  body_color?: string | null
+  /** Insect species id, only with tier="insects" */
+  pinned_species?: string | null
+}
+
+export interface AiInfluencerOption {
+  key: string
+  label: string
+  img: string | null
+  color: string | null
+  tiers: string[] | null
+  slot: string | null
+  exclusive?: boolean
+}
+
+export interface AiInfluencerCategory {
+  key: string
+  label: string
+  tiers: string[]
+  max: number
+  options: AiInfluencerOption[]
+}
+
+export interface AiInfluencerOptionsResponse {
+  config_revision: string
+  categories: AiInfluencerCategory[]
+}
+
+// ─── Genjutsu Motion Transfer ───────────────────────────────
+
+export interface GenjutsuMotionTransferInput {
+  prompt?: string
+  /** Source video, min 4 s; longer than 30 s is trimmed */
+  video_url: string
+  /** 1 – 8 references (characters, locations, styles) */
+  image_urls: string[]
+  resolution?: '480p' | '720p' | '1080p'
+}
+
+export type HiggsfieldVideoInput = SeedanceInput | Kling30StdInput | Wan30Input | Wan30PrimeInput | MiniMaxH3Input | MiniMaxH3RefInput | MiniMaxHailuoInput
+export type HiggsfieldModelInput = HiggsfieldVideoInput | HiggsfieldImageInput | MarketingStudioImageInput | AiInfluencerInput | GenjutsuMotionTransferInput | Record<string, any>
+
+// ─── Storage / Uploads ──────────────────────────────────────
+
+export interface HiggsfieldUploadUrlResponse {
+  public_url: string
+  upload_url: string
+  content_type: string
+  upload_headers?: Record<string, string>
+}
+
+// ─── Task Status ────────────────────────────────────────────
 
 export type HiggsfieldTaskStatus =
   | 'queued'
@@ -64,9 +323,12 @@ export interface HiggsfieldCompletedStatus {
   status_url: string
   cancel_url: string
   status: 'completed'
-  video: {
+  video?: {
     url: string
   }
+  images?: Array<{ url: string }>
+  image?: { url: string }
+  output?: { url: string }
   zip?: { url: string }
   mov?: { url: string }
   jsx?: { url: string }

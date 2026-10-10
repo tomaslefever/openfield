@@ -57,18 +57,18 @@ export function StreamDuration({ value, options, min = 4, max = 15, onChange }: 
   }, [dragging, handleMouseMove, handleMouseUp])
 
   return (
-    <div className="flex items-center gap-0.5 bg-surface-800/80 rounded-lg p-0.5 select-none">
+    <div className="flex items-center gap-0.5 bg-surface-900/90 hover:bg-surface-800/90 border border-surface-700/80 rounded-lg h-7 px-1.5 py-0.5 select-none shadow-sm transition-all">
       <button
         onClick={() => step(-1)}
         disabled={!canDecrease}
-        className="w-5 h-5 rounded flex items-center justify-center text-surface-500 hover:text-surface-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        className="w-4 h-5 rounded flex items-center justify-center text-surface-400 hover:text-surface-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
       >
-        <Minus size={10} />
+        <Minus size={11} />
       </button>
       <span
         onMouseDown={handleMouseDown}
-        className={`px-1.5 py-0.5 rounded text-[11px] font-medium min-w-[26px] text-center cursor-ew-resize transition-colors ${
-          dragging ? 'text-accent-400 bg-surface-700' : 'text-surface-300'
+        className={`px-1 rounded text-[11px] font-medium min-w-[26px] text-center cursor-ew-resize transition-colors ${
+          dragging ? 'text-accent-400 bg-accent-500/10' : 'text-surface-200'
         }`}
       >
         {value}s
@@ -76,9 +76,9 @@ export function StreamDuration({ value, options, min = 4, max = 15, onChange }: 
       <button
         onClick={() => step(1)}
         disabled={!canIncrease}
-        className="w-5 h-5 rounded flex items-center justify-center text-surface-500 hover:text-surface-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        className="w-4 h-5 rounded flex items-center justify-center text-surface-400 hover:text-surface-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
       >
-        <Plus size={10} />
+        <Plus size={11} />
       </button>
     </div>
   )

@@ -67,14 +67,14 @@ function ShotCard({
         </div>
         <button
           onClick={() => deleteStoryboardShot(projectId, shot.id)}
-          className="text-surface-600 hover:text-red-400 transition-colors"
+          className="text-surface-600 hover:text-red-500 dark:hover:text-red-400 transition-colors"
         >
           <X size={14} />
         </button>
       </div>
 
       <div>
-        <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Descripción</label>
+        <label className="eyebrow mb-1 block">Descripción</label>
         <textarea
           value={shot.description}
           onChange={e => updateStoryboardShot(projectId, shot.id, { description: e.target.value })}
@@ -85,7 +85,7 @@ function ShotCard({
       </div>
 
       <div>
-        <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Prompt de generación</label>
+        <label className="eyebrow mb-1 block">Prompt de generación</label>
         <textarea
           value={shot.prompt}
           onChange={e => updateStoryboardShot(projectId, shot.id, { prompt: e.target.value })}
@@ -96,7 +96,7 @@ function ShotCard({
       </div>
 
       <div>
-        <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Plano</label>
+        <label className="eyebrow mb-1 block">Plano</label>
         <div className="relative">
           <button
             onClick={() => setShowShotTypes(!showShotTypes)}
@@ -106,7 +106,7 @@ function ShotCard({
             <ChevronDown size={12} />
           </button>
           {showShotTypes && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-surface-800 border border-surface-700 rounded-xl py-1 max-h-[200px] overflow-y-auto z-10 shadow-xl">
+            <div className="absolute top-full left-0 right-0 mt-1 popover-surface rounded-2xl py-1 max-h-[200px] overflow-y-auto z-10">
               {SHOT_TYPES.map(st => (
                 <button
                   key={st}
@@ -125,18 +125,18 @@ function ShotCard({
 
       {hasElements && (
         <div>
-          <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Elementos</label>
+          <label className="eyebrow mb-1 block">Elementos</label>
           <div className="space-y-1.5">
             {chars.length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
-                <User size={11} className="text-blue-400 flex-shrink-0" />
+                <User size={11} className="text-blue-600 dark:text-blue-400 flex-shrink-0" />
                 {chars.map(el => (
                   <button
                     key={el.id}
                     onClick={() => toggleElement('characterIds', el.id)}
                     className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
                       shot.characterIds.includes(el.id)
-                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30'
                         : 'bg-surface-800 text-surface-500 hover:text-surface-300'
                     }`}
                   >
@@ -147,14 +147,14 @@ function ShotCard({
             )}
             {objs.length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
-                <Box size={11} className="text-amber-400 flex-shrink-0" />
+                <Box size={11} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
                 {objs.map(el => (
                   <button
                     key={el.id}
                     onClick={() => toggleElement('objectIds', el.id)}
                     className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
                       shot.objectIds.includes(el.id)
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30'
                         : 'bg-surface-800 text-surface-500 hover:text-surface-300'
                     }`}
                   >
@@ -165,14 +165,14 @@ function ShotCard({
             )}
             {scenarios.length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
-                <Mountain size={11} className="text-emerald-400 flex-shrink-0" />
+                <Mountain size={11} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                 {scenarios.map(el => (
                   <button
                     key={el.id}
                     onClick={() => toggleElement('scenarioIds', el.id)}
                     className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
                       shot.scenarioIds.includes(el.id)
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
                         : 'bg-surface-800 text-surface-500 hover:text-surface-300'
                     }`}
                   >

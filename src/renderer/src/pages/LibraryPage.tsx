@@ -17,7 +17,10 @@ import { ElementWizard } from '../components/ElementWizard'
 import { copyText, copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
 import { getAudioKind } from '../lib/audio'
-import { cleanModelName } from '../lib/models'
+import { cleanModelName, getAssetProvider } from '../lib/models'
+import { ProviderLogo } from '../components/icons/ProviderLogos'
+import { DraftFinalizeButton, isSeedanceDraft } from '../components/models/DraftFinalizeButton'
+import { RetryGenerationButton } from '../components/ui/RetryGenerationButton'
 
 const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-text-to-image': 'GPT Image 2',
@@ -28,6 +31,7 @@ const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-5-sunburst-image-to-image': 'GPT Image 2.5 Sunburst I2I',
   'recraft/remove-background': 'Remove Background',
   'nano-banana-2': 'Nano Banana 2',
+  'nano-banana-2-1': 'Nano Banana 2.1',
   'seedream/5-pro-text-to-image': 'Seedream 5 Pro',
   'seedream/5-pro-image-to-image': 'Seedream 5 Pro I2I',
   'seedream-5-pro-text-to-image': 'Seedream 5 Pro',
@@ -37,6 +41,9 @@ const MODEL_NAMES: Record<string, string> = {
   'imagen4-fast': 'Imagen 4 Fast',
   'openai/gpt-image-2': 'GPT Image 2 (Fal)',
   'openai/gpt-image-2/edit': 'GPT Image 2 Edit (Fal)',
+  'google/nano-banana-2.1': 'Nano Banana 2.1',
+  'google/nano-banana-2.1/edit': 'Nano Banana 2.1 Edit',
+  'replicate/google/nano-banana-2.1': 'Nano Banana 2.1',
   'fal-ai/nano-banana-pro': 'Nano Banana Pro',
   'fal-ai/nano-banana-pro/edit': 'Nano Banana Pro Edit',
   'fal-ai/recraft/v4/text-to-image': 'Recraft V4',
@@ -56,8 +63,28 @@ const MODEL_NAMES: Record<string, string> = {
   'bytedance/seedance-2-fast': 'Seedance 2 Fast',
   'bytedance/seedance-2-mini': 'Seedance 2 Mini',
   'bytedance/seedance-2.0/text-to-video': 'Seedance 2.0',
+  'bytedance/seedance-2.0/image-to-video': 'Seedance 2.0 I2V',
+  'bytedance/seedance-2.0/reference-to-video': 'Seedance 2.0 Ref',
   'bytedance/seedance-2.5/text-to-video': 'Seedance 2.5',
+  'bytedance/seedance-2.5/image-to-video': 'Seedance 2.5 I2V',
+  'bytedance/seedance-2.5/reference-to-video': 'Seedance 2.5 Ref',
   'kling-video/v3.0/std/text-to-video': 'Kling 3.0 Standard',
+  'kling-video/v3.0/std/image-to-video': 'Kling 3.0 Standard I2V',
+  'alibaba/wan-3.0/text-to-video': 'Wan 3.0',
+  'alibaba/wan-3.0/image-to-video': 'Wan 3.0 I2V',
+  'alibaba/wan-3.0/reference-to-video': 'Wan 3.0 Ref',
+  'alibaba/wan-3.0-prime/text-to-video': 'Wan 3.0 Prime',
+  'alibaba/wan-3.0-prime/image-to-video': 'Wan 3.0 Prime I2V',
+  'alibaba/wan-3.0-prime/reference-to-video': 'Wan 3.0 Prime Ref',
+  'minimax/h3/text-to-video': 'MiniMax H3',
+  'minimax/h3/image-to-video': 'MiniMax H3 I2V',
+  'higgsfield-ai/soul/cinema': 'Soul Cinema',
+  'higgsfield-ai/soul/v2/standard': 'Soul Image 2.0',
+  'flux-pro/kontext/max/text-to-image': 'FLUX.1 Pro',
+  'xai/grok-imagine-image-2.0': 'Grok Image 2.0',
+  'marketing-studio/image': 'Graphic Ads',
+  'marketing-studio/image/graphic-ads': 'Graphic Ads',
+  'marketing-studio/image/marketplace': 'Marketplace Design',
   'wan-2-7-text-to-video': 'Wan 2.7',
   'wan-2-7-image-to-video': 'Wan 2.7',
   'wan/3-0-video': 'Wan 3.0',
@@ -182,6 +209,14 @@ const MODEL_NAMES: Record<string, string> = {
   'elevenlabs:sfx': 'ElevenLabs Music',
 }
 
+// Files dragged in from the OS. Dragging a grid asset also reports 'Files' in Chromium,
+// but those carry our own types and are already in the project.
+function isExternalFileDrag(dt: DataTransfer | null | undefined): boolean {
+  const types = dt?.types
+  if (!types?.includes('Files')) return false
+  return !types.includes('application/x-openfield-asset') && !types.includes('application/x-openfield-assets')
+}
+
 function modelLabel(model: string | undefined): string {
   if (!model) return '—'
   if (model.startsWith('piper:')) return `Piper · ${model.slice(6)}`
@@ -224,11 +259,12 @@ export function LibraryPage() {
   const search = assetSearch.query
   const showFavorites = assetSearch.featured
 
-  const activeTypes = useMemo(
-    () => (['image', 'video', 'audio'] as const).filter((t) => assetSearch.types[t]),
-    [assetSearch.types.image, assetSearch.types.video, assetSearch.types.audio]
-  )
-  const typeFilter: 'all' | 'image' | 'video' | 'audio' =
+  // The Playground grid only shows visual media; audio lives in the library picker.
+  const activeTypes = useMemo(() => {
+    const visual = (['image', 'video'] as const).filter((t) => assetSearch.types[t])
+    return visual.length > 0 ? visual : (['image', 'video'] as const)
+  }, [assetSearch.types.image, assetSearch.types.video])
+  const typeFilter: 'all' | 'image' | 'video' =
     activeTypes.length === 1 ? activeTypes[0] : 'all'
   const [composerMode, setComposerMode] = useState<'image' | 'video' | 'audio'>('image')
   const [selectedAsset, setSelectedAsset] = useState<any>(null)
@@ -244,10 +280,24 @@ export function LibraryPage() {
   const [organizing, setOrganizing] = useState(false)
   const [dropActive, setDropActive] = useState(false)
   const [importingFiles, setImportingFiles] = useState(false)
+
+  // Close the import overlay whenever a drag ends, even if a child (e.g. the composer)
+  // handled the drop and stopped propagation. Capture phase runs before any child handler.
+  useEffect(() => {
+    const reset = () => setDropActive(false)
+    window.addEventListener('drop', reset, true)
+    window.addEventListener('dragend', reset, true)
+    return () => {
+      window.removeEventListener('drop', reset, true)
+      window.removeEventListener('dragend', reset, true)
+    }
+  }, [])
   const [durations, setDurations] = useState<Record<string, number>>({})
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null)
   const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map())
   const { gridRef, capture, fadeOut, animate } = useGridFlip()
+  const dragStartedRef = useRef(false)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
 
   useEffect(() => { setPlayingAudioId(null) }, [activeWorkspaceId])
 
@@ -336,10 +386,7 @@ export function LibraryPage() {
     }
   }
 
-  const pagedTypes = useMemo(
-    () => (activeTypes.length === 3 ? undefined : activeTypes),
-    [activeTypes]
-  )
+  const pagedTypes = useMemo(() => [...activeTypes], [activeTypes])
 
   const { assets, total, hasMore, initialLoading, loadingMore, sentinelRef, reset, loadMore, updateAsset, removeAssets } = usePagedAssets({
     types: pagedTypes,
@@ -425,6 +472,14 @@ export function LibraryPage() {
   useEffect(() => {
     refreshTags()
   }, [refreshTags, activeWorkspaceId])
+
+  // Recover generations stuck in "generating" whose polling died (e.g. app restart), for every
+  // provider. Completed ones are downloaded and assigned; the task:completed broadcast refreshes the grid.
+  useEffect(() => {
+    ;(window as any).electronAPI?.tasks?.reconcile?.().catch((err: any) => {
+      console.warn('[Playground] Task reconcile failed:', err)
+    })
+  }, [activeWorkspaceId])
 
   useEffect(() => {
     const api = (window as any).electronAPI
@@ -538,8 +593,19 @@ export function LibraryPage() {
     try {
       const api = (window as any).electronAPI
       const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
+      const isApimartModel = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen') || params?.model?.includes('MiniMax-H3') || params?.model?.includes('Wan2.2') || params?.model?.includes('LTX-2.3') || params?.model?.includes('Vidu-Q3') || params?.model?.includes('Topaz-')
-      const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('bytedance/seedance-2.0') || params?.model?.startsWith('bytedance/seedance-2.5') || params?.model?.startsWith('kling-video/') || params?.model?.startsWith('higgsfield/')
+      const isHiggsfieldModel = params?.provider === 'higgsfield' ||
+        params?.model?.startsWith('higgsfield/') ||
+        params?.model?.startsWith('bytedance/seedance-2.0') ||
+        params?.model?.startsWith('bytedance/seedance-2.5') ||
+        params?.model?.startsWith('kling-video/') ||
+        params?.model?.startsWith('minimax/h3/') ||
+        params?.model?.startsWith('alibaba/wan-3.0') ||
+        params?.model?.startsWith('higgsfield-ai/') ||
+        params?.model?.startsWith('flux-pro/') ||
+        params?.model?.startsWith('xai/grok-imagine') ||
+        params?.model?.startsWith('marketing-studio/')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/') || params?.model?.startsWith('black-forest-labs/') || params?.model?.startsWith('ideogram-ai/')
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/') || params?.model?.startsWith('bria/')
 
@@ -547,7 +613,9 @@ export function LibraryPage() {
         if (!assetSearch.types.video) {
           setAssetSearch({ types: { ...assetSearch.types, video: true } })
         }
-        if (isHiggsfieldModel) {
+        if (isApimartModel) {
+          await api?.apimart.generate(params)
+        } else if (isHiggsfieldModel) {
           await api?.higgsfield.generate(params)
         } else if (isMachgenModel) {
           await api?.machgen.generate(params)
@@ -562,7 +630,9 @@ export function LibraryPage() {
         if (!assetSearch.types.image) {
           setAssetSearch({ types: { ...assetSearch.types, image: true } })
         }
-        if (isHiggsfieldModel) {
+        if (isApimartModel) {
+          await api?.apimart.generate(params)
+        } else if (isHiggsfieldModel) {
           await api?.higgsfield.generate(params)
         } else if (isFalModel) {
           await api?.fal.generate(params)
@@ -678,6 +748,7 @@ export function LibraryPage() {
         composerRef.current?.loadFromParams({
           ...base,
           mode: 'image',
+          provider: getAssetProvider(selectedAsset) ?? undefined,
           imageBase64: await loadImg('imageBase64'),
           imageMime: p.imageMime || 'image/png',
           imageRefs: await loadRefs(p.imageRefs),
@@ -688,8 +759,10 @@ export function LibraryPage() {
         composerRef.current?.loadFromParams({
           ...base,
           mode: 'video',
+          provider: getAssetProvider(selectedAsset) ?? undefined,
           duration: p.duration ?? undefined,
           fps: p.fps ?? undefined,
+          draft: p.draft ?? undefined,
           sound: p.sound ?? undefined,
           imageBase64: await loadImg('imageBase64'),
           imageMime: p.imageMime || 'image/png',
@@ -699,17 +772,17 @@ export function LibraryPage() {
           firstFrameBase64: await loadImg('firstFrameBase64'),
           lastFrameBase64: await loadImg('lastFrameBase64'),
           multiShots: p.multiShots,
+          upscaleEngine: p.upscaleEngine,
           multiPrompt: p.multiPrompt,
           voice: p.voice,
           voiceLanguage: p.voiceLanguage,
-          provider: p.provider,
         })
       }
     } catch (err) { console.error('Recreate failed:', err) }
     setSelectedAsset(null)
   }
 
-  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string } | null>(null)
+  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string; assetId?: string } | null>(null)
   const [copiedAssetId, setCopiedAssetId] = useState<string | null>(null)
 
   const handleCopyImage = useCallback(async (asset: any) => {
@@ -807,9 +880,10 @@ export function LibraryPage() {
       const api = (window as any).electronAPI
       const results = await api?.assets.readBase64([asset.id])
       const b64 = results?.[0]?.base64 || ''
+      const assetId = asset.id
       setSelectedAsset(null)
       setTimeout(() => {
-        setCreatingFromAsset({ base64: b64, prompt: asset.prompt || '' })
+        setCreatingFromAsset({ base64: b64, prompt: asset.prompt || '', assetId })
       }, 100)
     } catch (err) {
       console.error('Failed to create element:', err)
@@ -824,8 +898,12 @@ export function LibraryPage() {
     <div
       className="flex flex-col h-full relative"
       data-library-dropzone
+      onDragOverCapture={(e) => {
+        // The composer card has its own dropzone and stops dragover from bubbling here
+        if ((e.target as HTMLElement).closest?.('[data-composer-dropzone]')) setDropActive(false)
+      }}
       onDragOver={(e) => {
-        if (e.dataTransfer?.types?.includes('Files')) {
+        if (isExternalFileDrag(e.dataTransfer)) {
           e.preventDefault()
           setDropActive(true)
         }
@@ -834,20 +912,36 @@ export function LibraryPage() {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropActive(false)
       }}
       onDrop={(e) => {
-        if (!e.dataTransfer?.types?.includes('Files')) return
+        if (!isExternalFileDrag(e.dataTransfer)) return
         e.preventDefault()
         e.stopPropagation()
         setDropActive(false)
         handleDropFiles(e.dataTransfer.files)
       }}
     >
-      <div className="flex-1 overflow-y-auto p-4 pb-28">
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-surface-200">Playground</span>
-              <span className="text-[10px] text-surface-500">({total})</span>
-            </div>
+      {/* Top bar stays fixed: it sits outside the scrolling grid. z-20 keeps the tag menu above the grid. */}
+      <div className="flex-shrink-0 relative z-20 flex items-center gap-2 px-4 pt-4 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-surface-200">Playground</span>
+          <span className="text-[10px] text-surface-500">({total})</span>
+        </div>
+        {selectedIds.size > 0 ? (
+          <div className="ml-auto flex items-center min-w-0">
+            <BulkActionBar
+              inline
+              selectedCount={selectedIds.size}
+              selectedIds={Array.from(selectedIds)}
+              onAddTags={() => setShowBulkTag(true)}
+              onDelete={() => setShowBulkDelete(true)}
+              onArchive={handleBulkArchive}
+              archiveTitle={showArchived ? 'Desarchivar' : 'Archivar'}
+              onAddToComposer={handleBulkAddToComposer}
+              onClearSelection={clearSelection}
+              onAssetsMoved={handleAssetsMoved}
+            />
+          </div>
+        ) : (
+          <>
             <div className="relative flex-1 max-w-xs ml-auto" ref={searchRef}>
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-500" />
               <input
@@ -863,12 +957,12 @@ export function LibraryPage() {
                 </button>
               )}
               {tagMenuOpen && filteredTags.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-surface-800 border border-surface-700 rounded-xl py-1 shadow-xl z-50 max-h-[240px] overflow-y-auto">
+                <div className="absolute top-full left-0 right-0 mt-1 popover-surface rounded-2xl py-1 z-50 max-h-[240px] overflow-y-auto">
                   {filteredTags.map((t) => (
                     <button
                       key={t}
                       onClick={() => { setAssetSearch({ query: t }); setTagMenuOpen(false) }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-surface-300 hover:bg-surface-700/60 hover:text-surface-100 flex items-center gap-2"
+                      className="w-full text-left px-3 py-1.5 text-xs text-surface-300 hover:bg-ink/5 hover:text-surface-100 flex items-center gap-2"
                     >
                       <Tag size={11} className="text-surface-500" />
                       {t}
@@ -880,32 +974,32 @@ export function LibraryPage() {
             <button
               onClick={() => reset()}
               title="Reload assets"
-              className="flex-shrink-0 p-1.5 rounded-lg border border-surface-800 text-surface-500 hover:text-surface-100 hover:border-surface-600 transition-colors"
+              className="flex-shrink-0 p-1.5 rounded-full border border-surface-800 text-surface-500 hover:text-surface-100 hover:border-surface-600 transition-colors"
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={() => setAssetSearch({ featured: !assetSearch.featured })}
               title={showFavorites ? 'Show all assets' : 'Show favorites only'}
-              className={`flex-shrink-0 p-1.5 rounded-lg border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-400 hover:border-amber-500/30'}`}
+              className={`flex-shrink-0 p-1.5 rounded-full border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-500/30'}`}
             >
               <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
             </button>
             <button
               onClick={() => setShowArchived(v => !v)}
               title={showArchived ? 'Ver activos' : 'Ver archivados'}
-              className={`flex-shrink-0 p-1.5 rounded-lg border transition-colors ${showArchived ? 'bg-purple-500/15 border-purple-500/40 text-purple-400' : 'border-surface-800 text-surface-500 hover:text-purple-400 hover:border-purple-500/30'}`}
+              className={`flex-shrink-0 p-1.5 rounded-full border transition-colors ${showArchived ? 'bg-purple-500/15 border-purple-500/40 text-purple-600 dark:text-purple-400' : 'border-surface-800 text-surface-500 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-500/30'}`}
             >
               <Archive size={14} />
             </button>
-            <div className="flex gap-1 bg-surface-900/40 rounded-lg p-1 border border-surface-800/60">
+            <div className="flex gap-1 bg-surface-900/40 rounded-pill p-1 border border-surface-800/60">
               <button
                 onClick={() => {
                   setAssetSearch({
-                    types: { image: true, video: true, audio: true },
+                    types: { image: true, video: true, audio: false },
                   })
                 }}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${typeFilter === 'all' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
+                className={`px-3 py-1.5 rounded-pill text-xs font-medium transition-colors ${typeFilter === 'all' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
               >
                 Todos
               </button>
@@ -916,7 +1010,7 @@ export function LibraryPage() {
                   })
                   setComposerMode('image')
                 }}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${typeFilter === 'image' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
+                className={`px-3 py-1.5 rounded-pill text-xs font-medium flex items-center gap-1.5 transition-colors ${typeFilter === 'image' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
               >
                 <ImageIcon size={13} />
                 <span>Imágenes</span>
@@ -928,24 +1022,28 @@ export function LibraryPage() {
                   })
                   setComposerMode('video')
                 }}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${typeFilter === 'video' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
+                className={`px-3 py-1.5 rounded-pill text-xs font-medium flex items-center gap-1.5 transition-colors ${typeFilter === 'video' ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'}`}
               >
                 <Video size={13} />
                 <span>Videos</span>
               </button>
             </div>
-          </div>
+          </>
+        )}
+      </div>
 
+      <div className="flex-1 overflow-y-auto px-4 pb-28">
+        <div>
           {activeOrphans && activeOrphans.count > 0 && (
-            <div className="mb-3 flex items-center gap-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30">
-              <Inbox size={14} className="text-amber-400 flex-shrink-0" />
-              <p className="text-xs text-amber-300 flex-1">
+            <div className="block-cream mb-3 flex items-center gap-3 pl-4 pr-2 py-2 rounded-2xl">
+              <Inbox size={14} className="flex-shrink-0" />
+              <p className="text-xs font-emphasis flex-1">
                 {activeOrphans.count} files on disk are not registered in this project
               </p>
               <button
                 onClick={handleOrganize}
                 disabled={organizing}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-50 text-[11px] font-medium flex items-center gap-1.5 transition-colors"
+                className="px-3 py-1 rounded-pill bg-accent-600 text-on-accent hover:bg-accent-500 disabled:opacity-50 text-[11px] font-emphasis flex items-center gap-1.5 transition-colors"
               >
                 {organizing ? <Loader size={11} className="animate-spin" /> : <FolderOpen size={11} />}
                 {organizing ? 'Organizing...' : 'Organize'}
@@ -959,11 +1057,35 @@ export function LibraryPage() {
               const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
               const isError = asset.filePath?.startsWith('__error__')
               const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
-              const durParam = (() => { try { return JSON.parse(asset.parameters || '{}')?.duration ?? null } catch { return null } })()
-              const dur = durations[asset.id] ?? durParam
+              const cardParams = (() => { try { return JSON.parse(asset.parameters || '{}') || {} } catch { return {} } })()
+              const dur = durations[asset.id] ?? cardParams.duration ?? null
+              const res = asset.type === 'video' && cardParams.resolution ? String(cardParams.resolution) : null
+              const isDraft = res != null && isSeedanceDraft(asset, cardParams)
               return (
-                <div key={asset.id} data-asset-card={asset.id} className="card group relative overflow-hidden p-0 cursor-pointer aspect-square"
-                  onClick={(e) => { if (e.shiftKey) { toggleSelect(asset.id, true) } else { setSelectedAsset(asset) } }}
+                <div
+                  key={asset.id}
+                  data-asset-card={asset.id}
+                  className={`card group relative overflow-hidden p-0 cursor-pointer aspect-square ${draggingId === asset.id ? 'opacity-40 scale-[0.98]' : ''}`}
+                  draggable={!isError && !!src}
+                  onDragStart={(e) => {
+                    const draggedAssets = isSel && selectedIds.size > 1
+                      ? assets.filter((a: any) => selectedIds.has(a.id))
+                      : [asset]
+                    e.dataTransfer.setData('application/x-openfield-assets', JSON.stringify(draggedAssets))
+                    e.dataTransfer.setData('application/x-openfield-asset', JSON.stringify(asset))
+                    e.dataTransfer.setData('text/plain', asset.id)
+                    e.dataTransfer.effectAllowed = 'copy'
+                    dragStartedRef.current = true
+                    setDraggingId(asset.id)
+                  }}
+                  onDragEnd={() => {
+                    setDraggingId(null)
+                    setTimeout(() => { dragStartedRef.current = false }, 100)
+                  }}
+                  onClick={(e) => {
+                    if (dragStartedRef.current) return
+                    if (e.shiftKey) { toggleSelect(asset.id, true) } else { setSelectedAsset(asset) }
+                  }}
                   onMouseEnter={asset.type === 'video' ? () => handleMouseEnter(asset.id) : undefined}
                   onMouseLeave={asset.type === 'video' ? () => handleMouseLeave(asset.id) : undefined}
                 >
@@ -974,7 +1096,8 @@ export function LibraryPage() {
                           ref={(el) => { if (el) { videoRefs.current.set(asset.id, el); el.muted = true } else videoRefs.current.delete(asset.id) }}
                           data-video-id={asset.id}
                           src={srcUrl(src)}
-                          className="w-full h-full object-cover"
+                          draggable={false}
+                          className="w-full h-full object-cover select-none"
                           preload="auto"
                           loop
                           playsInline
@@ -1000,12 +1123,13 @@ export function LibraryPage() {
                           />
                         </div>
                       ) : (
-                        <img src={thumbUrl(src)} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                        <img src={thumbUrl(src)} draggable={false} alt="" className="w-full h-full object-cover select-none" loading="lazy" decoding="async" />
                       )
                     ) : isError ? (
-                      <div className="flex flex-col items-center justify-center gap-1.5 text-red-400 p-3 text-center w-full h-full">
+                      <div className="flex flex-col items-center justify-center gap-1.5 text-red-600 dark:text-red-400 p-3 text-center w-full h-full">
                         <AlertCircle size={20} className="flex-shrink-0" />
-                        <span className="text-[10px] text-red-400/80 line-clamp-3 leading-tight">{asset.filePath?.replace('__error__:', '')}</span>
+                        <span className="text-[10px] text-red-600/80 dark:text-red-400/80 line-clamp-3 leading-tight">{asset.filePath?.replace('__error__:', '')}</span>
+                        <RetryGenerationButton assetId={asset.id} />
                       </div>
                     ) : isLoading ? (
                       <ImageGeneration
@@ -1020,9 +1144,23 @@ export function LibraryPage() {
                       <div className="text-surface-600 text-sm">No preview</div>
                     )}
                   </div>
-                  {!isLoading && (asset.type === 'video' || asset.type === 'audio') && dur != null && (
-                    <div className="absolute bottom-2 left-2 bg-black/60 rounded px-1.5 py-0.5 text-[9px] text-white/90 font-medium z-10 flex items-center gap-1">
-                      <Clock size={9} /> {formatDuration(dur)}
+                  {!isLoading && (((asset.type === 'video' || asset.type === 'audio') && dur != null) || res) && (
+                    <div className="absolute bottom-2 left-2 flex items-center gap-1 z-10">
+                      {(asset.type === 'video' || asset.type === 'audio') && dur != null && (
+                        <div className="bg-black/60 rounded px-1.5 py-0.5 text-[9px] text-white/90 font-medium flex items-center gap-1">
+                          <Clock size={9} /> {formatDuration(dur)}
+                        </div>
+                      )}
+                      {res && (
+                        <div
+                          className={isDraft
+                            ? 'bg-amber-400 rounded px-1.5 py-0.5 text-[9px] text-amber-950 font-semibold'
+                            : 'bg-black/60 rounded px-1.5 py-0.5 text-[9px] text-white/90 font-medium'}
+                          title={isDraft ? 'Draft de Seedance 2.5' : undefined}
+                        >
+                          {res}
+                        </div>
+                      )}
                     </div>
                   )}
                   {!isLoading && (
@@ -1043,12 +1181,12 @@ export function LibraryPage() {
                   )}
                   <button
                     onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id, e.shiftKey) }}
-                    className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
+                    className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-on-accent' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
                   >
                     {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
                   </button>
                   <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 z-10">
-                    <button onClick={(e) => { e.stopPropagation(); handleDelete(asset.id) }} className="p-1.5 rounded-lg bg-black/50 text-white hover:text-red-400 transition-colors">
+                    <button onClick={(e) => { e.stopPropagation(); handleDelete(asset.id) }} className="p-1.5 rounded-full bg-black/50 text-white hover:text-red-400 transition-colors">
                       <Trash2 size={12} />
                     </button>
                   </div>
@@ -1092,18 +1230,6 @@ export function LibraryPage() {
           }
         }}
         floating
-      />
-
-      <BulkActionBar
-        selectedCount={selectedIds.size}
-        selectedIds={Array.from(selectedIds)}
-        onAddTags={() => setShowBulkTag(true)}
-        onDelete={() => setShowBulkDelete(true)}
-        onArchive={handleBulkArchive}
-        archiveTitle={showArchived ? 'Desarchivar' : 'Archivar'}
-        onAddToComposer={handleBulkAddToComposer}
-        onClearSelection={clearSelection}
-        onAssetsMoved={handleAssetsMoved}
       />
 
       {showBulkTag && (
@@ -1162,6 +1288,7 @@ export function LibraryPage() {
           onRemoveBackground={() => handleRemoveBackground(selectedAsset)}
           onAnimate={() => handleAnimate(selectedAsset)}
           onCreateElement={() => handleCreateElement(selectedAsset)}
+          onDraftFinalQueued={() => resetRef.current()}
         />
       )}
 
@@ -1169,6 +1296,7 @@ export function LibraryPage() {
         <ElementWizard
           initialData={{
             imageBase64: creatingFromAsset.base64,
+            imageAssetId: creatingFromAsset.assetId,
             prompt: creatingFromAsset.prompt,
           }}
           onClose={() => setCreatingFromAsset(null)}
@@ -1190,7 +1318,7 @@ export function LibraryPage() {
 
 function LibraryAssetModal({
   asset, src, params, onClose, onPrev, onNext, onAssetChange, onToggleFavorite, onDelete, onRecreate,
-  onCopyImage, copiedImage, onAddReference, onRemoveBackground, onAnimate, onCreateElement,
+  onCopyImage, copiedImage, onAddReference, onRemoveBackground, onAnimate, onCreateElement, onDraftFinalQueued,
 }: {
   asset: any
   src: string
@@ -1208,6 +1336,8 @@ function LibraryAssetModal({
   onRemoveBackground?: () => void
   onAnimate?: () => void
   onCreateElement?: () => void
+  /** A draft's 1080p final was queued */
+  onDraftFinalQueued?: () => void
 }) {
   const [copiedPrompt, setCopiedPrompt] = useState(false)
   const [promptExpanded, setPromptExpanded] = useState(false)
@@ -1220,6 +1350,7 @@ function LibraryAssetModal({
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
+  const assetProvider = getAssetProvider(asset)
 
   useEffect(() => { zoomRef.current = zoom }, [zoom])
   useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); setPromptExpanded(false) }, [asset.id, src])
@@ -1287,13 +1418,14 @@ function LibraryAssetModal({
 
   const isImage = asset.type === 'image'
   const isVideo = asset.type === 'video'
+  const hasLocalFile = !!(asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') && !asset.filePath.startsWith('http')))
   const isError = asset.filePath?.startsWith('__error__')
   const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
   const isGeneratingOrError = !src || isError || isLoading
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="modal-surface max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
         {/* Media */}
         <div
           ref={containerRef}
@@ -1325,14 +1457,16 @@ function LibraryAssetModal({
                   {asset.filePath?.replace('__error__:', '') || 'No se pudo completar la generación'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={onRecreate}
-                className="mt-2 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-surface-200 bg-surface-800 hover:bg-surface-700 border border-surface-700 transition-colors"
-              >
-                <RotateCcw size={14} className="text-accent-400" />
-                Reintentar generación
-              </button>
+              <div className="mt-2 flex flex-col items-center gap-2">
+                <RetryGenerationButton assetId={asset.id} variant="full" onRetried={onClose} />
+                <button
+                  type="button"
+                  onClick={onRecreate}
+                  className="text-[11px] text-white/60 hover:text-white/90 underline-offset-2 hover:underline"
+                >
+                  Editar y recrear en el composer
+                </button>
+              </div>
             </div>
           ) : isLoading ? (
             <div className="absolute inset-0 w-full h-full">
@@ -1390,13 +1524,13 @@ function LibraryAssetModal({
         <div className="w-96 min-w-[380px] flex-shrink-0 bg-surface-900/80 border-l border-surface-800 flex flex-col">
           <div className="flex items-center justify-end px-3 py-2 border-b border-surface-800 flex-shrink-0">
             <button onClick={onClose} title="Close"
-              className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
+              className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-ink hover:bg-surface-800 transition-colors">
               <X size={16} />
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
+            <p className="eyebrow mb-1">Prompt</p>
             <div className="flex items-start gap-1">
               <p
                 onClick={() => setPromptExpanded(!promptExpanded)}
@@ -1407,56 +1541,59 @@ function LibraryAssetModal({
               </p>
               <button onClick={() => { copyText(asset.prompt || params.prompt || ''); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
                 className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
-                {copiedPrompt ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                {copiedPrompt ? <Check size={12} className="text-green-600 dark:text-green-400" /> : <Copy size={12} />}
               </button>
             </div>
           </div>
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Model</p>
-            <p className="text-sm text-surface-200">{modelLabel(asset.modelUsed)}</p>
+            <p className="eyebrow mb-1">Model</p>
+            <p className="text-sm text-surface-200 flex items-center gap-1.5">
+              {assetProvider && <span title={assetProvider}><ProviderLogo provider={assetProvider} size={14} /></span>}
+              {modelLabel(asset.modelUsed)}
+            </p>
           </div>
           {params.duration != null && (
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Duration</p>
+              <p className="eyebrow mb-1">Duration</p>
               <p className="text-sm text-surface-200 flex items-center gap-1"><Clock size={12} /> {params.duration}s</p>
             </div>
           )}
           {params.fps != null && (
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">FPS</p>
+              <p className="eyebrow mb-1">FPS</p>
               <p className="text-sm text-surface-200">{params.fps}</p>
             </div>
           )}
           {params.resolution && (
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Resolution</p>
+              <p className="eyebrow mb-1">Resolution</p>
               <p className="text-sm text-surface-200">{params.resolution}</p>
             </div>
           )}
           {params.aspectRatio && (
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Aspect Ratio</p>
+              <p className="eyebrow mb-1">Aspect Ratio</p>
               <p className="text-sm text-surface-200">{params.aspectRatio}</p>
             </div>
           )}
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Dimensions</p>
+            <p className="eyebrow mb-1">Dimensions</p>
             <p className="text-sm text-surface-200">{asset.width && asset.height ? `${asset.width}×${asset.height}` : '—'}</p>
           </div>
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">File Size</p>
+            <p className="eyebrow mb-1">File Size</p>
             <p className="text-sm text-surface-200">{asset.fileSize ? `${(asset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
           </div>
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Created</p>
+            <p className="eyebrow mb-1">Created</p>
             <p className="text-sm text-surface-200">{asset.createdAt ? new Date(asset.createdAt).toLocaleString() : '—'}</p>
           </div>
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Task ID</p>
+            <p className="eyebrow mb-1">Task ID</p>
             <p className="text-[11px] font-mono text-surface-400 break-all">{asset.taskId || '—'}</p>
           </div>
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Tags</p>
+            <p className="eyebrow mb-1">Tags</p>
             <TagEditor
               tags={(asset.tags ? asset.tags.split(',').filter(Boolean) : []).map((t: string) => t.trim())}
               onChange={async (newTags) => {
@@ -1467,12 +1604,19 @@ function LibraryAssetModal({
               }}
             />
           </div>
+          {isSeedanceDraft(asset, params) && (
+            <div className="pt-2 border-t border-surface-800">
+              <p className="text-[10px] text-surface-500 mb-1.5">Draft 480p — revisa escena y movimiento, luego genera el final.</p>
+              <DraftFinalizeButton key={asset.id} asset={asset} onOpenFinal={async (id) => { const a = await (window as any).electronAPI?.assets.get(id); if (a) onAssetChange(a) }} onQueued={onDraftFinalQueued} />
+            </div>
+          )}
           <div className="pt-2 border-t border-surface-800 grid grid-cols-2 gap-1.5">
+            {/* 2 columns: Recreate | Save as, Reference | Show in folder, Delete full width */}
             <button onClick={onRecreate} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
               <RotateCcw size={12} /> Recreate
             </button>
             <button onClick={handleSaveAs} disabled={saveState === 'saving'} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-              {saveState === 'done' ? <Check size={12} className="text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
+              {saveState === 'done' ? <Check size={12} className="text-green-600 dark:text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
               {saveState === 'done' ? 'Saved' : 'Save as'}
             </button>
             {isImage && onAddReference && (
@@ -1496,13 +1640,13 @@ function LibraryAssetModal({
               </button>
             )}
             {isVideo && onAddReference && (
-              <button onClick={onAddReference} className="btn-ghost text-xs w-full col-span-2 justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
+              <button onClick={onAddReference} className={`btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300 ${hasLocalFile ? '' : 'col-span-2'}`}>
                 <Video size={12} /> Reference
               </button>
             )}
-            {(asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') && !asset.filePath.startsWith('http'))) && (
+            {hasLocalFile && (
               <button onClick={() => (window as any).electronAPI?.assets.showInFolder(asset.id)}
-                className={`btn-ghost text-xs w-full justify-center flex items-center gap-1.5 ${isImage ? '' : 'col-span-2'}`}>
+                className={`btn-ghost text-xs w-full justify-center flex items-center gap-1.5 ${isImage || (isVideo && onAddReference) ? '' : 'col-span-2'}`}>
                 <FolderOpen size={12} /> Show in folder
               </button>
             )}
@@ -1510,12 +1654,12 @@ function LibraryAssetModal({
               <div className="flex items-center gap-2 justify-center col-span-2">
                 <span className="text-[11px] text-surface-400">Confirm delete?</span>
                 <button onClick={() => { onDelete(); setConfirmDelete(false) }}
-                  className="px-2 py-1 rounded bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
+                  className="px-2 py-1 rounded-pill bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
                 <button onClick={() => setConfirmDelete(false)}
-                  className="px-2 py-1 rounded bg-white/10 text-white text-[10px]">No</button>
+                  className="px-2 py-1 rounded-pill bg-ink/10 text-ink text-[10px]">No</button>
               </div>
             ) : (
-              <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-400 col-span-2" onClick={() => setConfirmDelete(true)}>
+              <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-600 dark:text-red-400 col-span-2" onClick={() => setConfirmDelete(true)}>
                 <Trash2 size={12} /> Delete
               </button>
             )}

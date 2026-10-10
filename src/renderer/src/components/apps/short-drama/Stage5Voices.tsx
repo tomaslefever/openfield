@@ -42,7 +42,7 @@ export function Stage5Voices() {
   return (
     <div className="flex flex-col h-full overflow-y-auto p-6 space-y-6">
       {/* Header & Global Audio Model */}
-      <div className="card p-6 border-surface-800 bg-surface-900/60 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="card p-6 border-surface-800 bg-surface-900/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-sm font-semibold text-surface-100 flex items-center gap-2">
             <AudioLines size={16} className="text-accent-400" />
@@ -79,8 +79,8 @@ export function Stage5Voices() {
       {/* Characters Voice Assignment */}
       <div className="card p-5 border-surface-800 bg-surface-900/40">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-surface-400 flex items-center gap-1.5">
-            <User size={13} className="text-blue-400" /> Asignación de Voces por Personaje (ElevenLabs / KIE)
+          <h3 className="eyebrow flex items-center gap-1.5">
+            <User size={13} className="text-accent-400" /> Asignación de Voces por Personaje (ElevenLabs / KIE)
           </h3>
           <span className="text-[11px] text-surface-500">
             {characters.length} personajes en la historia
@@ -115,7 +115,7 @@ export function Stage5Voices() {
 
       {/* Dialogues Table / Cards */}
       <div className="space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-surface-400">
+        <h3 className="eyebrow">
           Líneas de Diálogo ({dialogueShots.length})
         </h3>
 
@@ -167,7 +167,7 @@ export function Stage5Voices() {
                     {isCompleted ? (
                       <div className="flex items-center gap-2">
                         <audio src={srcUrl(shot.audioLocalPath || shot.audioUrl)} controls className="h-8 max-w-[200px]" />
-                        <span className="flex items-center gap-1 text-emerald-400 text-[10px]" title="Audio listo para LipSync">
+                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[10px]" title="Audio listo para LipSync">
                           <CheckCircle size={12} />
                           <span className="hidden sm:inline">Listo</span>
                         </span>

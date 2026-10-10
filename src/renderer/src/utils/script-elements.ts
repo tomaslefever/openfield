@@ -8,9 +8,9 @@ export const ELEMENT_TYPE_CONFIG: Record<StoryboardElementType, {
   bg: string
   border: string
 }> = {
-  character: { label: 'Personaje', plural: 'Personajes', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
-  scenario: { label: 'Locación', plural: 'Locaciones', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
-  object: { label: 'Objeto', plural: 'Objetos', color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' },
+  character: { label: 'Personaje', plural: 'Personajes', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
+  scenario: { label: 'Locación', plural: 'Locaciones', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  object: { label: 'Objeto', plural: 'Objetos', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' },
 }
 
 const TYPE_BY_PREFIX: Record<string, StoryboardElementType> = {

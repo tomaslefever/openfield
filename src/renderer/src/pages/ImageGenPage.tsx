@@ -16,7 +16,9 @@ import { ImageGeneration } from '../components/agents/image-generation'
 import { ElementWizard } from '../components/ElementWizard'
 import { copyText, copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
-import { cleanModelName } from '../lib/models'
+import { cleanModelName, getAssetProvider } from '../lib/models'
+import { ProviderLogo } from '../components/icons/ProviderLogos'
+import { RetryGenerationButton } from '../components/ui/RetryGenerationButton'
 
 const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-text-to-image': 'GPT Image 2',
@@ -27,6 +29,7 @@ const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-5-sunburst-image-to-image': 'GPT Image 2.5 Sunburst I2I',
   'recraft/remove-background': 'Remove Background',
   'nano-banana-2': 'Nano Banana 2',
+  'nano-banana-2-1': 'Nano Banana 2.1',
   'seedream/5-pro-text-to-image': 'Seedream 5 Pro',
   'seedream/5-pro-image-to-image': 'Seedream 5 Pro I2I',
   'seedream-5-pro-text-to-image': 'Seedream 5 Pro',
@@ -36,6 +39,9 @@ const MODEL_NAMES: Record<string, string> = {
   'imagen4-fast': 'Imagen 4 Fast',
   'openai/gpt-image-2': 'GPT Image 2',
   'openai/gpt-image-2/edit': 'GPT Image 2 Edit',
+  'google/nano-banana-2.1': 'Nano Banana 2.1',
+  'google/nano-banana-2.1/edit': 'Nano Banana 2.1 Edit',
+  'replicate/google/nano-banana-2.1': 'Nano Banana 2.1',
   'fal-ai/nano-banana-pro': 'Nano Banana Pro',
   'fal-ai/nano-banana-pro/edit': 'Nano Banana Pro Edit',
   'fal-ai/recraft/v4/text-to-image': 'Recraft V4',
@@ -45,9 +51,12 @@ const MODEL_NAMES: Record<string, string> = {
   'fal-ai/flux-pro/kontext': 'FLUX.1 Kontext [pro]',
   'fal-ai/flux-krea-lora/stream': 'FLUX Krea LoRA stream',
   'bria/fibo/generate': 'Bria FIBO',
+  'marketing-studio/image': 'Graphic Ads',
+  'marketing-studio/image/graphic-ads': 'Graphic Ads',
+  'marketing-studio/image/marketplace': 'Marketplace Design',
 }
 
-const MODAL_ACTION_BTN = 'text-[11px] w-full justify-center flex items-center gap-1.5 px-4 py-2 rounded-xl border border-surface-700 bg-surface-800/60 text-surface-300 hover:bg-surface-700 hover:text-surface-100 hover:border-surface-600 transition-colors'
+const MODAL_ACTION_BTN = 'text-[11px] w-full justify-center flex items-center gap-1.5 px-4 py-2 rounded-pill border border-surface-700 bg-surface-800/60 text-surface-300 hover:bg-surface-700 hover:text-surface-100 hover:border-surface-600 transition-colors'
 
 const AssetCard = memo(function AssetCard({
   asset,
@@ -57,6 +66,7 @@ const AssetCard = memo(function AssetCard({
   onToggleFavorite,
   onCopyImage,
   copied,
+  onDragStart,
 }: {
   asset: any
   isSelected: boolean
@@ -65,7 +75,10 @@ const AssetCard = memo(function AssetCard({
   onToggleFavorite: (id: string) => void
   onCopyImage: (asset: any) => void
   copied: boolean
+  onDragStart?: (e: React.DragEvent, asset: any) => void
 }) {
+  const dragStartedRef = useRef(false)
+  const [isDragging, setIsDragging] = useState(false)
   const params = (() => { try { return JSON.parse(asset.parameters || '{}') } catch { return {} } })()
   const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
   const isError = asset.filePath?.startsWith('__error__')
@@ -75,17 +88,38 @@ const AssetCard = memo(function AssetCard({
   return (
     <div
       data-asset-card={asset.id}
-      className="card group relative overflow-hidden p-0 cursor-pointer"
+      className={`card group relative overflow-hidden p-0 cursor-pointer ${isDragging ? 'opacity-40 scale-[0.98]' : ''}`}
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 250px' }}
-      onClick={(e) => onSelect(asset, e.shiftKey)}
+      draggable={!isError && !!src}
+      onDragStart={(e) => {
+        setIsDragging(true)
+        dragStartedRef.current = true
+        if (onDragStart) {
+          onDragStart(e, asset)
+        } else {
+          e.dataTransfer.setData('application/x-openfield-asset', JSON.stringify(asset))
+          e.dataTransfer.setData('application/x-openfield-assets', JSON.stringify([asset]))
+          e.dataTransfer.setData('text/plain', asset.id)
+          e.dataTransfer.effectAllowed = 'copy'
+        }
+      }}
+      onDragEnd={() => {
+        setIsDragging(false)
+        setTimeout(() => { dragStartedRef.current = false }, 100)
+      }}
+      onClick={(e) => {
+        if (dragStartedRef.current) return
+        onSelect(asset, e.shiftKey)
+      }}
     >
       <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
         {src ? (
-          <img src={thumbUrl(src)} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+          <img src={thumbUrl(src)} draggable={false} className="w-full h-full object-cover select-none" loading="lazy" decoding="async" />
         ) : isError ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 text-red-400 p-3 text-center w-full h-full">
+          <div className="flex flex-col items-center justify-center gap-1.5 text-red-600 dark:text-red-400 p-3 text-center w-full h-full">
             <AlertCircle size={20} className="flex-shrink-0" />
-            <span className="text-[10px] text-red-400/80 line-clamp-3 leading-tight">{asset.filePath.replace('__error__:', '')}</span>
+            <span className="text-[10px] text-red-600/80 dark:text-red-400/80 line-clamp-3 leading-tight">{asset.filePath.replace('__error__:', '')}</span>
+            <RetryGenerationButton assetId={asset.id} />
           </div>
         ) : isLoading ? (
           <ImageGeneration
@@ -125,7 +159,7 @@ const AssetCard = memo(function AssetCard({
       )}
       <button
         onClick={(e) => { e.stopPropagation(); onToggleSelect(asset.id, e.shiftKey) }}
-        className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSelected ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
+        className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSelected ? 'opacity-100 bg-accent-500 text-on-accent' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
       >
         {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
       </button>
@@ -135,7 +169,7 @@ const AssetCard = memo(function AssetCard({
           {(params.generationTime || params.generationTimeSeconds || params.costTime) && (
             <AssetBadge
               value={params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : `${params.costTime}s`)}
-              icon={<Clock size={10} className="text-surface-300" />}
+              icon={<Clock size={10} className="text-white/80" />}
             />
           )}
           {asset.creditsUsed > 0 && <AssetBadge value={String(Math.round(asset.creditsUsed))} icon={<Coins size={10} className="text-amber-400" />} />}
@@ -153,7 +187,7 @@ export function ImageGenPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
   const [showBulkDelete, setShowBulkDelete] = useState(false)
-  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string } | null>(null)
+  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string; assetId?: string } | null>(null)
   const [promptExpanded, setPromptExpanded] = useState(false)
   const [search, setSearch] = useState('')
   const [showFavorites, setShowFavorites] = useState(false)
@@ -325,6 +359,7 @@ export function ImageGenPage() {
       composerRef.current?.loadFromParams({
         prompt: selectedAsset.prompt || '',
         model: selectedAsset.modelUsed || '',
+        provider: getAssetProvider(selectedAsset) ?? undefined,
         aspectRatio: p.aspectRatio || p.aspect_ratio || 'auto',
         resolution: p.resolution || '1K',
         imageBase64,
@@ -344,10 +379,22 @@ export function ImageGenPage() {
     try {
       const api = (window as any).electronAPI
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/')
-      const isHiggsfieldModel = params?.provider === 'higgsfield' || params?.model?.startsWith('higgsfield/')
+      const isHiggsfieldModel = params?.provider === 'higgsfield' ||
+        params?.model?.startsWith('higgsfield/') ||
+        params?.model?.startsWith('higgsfield-ai/') ||
+        params?.model?.startsWith('flux-pro/') ||
+        params?.model?.startsWith('xai/grok-imagine') ||
+        params?.model?.startsWith('marketing-studio/') ||
+        params?.model?.startsWith('ideogram/v4') ||
+        params?.model?.startsWith('recraft/v4') ||
+        params?.model?.startsWith('alibaba/qwen-image') ||
+        params?.model?.startsWith('z-image/')
+      const isApimartModel = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('black-forest-labs/') || params?.model?.startsWith('ideogram-ai/')
-      if (isHiggsfieldModel) {
+      if (isApimartModel) {
+        await api?.apimart.generate(params)
+      } else if (isHiggsfieldModel) {
         await api?.higgsfield.generate(params)
       } else if (isFalModel) {
         await api?.fal.generate(params)
@@ -435,12 +482,24 @@ export function ImageGenPage() {
     clearSelection()
   }, [selectedIds, clearSelection])
 
+  const handleCardDragStart = useCallback((e: React.DragEvent, asset: any) => {
+    const isSelected = selectedIds.has(asset.id)
+    const draggedAssets = isSelected && selectedIds.size > 1
+      ? assets.filter((a: any) => selectedIds.has(a.id))
+      : [asset]
+    e.dataTransfer.setData('application/x-openfield-assets', JSON.stringify(draggedAssets))
+    e.dataTransfer.setData('application/x-openfield-asset', JSON.stringify(asset))
+    e.dataTransfer.setData('text/plain', asset.id)
+    e.dataTransfer.effectAllowed = 'copy'
+  }, [selectedIds, assets])
+
   const params = useMemo(() => selectedAsset ? (() => { try { return JSON.parse(selectedAsset.parameters || '{}') } catch { return {} } })() : {}, [selectedAsset])
+  const selectedProvider = getAssetProvider(selectedAsset)
 
   return (
     <div className="flex flex-col h-full relative">
       {recreateMsg && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-surface-800 border border-surface-700 rounded-lg px-4 py-2 shadow-xl text-xs text-surface-200 flex items-center gap-2">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] popover-surface rounded-pill px-4 py-2 text-xs text-surface-200 flex items-center gap-2">
           <span>{recreateMsg}</span>
           <button onClick={() => setRecreateMsg(null)} className="text-surface-500 hover:text-surface-300">
             <X size={12} />
@@ -468,7 +527,7 @@ export function ImageGenPage() {
             <button
               onClick={() => setShowFavorites(v => !v)}
               title={showFavorites ? 'Show all images' : 'Show favorites only'}
-              className={`flex-shrink-0 p-1.5 rounded-lg border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-400 hover:border-amber-500/30'}`}
+              className={`flex-shrink-0 p-1.5 rounded-full border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-500/30'}`}
             >
               <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
             </button>
@@ -484,6 +543,7 @@ export function ImageGenPage() {
                 onToggleFavorite={handleToggleFavorite}
                 onCopyImage={handleCopyImage}
                 copied={copiedAssetId === asset.id}
+                onDragStart={handleCardDragStart}
               />            ))}
           </div>
 
@@ -586,7 +646,7 @@ export function ImageGenPage() {
           })()}
         >
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
+            <p className="eyebrow mb-1">Prompt</p>
             <div className="flex items-start gap-1">
               <p
                 onClick={() => setPromptExpanded(!promptExpanded)}
@@ -597,52 +657,55 @@ export function ImageGenPage() {
               </p>
               <button onClick={() => { copyText(selectedAsset.prompt || params.prompt || ''); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
                 className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
-                {copiedPrompt ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                {copiedPrompt ? <Check size={12} className="text-green-600 dark:text-green-400" /> : <Copy size={12} />}
               </button>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Model</p>
-              <p className="text-xs text-surface-200 truncate">{cleanModelName(MODEL_NAMES[selectedAsset.modelUsed] || selectedAsset.modelUsed) || '—'}</p>
+              <p className="eyebrow">Model</p>
+              <p className="text-xs text-surface-200 flex items-center gap-1.5 min-w-0">
+                {selectedProvider && <span title={selectedProvider} className="shrink-0"><ProviderLogo provider={selectedProvider} size={12} /></span>}
+                <span className="truncate">{cleanModelName(MODEL_NAMES[selectedAsset.modelUsed] || selectedAsset.modelUsed) || '—'}</span>
+              </p>
             </div>
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Credits</p>
-              <p className="text-xs text-amber-400">{selectedAsset.creditsUsed > 0 ? Math.round(selectedAsset.creditsUsed).toLocaleString() : '—'}</p>
+              <p className="eyebrow">Credits</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">{selectedAsset.creditsUsed > 0 ? Math.round(selectedAsset.creditsUsed).toLocaleString() : '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Resolution</p>
+              <p className="eyebrow">Resolution</p>
               <p className="text-xs text-surface-200">{params.resolution || '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Dimensions</p>
+              <p className="eyebrow">Dimensions</p>
               <p className="text-xs text-surface-200">{selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}×${selectedAsset.height}` : '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Aspect Ratio</p>
+              <p className="eyebrow">Aspect Ratio</p>
               <p className="text-xs text-surface-200">{params.aspectRatio || params.aspect_ratio || '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">File Size</p>
+              <p className="eyebrow">File Size</p>
               <p className="text-xs text-surface-200">{selectedAsset.fileSize ? `${(selectedAsset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Gen Time</p>
+              <p className="eyebrow">Gen Time</p>
               <p className="text-xs text-surface-200">
                 {params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : (params.costTime ? `${params.costTime}s` : '—'))}
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Created</p>
+              <p className="eyebrow">Created</p>
               <p className="text-xs text-surface-200">{selectedAsset.createdAt ? new Date(selectedAsset.createdAt).toLocaleString() : '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-surface-500 uppercase tracking-wider">Task ID</p>
+              <p className="eyebrow">Task ID</p>
               <p className="text-[10px] font-mono text-surface-400 truncate">{selectedAsset.taskId || '—'}</p>
             </div>
           </div>
           <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Tags</p>
+            <p className="eyebrow mb-1">Tags</p>
             <TagEditor
               tags={(selectedAsset.tags ? selectedAsset.tags.split(',').filter(Boolean) : []).map((t: string) => t.trim())}
               onChange={async (newTags) => {
@@ -717,9 +780,10 @@ export function ImageGenPage() {
                 const api = (window as any).electronAPI
                 const results = await api?.assets.readBase64([selectedAsset.id])
                 const b64 = results?.[0]?.base64 || ''
+                const assetId = selectedAsset.id
                 setSelectedAsset(null)
                 setTimeout(() => {
-                  setCreatingFromAsset({ base64: b64, prompt: selectedAsset.prompt || '' })
+                  setCreatingFromAsset({ base64: b64, prompt: selectedAsset.prompt || '', assetId })
                 }, 100)
               } catch (err) { console.error('Failed to create element:', err) }
             }} className={MODAL_ACTION_BTN}>
@@ -729,9 +793,9 @@ export function ImageGenPage() {
               <div className="flex items-center gap-2 justify-center col-span-2">
                 <span className="text-[11px] text-surface-400">Confirm delete?</span>
                 <button onClick={() => { handleDelete(selectedAsset.id); setConfirmDelete(null) }}
-                  className="px-3 py-1.5 rounded-xl border border-surface-700 bg-surface-800/60 text-surface-300 text-[10px] font-medium hover:bg-surface-700 hover:text-surface-100 transition-colors">Yes</button>
+                  className="px-3 py-1.5 rounded-pill border border-surface-700 bg-surface-800/60 text-surface-300 text-[10px] font-medium hover:bg-surface-700 hover:text-surface-100 transition-colors">Yes</button>
                 <button onClick={() => setConfirmDelete(null)}
-                  className="px-3 py-1.5 rounded-xl border border-surface-700 bg-surface-800/60 text-surface-300 text-[10px] font-medium hover:bg-surface-700 hover:text-surface-100 transition-colors">No</button>
+                  className="px-3 py-1.5 rounded-pill border border-surface-700 bg-surface-800/60 text-surface-300 text-[10px] font-medium hover:bg-surface-700 hover:text-surface-100 transition-colors">No</button>
               </div>
             ) : (
               <button className={MODAL_ACTION_BTN} onClick={() => setConfirmDelete(selectedAsset.id)}>
@@ -746,6 +810,7 @@ export function ImageGenPage() {
         <ElementWizard
           initialData={{
             imageBase64: creatingFromAsset.base64,
+            imageAssetId: creatingFromAsset.assetId,
             prompt: creatingFromAsset.prompt,
           }}
           onClose={() => setCreatingFromAsset(null)}

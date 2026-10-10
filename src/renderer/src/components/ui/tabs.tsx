@@ -17,7 +17,7 @@ interface TabsProps {
 
 export function Tabs({ tabs, activeTab, onChange, className }: TabsProps) {
  return (
- <div className={cn('flex items-center gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-800', className)}>
+ <div className={cn('flex items-center gap-1 p-1 bg-surface-900/60 rounded-pill border border-hairline', className)}>
  {tabs.map((tab) => {
  const isActive = tab.id === activeTab
  const Icon = tab.icon
@@ -26,10 +26,10 @@ export function Tabs({ tabs, activeTab, onChange, className }: TabsProps) {
  key={tab.id}
  onClick={() => onChange(tab.id)}
  className={cn(
- 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+ 'flex items-center gap-2 px-4 py-2 rounded-pill text-sm font-medium transition-all duration-200',
  isActive
- ? 'bg-surface-800 text-accent-400 shadow-sm shadow-black/20'
- : 'text-surface-500 hover:text-surface-300 hover:bg-surface-800/50'
+ ? 'bg-accent-600 text-on-accent'
+ : 'text-ink-muted hover:text-ink hover:bg-surface-800/50'
  )}
  >
  <Icon size={16} />
@@ -37,7 +37,7 @@ export function Tabs({ tabs, activeTab, onChange, className }: TabsProps) {
  {tab.count !== undefined && (
  <span className={cn(
  'text-[11px] px-1.5 py-0.5 rounded-md font-medium',
- isActive ? 'bg-accent-500/15 text-accent-400' : 'bg-surface-700/60 text-surface-500'
+ isActive ? 'bg-on-accent/15 text-on-accent' : 'bg-surface-700/60 text-ink-muted'
  )}>
  {tab.count}
  </span>

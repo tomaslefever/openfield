@@ -154,10 +154,10 @@ export function WorkspaceHubPage() {
       <div
         className="fixed inset-0 z-0 pointer-events-none opacity-40"
         style={{
-          backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent)',
+          backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -20%, rgb(var(--ink) / 0.06), transparent)',
         }}
       />
-      <div className="fixed inset-0 z-0 pointer-events-none bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:24px_24px] opacity-30" />
+      <div className="fixed inset-0 z-0 pointer-events-none bg-[radial-gradient(rgb(var(--ink)/0.04)_1px,transparent_1px)] [background-size:24px_24px] opacity-30" />
 
       {/* Main Container */}
       <div className="relative z-10 max-w-7xl w-full mx-auto px-6 py-10 flex-1 flex flex-col">
@@ -183,7 +183,7 @@ export function WorkspaceHubPage() {
               setSelectedColor(PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)])
               setShowCreateModal(true)
             }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent-600 hover:bg-accent-500 text-white font-medium text-sm shadow-lg shadow-accent-600/25 hover:shadow-accent-500/35 transition-all active:scale-[0.98] self-start sm:self-auto"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-pill bg-accent-600 hover:bg-accent-500 text-on-accent font-medium text-sm transition-all active:scale-[0.98] self-start sm:self-auto"
           >
             <Plus size={16} />
             <span>Nuevo Workspace</span>
@@ -202,12 +202,12 @@ export function WorkspaceHubPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Buscar workspaces..."
-                className="w-full pl-9 pr-8 py-2 rounded-xl bg-surface-900/90 border border-surface-800 text-xs sm:text-sm text-surface-100 placeholder:text-surface-500 outline-none focus:border-accent-500/80 focus:ring-1 focus:ring-accent-500/30 transition-all"
+                className="w-full pl-9 pr-8 py-2 rounded-lg bg-surface-900/90 border border-surface-800 text-xs sm:text-sm text-surface-100 placeholder:text-surface-500 outline-none focus:border-accent-500/80 focus:ring-1 focus:ring-accent-500/30 transition-all"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-md text-surface-400 hover:text-surface-200"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-surface-400 hover:text-surface-200"
                   title="Limpiar búsqueda"
                 >
                   <X size={14} />
@@ -216,12 +216,12 @@ export function WorkspaceHubPage() {
             </div>
 
             {/* Filter Chips */}
-            <div className="flex items-center gap-1 bg-surface-900/80 border border-surface-800/90 p-1 rounded-xl shrink-0">
+            <div className="flex items-center gap-1 bg-surface-900/80 border border-surface-800/90 p-1 rounded-pill shrink-0">
               <button
                 onClick={() => setFilterMode('all')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                className={`px-3 py-1 rounded-pill text-xs font-medium transition-all ${
                   filterMode === 'all'
-                    ? 'bg-accent-600 text-white shadow-sm'
+                    ? 'bg-accent-600 text-on-accent shadow-sm'
                     : 'text-surface-400 hover:text-surface-200'
                 }`}
               >
@@ -229,9 +229,9 @@ export function WorkspaceHubPage() {
               </button>
               <button
                 onClick={() => setFilterMode('has_assets')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                className={`px-3 py-1 rounded-pill text-xs font-medium transition-all ${
                   filterMode === 'has_assets'
-                    ? 'bg-accent-600 text-white shadow-sm'
+                    ? 'bg-accent-600 text-on-accent shadow-sm'
                     : 'text-surface-400 hover:text-surface-200'
                 }`}
               >
@@ -239,9 +239,9 @@ export function WorkspaceHubPage() {
               </button>
               <button
                 onClick={() => setFilterMode('empty')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                className={`px-3 py-1 rounded-pill text-xs font-medium transition-all ${
                   filterMode === 'empty'
-                    ? 'bg-accent-600 text-white shadow-sm'
+                    ? 'bg-accent-600 text-on-accent shadow-sm'
                     : 'text-surface-400 hover:text-surface-200'
                 }`}
               >
@@ -259,7 +259,7 @@ export function WorkspaceHubPage() {
               {filteredAndSortedWorkspaces.length === 1 ? 'workspace' : 'workspaces'}
             </span>
 
-            <div className="flex items-center gap-1.5 bg-surface-900/90 border border-surface-800 rounded-xl px-2.5 py-1.5">
+            <div className="flex items-center gap-1.5 bg-surface-900/90 border border-surface-800 rounded-lg px-2.5 py-1.5">
               <ArrowUpDown size={13} className="text-surface-400 shrink-0" />
               <select
                 value={sortBy}
@@ -286,16 +286,16 @@ export function WorkspaceHubPage() {
                 setSelectedColor(PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)])
                 setShowCreateModal(true)
               }}
-              className="group relative aspect-square rounded-2xl border-2 border-dashed border-surface-800 hover:border-accent-500/50 bg-surface-900/20 hover:bg-surface-900/50 p-6 flex flex-col items-center justify-center gap-3 transition-all duration-200 text-center cursor-pointer"
+              className="block-lilac group relative aspect-square rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-all duration-200 text-center cursor-pointer hover:brightness-[1.03] dark:hover:brightness-125"
             >
-              <div className="w-12 h-12 rounded-2xl bg-surface-800 group-hover:bg-accent-600/20 group-hover:border-accent-500/40 border border-surface-700/60 flex items-center justify-center text-surface-400 group-hover:text-accent-400 transition-colors">
+              <div className="w-12 h-12 rounded-full bg-accent-600 text-on-accent flex items-center justify-center transition-transform group-hover:scale-105">
                 <Plus size={24} />
               </div>
               <div>
-                <p className="text-sm font-semibold text-surface-200 group-hover:text-white transition-colors">
+                <p className="text-sm font-strong">
                   Crear nuevo workspace
                 </p>
-                <p className="text-xs text-surface-500 mt-0.5">
+                <p className="text-xs opacity-70 mt-0.5">
                   Inicia un proyecto desde cero
                 </p>
               </div>
@@ -317,7 +317,7 @@ export function WorkspaceHubPage() {
                   setSearchQuery('')
                   setFilterMode('all')
                 }}
-                className="mt-4 px-3.5 py-1.5 rounded-lg bg-surface-800 hover:bg-surface-700 text-xs font-medium text-surface-200 transition-colors"
+                className="mt-4 px-3.5 py-1.5 rounded-pill bg-surface-800 hover:bg-surface-700 text-xs font-medium text-surface-200 transition-colors"
               >
                 Restablecer filtros
               </button>
@@ -347,8 +347,8 @@ export function WorkspaceHubPage() {
                 }}
                 className={`group relative aspect-square rounded-2xl border transition-all duration-300 p-4 sm:p-5 flex flex-col justify-between cursor-pointer overflow-hidden ${
                   ws.id === activeId
-                    ? 'border-accent-500/60 shadow-xl shadow-accent-600/10 hover:border-accent-500/90 ring-1 ring-accent-500/30'
-                    : 'border-surface-800/90 hover:border-surface-600/80 hover:shadow-xl hover:shadow-black/50'
+                    ? 'border-accent-500/60 hover:border-accent-500/90 ring-1 ring-accent-500/30'
+                    : 'border-surface-800/90 hover:border-surface-600/80 hover:shadow-soft'
                 } bg-surface-950`}
               >
                 {/* Card Background: Image or Ambient Gradient */}
@@ -363,8 +363,10 @@ export function WorkspaceHubPage() {
                         decoding="async"
                       />
                     </div>
-                    {/* Deep gradient overlay for text readability & atmosphere */}
-                    <div className="absolute inset-0 z-0 bg-gradient-to-t from-surface-950 via-surface-950/80 to-surface-950/45 transition-opacity duration-300 group-hover:from-surface-950 group-hover:via-surface-950/75 group-hover:to-surface-950/35 pointer-events-none" />
+                    {/* Dark: deep gradient overlay for text readability & atmosphere */}
+                    <div className="absolute inset-0 z-0 hidden dark:block bg-gradient-to-t from-surface-950 via-surface-950/80 to-surface-950/45 transition-opacity duration-300 group-hover:via-surface-950/75 group-hover:to-surface-950/35 pointer-events-none" />
+                    {/* Light: keep the cover visible, wash only the title band (badges carry their own ground) */}
+                    <div className="absolute inset-0 z-0 dark:hidden bg-gradient-to-b from-surface-950/90 via-surface-950/30 via-35% to-transparent transition-opacity duration-300 group-hover:from-surface-950/95 pointer-events-none" />
                     {/* Color glow */}
                     <div
                       className="absolute -top-12 -right-12 w-36 h-36 rounded-full blur-3xl opacity-20 pointer-events-none group-hover:opacity-35 transition-opacity duration-500"
@@ -407,24 +409,24 @@ export function WorkspaceHubPage() {
                                 if (e.key === 'Enter') handleRename(ws.id)
                                 if (e.key === 'Escape') setEditingId(null)
                               }}
-                              className="bg-surface-800 border border-surface-600 rounded-lg px-2 py-1 text-xs sm:text-sm text-white outline-none w-full"
+                              className="bg-surface-800 border border-surface-600 rounded-lg px-2 py-1 text-xs sm:text-sm text-ink outline-none w-full"
                             />
                             <button
                               onClick={() => handleRename(ws.id)}
-                              className="p-1 rounded-md bg-accent-600 hover:bg-accent-500 text-white"
+                              className="p-1 rounded-full bg-accent-600 hover:bg-accent-500 text-on-accent"
                             >
                               <Check size={14} />
                             </button>
                             <button
                               onClick={() => setEditingId(null)}
-                              className="p-1 rounded-md bg-surface-800 hover:bg-surface-700 text-surface-400"
+                              className="p-1 rounded-full bg-surface-800 hover:bg-surface-700 text-surface-400"
                             >
                               <X size={14} />
                             </button>
                           </div>
                         ) : (
                           <>
-                            <h2 className="text-sm sm:text-base font-semibold text-surface-100 group-hover:text-white truncate transition-colors drop-shadow-sm">
+                            <h2 className="text-sm sm:text-base font-semibold text-surface-100 group-hover:text-ink truncate transition-colors drop-shadow-sm">
                               {ws.name}
                             </h2>
                             <div className="flex items-center gap-1.5 mt-0.5">
@@ -450,28 +452,28 @@ export function WorkspaceHubPage() {
                     <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => setMenuOpenId(isMenuOpen ? null : ws.id)}
-                        className="p-1.5 rounded-lg text-surface-300 hover:text-white hover:bg-surface-800/80 bg-surface-950/50 backdrop-blur-sm border border-surface-700/40 transition-colors opacity-80 group-hover:opacity-100"
+                        className="p-1.5 rounded-full text-surface-300 hover:text-ink hover:bg-surface-800/80 bg-surface-950/50 backdrop-blur-sm border border-surface-700/40 transition-colors opacity-80 group-hover:opacity-100"
                         title="Opciones"
                       >
                         <MoreVertical size={15} />
                       </button>
 
                       {isMenuOpen && (
-                        <div className="absolute right-0 top-full mt-1 w-36 bg-surface-800/95 backdrop-blur-md border border-surface-700 rounded-xl py-1 shadow-2xl z-30">
+                        <div className="absolute right-0 top-full mt-1 w-36 popover-surface rounded-2xl py-1 z-30">
                           <button
                             onClick={() => {
                               setEditingId(ws.id)
                               setEditingName(ws.name)
                               setMenuOpenId(null)
                             }}
-                            className="w-full px-3 py-1.5 text-xs text-left text-surface-200 hover:bg-surface-700 flex items-center gap-2"
+                            className="w-full px-3 py-1.5 text-xs text-left text-surface-200 hover:bg-surface-800 flex items-center gap-2"
                           >
                             <Pencil size={13} />
                             <span>Renombrar</span>
                           </button>
                           <button
                             onClick={() => handleDuplicate(ws.id)}
-                            className="w-full px-3 py-1.5 text-xs text-left text-surface-200 hover:bg-surface-700 flex items-center gap-2"
+                            className="w-full px-3 py-1.5 text-xs text-left text-surface-200 hover:bg-surface-800 flex items-center gap-2"
                           >
                             <Copy size={13} />
                             <span>Duplicar</span>
@@ -482,7 +484,7 @@ export function WorkspaceHubPage() {
                                 setDeleteConfirmId(ws.id)
                                 setMenuOpenId(null)
                               }}
-                              className="w-full px-3 py-1.5 text-xs text-left text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+                              className="w-full px-3 py-1.5 text-xs text-left text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
                             >
                               <Trash2 size={13} />
                               <span>Eliminar</span>
@@ -521,7 +523,7 @@ export function WorkspaceHubPage() {
                     onClick={(e) => e.stopPropagation()}
                     className="absolute inset-0 bg-surface-900/95 backdrop-blur-sm rounded-2xl p-4 flex flex-col justify-center items-center text-center z-30"
                   >
-                    <p className="text-xs font-semibold text-red-400 mb-1">
+                    <p className="text-xs font-semibold text-red-600 dark:text-red-400 mb-1">
                       ¿Eliminar workspace "{ws.name}"?
                     </p>
                     <p className="text-[11px] text-surface-400 mb-3">
@@ -531,14 +533,14 @@ export function WorkspaceHubPage() {
                       <button
                         onClick={() => handleDelete(ws.id)}
                         disabled={isBusy}
-                        className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-medium flex items-center gap-1"
+                        className="px-3 py-1 rounded-pill bg-red-600 hover:bg-red-500 text-white text-xs font-medium flex items-center gap-1"
                       >
                         {isBusy ? <Loader size={12} className="animate-spin" /> : <Trash2 size={12} />}
                         Eliminar
                       </button>
                       <button
                         onClick={() => setDeleteConfirmId(null)}
-                        className="px-3 py-1 rounded-lg bg-surface-800 hover:bg-surface-700 text-surface-300 text-xs"
+                        className="px-3 py-1 rounded-pill bg-surface-800 hover:bg-surface-700 text-surface-300 text-xs"
                       >
                         Cancelar
                       </button>
@@ -553,16 +555,16 @@ export function WorkspaceHubPage() {
 
       {/* Modal: Create Workspace */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+        <div className="modal-scrim z-50 flex items-center justify-center p-4">
           <div
-            className="w-full max-w-md bg-surface-900 border border-surface-800 rounded-2xl shadow-2xl p-6 relative"
+            className="w-full max-w-md modal-surface p-6 relative"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-4 border-b border-surface-800">
-              <h2 className="text-lg font-semibold text-white">Nuevo Workspace</h2>
+              <h2 className="text-lg font-semibold text-ink">Nuevo Workspace</h2>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="p-1 rounded-lg text-surface-400 hover:text-white hover:bg-surface-800"
+                className="p-1 rounded-full text-surface-400 hover:text-ink hover:bg-surface-800"
               >
                 <X size={16} />
               </button>
@@ -579,7 +581,7 @@ export function WorkspaceHubPage() {
                   placeholder="Ej. Campaña Primavera, Videojuego Alpha..."
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-800/80 border border-surface-700 text-sm text-white placeholder:text-surface-500 outline-none focus:border-accent-500 transition-colors"
+                  className="w-full px-3.5 py-2.5 rounded-lg bg-surface-800/80 border border-surface-700 text-sm text-ink placeholder:text-surface-500 outline-none focus:border-accent-500 transition-colors"
                 />
               </div>
 
@@ -594,7 +596,7 @@ export function WorkspaceHubPage() {
                       type="button"
                       onClick={() => setSelectedColor(c)}
                       className={`w-7 h-7 rounded-full transition-transform flex items-center justify-center ${
-                        selectedColor === c ? 'scale-110 ring-2 ring-white/60' : 'hover:scale-105 opacity-80'
+                        selectedColor === c ? 'scale-110 ring-2 ring-ink/60' : 'hover:scale-105 opacity-80'
                       }`}
                       style={{ backgroundColor: c }}
                     >
@@ -608,14 +610,14 @@ export function WorkspaceHubPage() {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 rounded-xl bg-surface-800 hover:bg-surface-700 text-sm text-surface-300 transition-colors"
+                  className="px-4 py-2 rounded-pill bg-surface-800 hover:bg-surface-700 text-sm text-surface-300 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={!newName.trim() || creating}
-                  className="px-5 py-2 rounded-xl bg-accent-600 hover:bg-accent-500 disabled:opacity-50 text-sm font-medium text-white shadow-lg shadow-accent-600/20 transition-all"
+                  className="px-5 py-2 rounded-pill bg-accent-600 hover:bg-accent-500 disabled:opacity-50 text-sm font-medium text-on-accent transition-all"
                 >
                   {creating ? 'Creando...' : 'Crear Workspace'}
                 </button>

@@ -53,13 +53,31 @@ const AssetCard = memo(function AssetCard({
   const kind = getAudioKind(asset)
   const provider = getAudioProvider(asset)
   const Icon = kind ? KIND_ICON[kind] : AudioLines
+  const dragStartedRef = useRef(false)
+  const [isDragging, setIsDragging] = useState(false)
 
   return (
     <div
       data-asset-card={asset.id}
-      className="card group relative overflow-hidden p-0 cursor-pointer"
+      className={`card group relative overflow-hidden p-0 cursor-pointer ${isDragging ? 'opacity-40 scale-[0.98]' : ''}`}
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 250px' }}
-      onClick={() => onSelect(asset)}
+      draggable={!isError && !!src}
+      onDragStart={(e) => {
+        setIsDragging(true)
+        dragStartedRef.current = true
+        e.dataTransfer.setData('application/x-openfield-asset', JSON.stringify(asset))
+        e.dataTransfer.setData('application/x-openfield-assets', JSON.stringify([asset]))
+        e.dataTransfer.setData('text/plain', asset.id)
+        e.dataTransfer.effectAllowed = 'copy'
+      }}
+      onDragEnd={() => {
+        setIsDragging(false)
+        setTimeout(() => { dragStartedRef.current = false }, 100)
+      }}
+      onClick={() => {
+        if (dragStartedRef.current) return
+        onSelect(asset)
+      }}
     >
       <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
         {src ? (
@@ -70,7 +88,7 @@ const AssetCard = memo(function AssetCard({
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); onTogglePlay(asset) }}
-                className="absolute inset-0 m-auto w-10 h-10 rounded-full bg-accent-600 hover:bg-accent-500 text-white flex items-center justify-center shadow-lg shadow-black/40 transition-all opacity-0 group-hover:opacity-100"
+                className="absolute inset-0 m-auto w-10 h-10 rounded-full bg-accent-600 hover:bg-accent-500 text-on-accent flex items-center justify-center shadow-lg shadow-black/40 transition-all opacity-0 group-hover:opacity-100"
                 title={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
@@ -79,9 +97,9 @@ const AssetCard = memo(function AssetCard({
             <Waveform playing={isPlaying} />
           </div>
         ) : isError ? (
-          <div className="flex flex-col items-center gap-1.5 text-red-400 px-2">
+          <div className="flex flex-col items-center gap-1.5 text-red-600 dark:text-red-400 px-2">
             <AlertCircle size={20} />
-            <span className="text-[10px] text-center text-red-400/80 line-clamp-3">{asset.filePath.replace('__error__:', '')}</span>
+            <span className="text-[10px] text-center text-red-600/80 dark:text-red-400/80 line-clamp-3">{asset.filePath.replace('__error__:', '')}</span>
           </div>
         ) : isLoading ? (
           <div className="flex flex-col items-center gap-2 text-accent-400">
@@ -108,7 +126,7 @@ const AssetCard = memo(function AssetCard({
       </div>
       <button
         onClick={(e) => { e.stopPropagation(); onToggleSelect(asset.id) }}
-        className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSelected ? 'opacity-100 bg-accent-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
+        className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSelected ? 'opacity-100 bg-accent-500 text-on-accent' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
       >
         {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
       </button>
@@ -118,7 +136,7 @@ const AssetCard = memo(function AssetCard({
             <ProviderLogo provider={provider} size={11} />
           </div>
         )}
-        {kind && <span className="px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-surface-300 font-medium uppercase tracking-wide">{kind}</span>}
+        {kind && <span className="px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white/80 font-medium uppercase tracking-wide">{kind}</span>}
         {asset.creditsUsed > 0 && <AssetBadgeCompat credits={asset.creditsUsed} />}
       </div>
     </div>
@@ -129,7 +147,7 @@ function AssetBadgeCompat({ credits }: { credits: number }) {
   return (
     <div className="p-1 bg-black/60 rounded-md flex items-center gap-1 leading-none">
       <Coins size={10} className="text-amber-400" />
-      <span className="text-[10px] text-surface-300 font-medium">{Math.round(credits)}</span>
+      <span className="text-[10px] text-white/80 font-medium">{Math.round(credits)}</span>
     </div>
   )
 }
@@ -431,14 +449,14 @@ export function MusicGenPage() {
       <div className="flex-1 overflow-y-auto p-4 pb-64">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center gap-3 mb-4 flex-wrap">
-            <div className="flex items-center gap-1 bg-surface-900/60 p-1 rounded-lg border border-surface-800">
+            <div className="flex items-center gap-1 bg-surface-900/60 p-1 rounded-pill border border-surface-800">
               {PROVIDER_FILTERS.map(f => {
                 const isSelected = selectedProvider === f.id
                 return (
                   <button
                     key={f.id}
                     onClick={() => setSelectedProvider(f.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-xs font-medium transition-all ${
                       isSelected
                         ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
                         : 'text-surface-400 hover:text-surface-200 border border-transparent hover:bg-surface-800/50'
@@ -468,7 +486,7 @@ export function MusicGenPage() {
             <button
               onClick={() => setShowFavorites(v => !v)}
               title={showFavorites ? 'Show all audios' : 'Show favorites only'}
-              className={`flex-shrink-0 p-1.5 rounded-lg border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-400 hover:border-amber-500/30'}`}
+              className={`flex-shrink-0 p-1.5 rounded-full border transition-colors ${showFavorites ? 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400' : 'border-surface-800 text-surface-500 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-500/30'}`}
             >
               <Star size={14} fill={showFavorites ? 'currentColor' : 'none'} />
             </button>
@@ -520,10 +538,10 @@ export function MusicGenPage() {
 
       {audioError && (
         <div className="px-4 pb-2">
-          <div className="flex items-start gap-2 bg-red-900/30 border border-red-800/40 rounded-lg px-3 py-2">
-            <AlertCircle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-red-300 flex-1 leading-relaxed">{audioError}</p>
-            <button onClick={() => setAudioError('')} className="text-red-400/70 hover:text-red-300 flex-shrink-0">
+          <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+            <AlertCircle size={14} className="text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-red-700 dark:text-red-300 flex-1 leading-relaxed">{audioError}</p>
+            <button onClick={() => setAudioError('')} className="text-red-600/70 hover:text-red-500 dark:text-red-400/70 dark:hover:text-red-300 flex-shrink-0">
               <X size={14} />
             </button>
           </div>
@@ -578,13 +596,13 @@ export function MusicGenPage() {
 
       {/* Detail modal */}
       {selectedAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setSelectedAsset(null)}>
-          <div className="bg-surface-950 border border-surface-800 rounded-2xl max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-scrim z-50 flex items-center justify-center" onClick={() => setSelectedAsset(null)}>
+          <div className="modal-surface max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex-1 bg-surface-900/40 flex items-center justify-center min-h-[400px] relative p-6">
               {musicAssets.findIndex((a: any) => a.id === selectedAsset.id) > 0 && (
                 <button
                   onClick={(e) => { e.stopPropagation(); const idx = musicAssets.findIndex((a: any) => a.id === selectedAsset.id); setSelectedAsset(musicAssets[idx - 1]) }}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors z-10">
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-ink/5 hover:bg-ink/10 rounded-full flex items-center justify-center text-ink-muted hover:text-ink transition-colors z-10">
                   <ChevronLeft size={20} />
                 </button>
               )}
@@ -601,7 +619,7 @@ export function MusicGenPage() {
                       loadMore()
                     }
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors z-10">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-ink/5 hover:bg-ink/10 rounded-full flex items-center justify-center text-ink-muted hover:text-ink transition-colors z-10">
                   <ChevronRight size={20} />
                 </button>
               )}
@@ -631,7 +649,7 @@ export function MusicGenPage() {
               <button
                 onClick={(e) => { e.stopPropagation(); handleToggleFavorite(selectedAsset.id) }}
                 title={selectedAsset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
-                className={`absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10 transition-colors ${selectedAsset.isFavorite ? 'text-amber-400' : 'text-white/60 hover:text-amber-400'}`}
+                className={`absolute top-3 right-3 w-7 h-7 bg-ink/5 rounded-full flex items-center justify-center z-10 transition-colors ${selectedAsset.isFavorite ? 'text-amber-500' : 'text-ink-muted hover:text-amber-500'}`}
               >
                 <Star size={14} fill={selectedAsset.isFavorite ? 'currentColor' : 'none'} />
               </button>
@@ -639,34 +657,34 @@ export function MusicGenPage() {
             <div className="w-96 min-w-[380px] flex-shrink-0 bg-surface-900/80 border-l border-surface-800 flex flex-col">
               <div className="flex items-center justify-end px-3 py-2 border-b border-surface-800 flex-shrink-0">
                 <button onClick={() => setSelectedAsset(null)} title="Close"
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-ink hover:bg-surface-800 transition-colors">
                   <X size={16} />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
+                <p className="eyebrow mb-1">Prompt</p>
                 <div className="flex items-start gap-1">
                   <p className="text-sm text-surface-200 leading-relaxed flex-1">{selectedAsset.prompt || params.prompt || '—'}</p>
                   <button onClick={() => { copyText(selectedAsset.prompt || params.prompt || ''); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
                     className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
-                    {copiedPrompt ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                    {copiedPrompt ? <Check size={12} className="text-green-600 dark:text-green-400" /> : <Copy size={12} />}
                   </button>
                 </div>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Model</p>
+                <p className="eyebrow mb-1">Model</p>
                 <p className="text-sm text-surface-200">{formatAudioModelLabel(modelUsed)}</p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Provider</p>
+                <p className="eyebrow mb-1">Provider</p>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <ProviderLogo provider={getAudioProvider(selectedAsset)} size={14} />
                   <span className="text-sm text-surface-200 capitalize">{getAudioProvider(selectedAsset) || '—'}</span>
                 </div>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Kind</p>
+                <p className="eyebrow mb-1">Kind</p>
                 <p className="text-sm text-surface-200 flex items-center gap-1">
                   {getAudioKind(selectedAsset) === 'music' ? <AudioLines size={12} /> : (getAudioKind(selectedAsset) === 'voice' || isLocalVoice) ? <Mic size={12} /> : null}
                   {getAudioKind(selectedAsset) === 'music' ? 'Music' : getAudioKind(selectedAsset) === 'voice' ? 'Voice' : isLocalVoice ? 'Voice (local)' : '—'}
@@ -674,34 +692,34 @@ export function MusicGenPage() {
               </div>
               {params.duration != null && (
                 <div>
-                  <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Duration</p>
+                  <p className="eyebrow mb-1">Duration</p>
                   <p className="text-sm text-surface-200 flex items-center gap-1"><Clock size={12} /> {params.duration}s</p>
                 </div>
               )}
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">File Size</p>
+                <p className="eyebrow mb-1">File Size</p>
                 <p className="text-sm text-surface-200">{selectedAsset.fileSize ? `${(selectedAsset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Gen Time</p>
+                <p className="eyebrow mb-1">Gen Time</p>
                 <p className="text-sm text-surface-200">
                   {params.generationTime || (params.generationTimeSeconds ? `${params.generationTimeSeconds}s` : (params.costTime ? `${params.costTime}s` : '—'))}
                 </p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Credits Used</p>
-                <p className="text-sm text-amber-400">{selectedAsset.creditsUsed > 0 ? Math.round(selectedAsset.creditsUsed).toLocaleString() : '—'}</p>
+                <p className="eyebrow mb-1">Credits Used</p>
+                <p className="text-sm text-amber-600 dark:text-amber-400">{selectedAsset.creditsUsed > 0 ? Math.round(selectedAsset.creditsUsed).toLocaleString() : '—'}</p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Created</p>
+                <p className="eyebrow mb-1">Created</p>
                 <p className="text-sm text-surface-200">{selectedAsset.createdAt ? new Date(selectedAsset.createdAt).toLocaleString() : '—'}</p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Task ID</p>
+                <p className="eyebrow mb-1">Task ID</p>
                 <p className="text-[11px] font-mono text-surface-400 break-all">{selectedAsset.taskId || '—'}</p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Tags</p>
+                <p className="eyebrow mb-1">Tags</p>
                 <TagEditor
                   tags={(selectedAsset.tags ? selectedAsset.tags.split(',').filter(Boolean) : []).map((t: string) => t.trim())}
                   onChange={async (newTags) => {
@@ -720,6 +738,7 @@ export function MusicGenPage() {
                     composerRef.current?.loadFromParams({
                       prompt: selectedAsset.prompt || '',
                       model,
+                      provider: getAudioProvider(selectedAsset) ?? undefined,
                       duration: p.duration ?? undefined,
                     })
                   } catch (err) { console.error('Recreate failed:', err) }
@@ -728,7 +747,7 @@ export function MusicGenPage() {
                   <RotateCcw size={12} /> Recreate
                 </button>
                 <button onClick={handleSaveAs} disabled={saveState === 'saving'} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                  {saveState === 'done' ? <Check size={12} className="text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
+                  {saveState === 'done' ? <Check size={12} className="text-green-600 dark:text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
                   {saveState === 'done' ? 'Saved' : 'Save as'}
                 </button>
                 {(selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') && !selectedAsset.filePath.startsWith('http'))) && (
@@ -741,12 +760,12 @@ export function MusicGenPage() {
                   <div className="flex items-center gap-2 justify-center">
                     <span className="text-[11px] text-surface-400">Confirm delete?</span>
                     <button onClick={() => { handleDelete(selectedAsset.id); setConfirmDelete(null) }}
-                      className="px-2 py-1 rounded bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
+                      className="px-2 py-1 rounded-pill bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
                     <button onClick={() => setConfirmDelete(null)}
-                      className="px-2 py-1 rounded bg-white/10 text-white text-[10px]">No</button>
+                      className="px-2 py-1 rounded-pill bg-ink/10 text-ink text-[10px]">No</button>
                   </div>
                 ) : (
-                  <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-400" onClick={() => setConfirmDelete(selectedAsset.id)}>
+                  <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-600 dark:text-red-400" onClick={() => setConfirmDelete(selectedAsset.id)}>
                     <Trash2 size={12} /> Delete
                   </button>
                 )}

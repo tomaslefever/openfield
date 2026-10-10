@@ -4,21 +4,21 @@ import { FileText, Save, History, RotateCcw, Trash2, X, Sparkles, Bot, Send, Use
 import { MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton } from '../ui/message-scroller'
 
 const TYPE_CONFIG: Record<ElementType, { icon: React.ComponentType<{ size?: number; className?: string }>; color: string; bg: string; prefix: string; label: string }> = {
-  character: { icon: User, color: 'text-blue-400', bg: 'bg-blue-500/10', prefix: 'char', label: 'Personaje' },
-  object: { icon: Box, color: 'text-amber-400', bg: 'bg-amber-500/10', prefix: 'obj', label: 'Objeto' },
-  scenario: { icon: Box, color: 'text-emerald-400', bg: 'bg-emerald-500/10', prefix: 'scn', label: 'Escenario' },
+  character: { icon: User, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-500/10', prefix: 'char', label: 'Personaje' },
+  object: { icon: Box, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10', prefix: 'obj', label: 'Objeto' },
+  scenario: { icon: Box, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', prefix: 'scn', label: 'Escenario' },
 }
 
 const AGENT_TEAM = [
-  { key: 'estratega', icon: Lightbulb, color: 'text-yellow-400', label: 'Estratega' },
-  { key: 'guionista', icon: PenTool, color: 'text-blue-400', label: 'Guionista' },
-  { key: 'director', icon: Clapperboard, color: 'text-purple-400', label: 'Director' },
-  { key: 'foto', icon: Camera, color: 'text-cyan-400', label: 'DF' },
-  { key: 'prompteng', icon: Sparkles, color: 'text-amber-400', label: 'Prompt Eng' },
-  { key: 'designer', icon: User, color: 'text-pink-400', label: 'Designer' },
-  { key: 'storyboard', icon: Image, color: 'text-emerald-400', label: 'Storyboard' },
-  { key: 'productor', icon: Layout, color: 'text-slate-400', label: 'Productor' },
-  { key: 'editor', icon: Eye, color: 'text-rose-400', label: 'Editor' },
+  { key: 'estratega', icon: Lightbulb, color: 'text-yellow-600 dark:text-yellow-400', label: 'Estratega' },
+  { key: 'guionista', icon: PenTool, color: 'text-blue-600 dark:text-blue-400', label: 'Guionista' },
+  { key: 'director', icon: Clapperboard, color: 'text-purple-600 dark:text-purple-400', label: 'Director' },
+  { key: 'foto', icon: Camera, color: 'text-cyan-600 dark:text-cyan-400', label: 'DF' },
+  { key: 'prompteng', icon: Sparkles, color: 'text-amber-600 dark:text-amber-400', label: 'Prompt Eng' },
+  { key: 'designer', icon: User, color: 'text-pink-600 dark:text-pink-400', label: 'Designer' },
+  { key: 'storyboard', icon: Image, color: 'text-emerald-600 dark:text-emerald-400', label: 'Storyboard' },
+  { key: 'productor', icon: Layout, color: 'text-slate-600 dark:text-slate-400', label: 'Productor' },
+  { key: 'editor', icon: Eye, color: 'text-rose-600 dark:text-rose-400', label: 'Editor' },
 ]
 
 interface AgentMessage {
@@ -226,7 +226,7 @@ REGLAS: Indica siempre qué especialista está trabajando (ej: "[Guionista] Aqu�
           <FileText size={16} className="text-accent-400" /><h2 className="text-sm font-semibold text-surface-100">Guión</h2>
           <div className="relative ml-3">
             <button onClick={() => setShowTypes(!showTypes)} className="flex items-center gap-1 px-2.5 py-1 bg-surface-800 hover:bg-surface-700 rounded-lg text-xs text-surface-300"><span className="text-accent-400/80">{SCRIPT_TYPE_LABELS[scriptType]}</span><ChevronDown size={12} /></button>
-            {showTypes && (<div className="absolute top-full left-0 mt-1 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[180px] shadow-xl z-50">{(Object.entries(SCRIPT_TYPE_LABELS) as [ScriptType, string][]).map(([k, l]) => (<button key={k} onClick={() => { setScriptType(projectId, k); setShowTypes(false) }} className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${scriptType === k ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{l}{scriptType === k && <Check size={12} />}</button>))}</div>)}
+            {showTypes && (<div className="absolute top-full left-0 mt-1 popover-surface rounded-2xl py-1 min-w-[180px] z-50">{(Object.entries(SCRIPT_TYPE_LABELS) as [ScriptType, string][]).map(([k, l]) => (<button key={k} onClick={() => { setScriptType(projectId, k); setShowTypes(false) }} className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${scriptType === k ? 'text-accent-400 bg-accent-500/10' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-700/50'}`}>{l}{scriptType === k && <Check size={12} />}</button>))}</div>)}
           </div>
           <span className="hidden xl:block text-[10px] text-surface-600 max-w-sm truncate">{projectConfig?.logline || 'Sin logline'}</span>
         </div>
@@ -234,33 +234,33 @@ REGLAS: Indica siempre qué especialista está trabajando (ej: "[Guionista] Aqu�
           {showSaveInput ? (<div className="flex items-center gap-1"><input value={saveLabel} onChange={e => setSaveLabel(e.target.value)} placeholder="v1.0..." className="bg-surface-800 border border-surface-700 rounded-lg px-2 py-1 text-xs text-surface-100 outline-none w-24" autoFocus onKeyDown={e => { if (e.key === 'Enter') handleSaveVersion(); if (e.key === 'Escape') { setShowSaveInput(false); setSaveLabel('') } }} /><button onClick={handleSaveVersion} className="p-1 text-accent-400"><Check size={14} /></button><button onClick={() => { setShowSaveInput(false); setSaveLabel('') }} className="p-1 text-surface-500"><X size={14} /></button></div>) : (<button onClick={() => setShowSaveInput(true)} disabled={!script.trim()} className="btn-ghost text-xs flex items-center gap-1"><Save size={12} /> Guardar</button>)}
           <div className="relative">
             <button onClick={() => setShowHistory(!showHistory)} disabled={versions.length === 0} className="btn-ghost text-xs flex items-center gap-1 disabled:opacity-40"><History size={12} /> v{versions.length}</button>
-            {showHistory && versions.length > 0 && (<div className="absolute top-full right-0 mt-1 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[260px] shadow-xl z-50 max-h-[260px] overflow-y-auto"><div className="px-3 py-1.5 text-[10px] text-surface-500 uppercase tracking-wider">Versiones</div>{sortedVersions.map(v => (<div key={v.id} className="flex items-center group px-3 py-1.5 hover:bg-surface-700/50"><div className="flex-1 min-w-0"><p className="text-xs text-surface-300 truncate">{v.label}</p><p className="text-[10px] text-surface-600">{new Date(v.timestamp).toLocaleString()}</p></div><div className="flex items-center gap-1 opacity-0 group-hover:opacity-100"><button onClick={() => handleRestoreVersion(v)} className="p-1 text-surface-500 hover:text-accent-400"><RotateCcw size={12} /></button><button onClick={() => deleteScriptVersion(projectId, v.id)} className="p-1 text-surface-500 hover:text-red-400"><Trash2 size={12} /></button></div></div>))}</div>)}
+            {showHistory && versions.length > 0 && (<div className="absolute top-full right-0 mt-1 popover-surface rounded-2xl py-1 min-w-[260px] z-50 max-h-[260px] overflow-y-auto"><div className="eyebrow px-3 py-1.5">Versiones</div>{sortedVersions.map(v => (<div key={v.id} className="flex items-center group px-3 py-1.5 hover:bg-surface-700/50"><div className="flex-1 min-w-0"><p className="text-xs text-surface-300 truncate">{v.label}</p><p className="text-[10px] text-surface-600">{new Date(v.timestamp).toLocaleString()}</p></div><div className="flex items-center gap-1 opacity-0 group-hover:opacity-100"><button onClick={() => handleRestoreVersion(v)} className="p-1 text-surface-500 hover:text-accent-400"><RotateCcw size={12} /></button><button onClick={() => deleteScriptVersion(projectId, v.id)} className="p-1 text-surface-500 hover:text-red-500 dark:hover:text-red-400"><Trash2 size={12} /></button></div></div>))}</div>)}
           </div>
-          <button onClick={() => setShowAgent(!showAgent)} className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${showAgent ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'btn-ghost text-xs'}`}><Sparkles size={12} /> Productor</button>
+          <button onClick={() => setShowAgent(!showAgent)} className={`flex items-center gap-1 px-2.5 py-1 rounded-pill text-xs font-medium ${showAgent ? 'bg-accent-500/10 text-accent-400 border border-accent-500/30' : 'btn-ghost text-xs'}`}><Sparkles size={12} /> Productor</button>
         </div>
       </div>
 
       <div className="flex-1 flex relative">
         <div className="w-full flex flex-col relative overflow-hidden min-h-0">
           <textarea ref={textareaRef} value={script} onChange={handleTextareaChange} onBlur={() => setTimeout(() => { setMentionOpen(false) }, 200)} onKeyDown={handleKeyDown} onMouseUp={handleTextareaMouseUp} placeholder={`## Escena 1: Título\nDescripción... @char:Nombre @scn:Lugar\n\n### Toma 1\nPlano general. @char:Protagonista...`} className="flex-1 bg-transparent text-sm text-surface-200 p-4 resize-none outline-none leading-relaxed font-mono placeholder-surface-600" spellCheck={false} />
-          {selectionPopover && (<div ref={popoverRef} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-xl shadow-xl min-w-[220px] overflow-hidden" style={{ left: selectionPopover.x, top: selectionPopover.y }}>
-            {popoverMode === 'menu' && (<div className="py-1"><p className="px-3 py-1.5 text-[10px] text-surface-500 uppercase tracking-wider">"{selectionText.slice(0, 25)}{selectionText.length > 25 ? '...' : ''}"</p><button onClick={() => { setPopoverMode('create'); setNewElementName(selectionText) }} className="w-full text-left px-3 py-1.5 text-xs text-surface-300 hover:bg-surface-700/50 flex items-center gap-2"><Plus size={12} className="text-accent-400" /> Crear elemento</button><button onClick={() => { setPopoverMode('connect'); setConnectSearch('') }} className="w-full text-left px-3 py-1.5 text-xs text-surface-300 hover:bg-surface-700/50 flex items-center gap-2"><Link size={12} className="text-blue-400" /> Conectar elemento</button><button onClick={() => setSelectionPopover(null)} className="w-full text-left px-3 py-1.5 text-xs text-surface-500 hover:bg-surface-700/50 flex items-center gap-2 mt-1 border-t border-surface-700"><X size={12} /> Cancelar</button></div>)}
+          {selectionPopover && (<div ref={popoverRef} className="fixed z-50 popover-surface rounded-2xl min-w-[220px] overflow-hidden" style={{ left: selectionPopover.x, top: selectionPopover.y }}>
+            {popoverMode === 'menu' && (<div className="py-1"><p className="eyebrow px-3 py-1.5">"{selectionText.slice(0, 25)}{selectionText.length > 25 ? '...' : ''}"</p><button onClick={() => { setPopoverMode('create'); setNewElementName(selectionText) }} className="w-full text-left px-3 py-1.5 text-xs text-surface-300 hover:bg-surface-700/50 flex items-center gap-2"><Plus size={12} className="text-accent-400" /> Crear elemento</button><button onClick={() => { setPopoverMode('connect'); setConnectSearch('') }} className="w-full text-left px-3 py-1.5 text-xs text-surface-300 hover:bg-surface-700/50 flex items-center gap-2"><Link size={12} className="text-blue-600 dark:text-blue-400" /> Conectar elemento</button><button onClick={() => setSelectionPopover(null)} className="w-full text-left px-3 py-1.5 text-xs text-surface-500 hover:bg-surface-700/50 flex items-center gap-2 mt-1 border-t border-surface-700"><X size={12} /> Cancelar</button></div>)}
             {popoverMode === 'create' && (<div className="p-3 space-y-3"><div className="flex items-center justify-between"><span className="text-xs font-medium text-surface-100">Crear elemento</span><button onClick={() => setPopoverMode('menu')} className="p-0.5 text-surface-500"><X size={14} /></button></div><div className="flex gap-1">{(['character', 'object', 'scenario'] as ElementType[]).map(t => { const I = TYPE_CONFIG[t].icon; return <button key={t} onClick={() => setNewElementType(t)} className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] ${newElementType === t ? 'bg-surface-700 text-surface-100' : 'bg-surface-800/50 text-surface-500'}`}><I size={11} className={TYPE_CONFIG[t].color} />{TYPE_CONFIG[t].label}</button> })}</div><input value={newElementName} onChange={e => setNewElementName(e.target.value)} className="input-field text-xs" autoFocus onKeyDown={e => { if (e.key === 'Enter') handleCreateElement(); if (e.key === 'Escape') setPopoverMode('menu') }} placeholder="Nombre" /><div className="flex gap-2"><button onClick={handleCreateElement} disabled={!newElementName.trim()} className="btn-primary text-xs flex-1 justify-center flex items-center gap-1"><Check size={12} /> Crear y taguear</button><button onClick={() => setPopoverMode('menu')} className="btn-ghost text-xs">Volver</button></div></div>)}
             {popoverMode === 'connect' && (<div className="p-3 space-y-2"><div className="flex items-center justify-between"><span className="text-xs font-medium text-surface-100">Conectar</span><button onClick={() => setPopoverMode('menu')} className="p-0.5 text-surface-500"><X size={14} /></button></div><input value={connectSearch} onChange={e => { setConnectSearch(e.target.value); setConnectSelectedIdx(0) }} placeholder="Buscar..." className="input-field text-xs" autoFocus onKeyDown={e => { if (e.key === 'ArrowDown') setConnectSelectedIdx(i => Math.min(i + 1, connectFiltered.length - 1)); if (e.key === 'ArrowUp') { e.preventDefault(); setConnectSelectedIdx(i => Math.max(i - 1, 0)) }; if (e.key === 'Enter' && connectFiltered.length > 0) handleConnectElement(connectFiltered[connectSelectedIdx]); if (e.key === 'Escape') setPopoverMode('menu') }} /><div className="max-h-[160px] overflow-y-auto">{connectFiltered.map((el, i) => { const I = TYPE_CONFIG[el.type].icon; return <button key={el.id} onClick={() => handleConnectElement(el)} onMouseEnter={() => setConnectSelectedIdx(i)} className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 ${i === connectSelectedIdx ? 'bg-accent-500/10 text-accent-300' : 'text-surface-300 hover:bg-surface-700/50'}`}><I size={11} className={TYPE_CONFIG[el.type].color} /><span className="flex-1">{el.name}</span><span className="text-[10px] text-surface-600">@{TYPE_CONFIG[el.type].prefix}:</span></button> })}</div><button onClick={() => setPopoverMode('menu')} className="btn-ghost text-xs w-full text-center">Volver</button></div>)}
           </div>)}
-          {mentionOpen && flatFiltered.length > 0 && (<div className="absolute z-40 bottom-0 left-0 bg-surface-800 border border-surface-700 rounded-xl shadow-xl py-1 max-h-[240px] overflow-y-auto min-w-[200px]">{(['character', 'object', 'scenario'] as ElementType[]).map(type => { const items = groupedElements[type]; if (items.length === 0) return null; return (<div key={type}><div className="px-3 py-0.5 text-[10px] text-surface-500 uppercase flex items-center gap-1">{(() => { const I = TYPE_CONFIG[type].icon; return <I size={10} className={TYPE_CONFIG[type].color} /> })()}{' '}{TYPE_CONFIG[type].label}s</div>{items.map(el => { const idx = flatFiltered.indexOf(el); const I = TYPE_CONFIG[el.type].icon; return (<button key={el.id} onClick={() => insertMention(el)} onMouseEnter={() => setSelectedMentionIdx(idx)} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${idx === selectedMentionIdx ? 'bg-accent-500/10 text-accent-300' : 'text-surface-300 hover:bg-surface-700/50'}`}><I size={11} className={TYPE_CONFIG[el.type].color} /><span className="flex-1">{el.name}</span><span className="text-[10px] text-surface-600">@{TYPE_CONFIG[el.type].prefix}:</span></button>) })})</div>) })})</div>)}
+          {mentionOpen && flatFiltered.length > 0 && (<div className="absolute z-40 bottom-0 left-0 popover-surface rounded-2xl py-1 max-h-[240px] overflow-y-auto min-w-[200px]">{(['character', 'object', 'scenario'] as ElementType[]).map(type => { const items = groupedElements[type]; if (items.length === 0) return null; return (<div key={type}><div className="eyebrow px-3 py-0.5 flex items-center gap-1">{(() => { const I = TYPE_CONFIG[type].icon; return <I size={10} className={TYPE_CONFIG[type].color} /> })()}{' '}{TYPE_CONFIG[type].label}s</div>{items.map(el => { const idx = flatFiltered.indexOf(el); const I = TYPE_CONFIG[el.type].icon; return (<button key={el.id} onClick={() => insertMention(el)} onMouseEnter={() => setSelectedMentionIdx(idx)} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${idx === selectedMentionIdx ? 'bg-accent-500/10 text-accent-300' : 'text-surface-300 hover:bg-surface-700/50'}`}><I size={11} className={TYPE_CONFIG[el.type].color} /><span className="flex-1">{el.name}</span><span className="text-[10px] text-surface-600">@{TYPE_CONFIG[el.type].prefix}:</span></button>) })})</div>) })})</div>)}
         </div>
 
         {showAgent && (
-          <div className="absolute bottom-4 right-4 z-40 w-[380px] max-h-[550px] bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+          <div className="absolute bottom-4 right-4 z-40 w-[380px] max-h-[550px] popover-surface rounded-2xl flex flex-col overflow-hidden">
             <div className="px-3 py-2.5 border-b border-surface-800 flex-shrink-0 space-y-1.5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-purple-500/20 flex items-center justify-center"><Sparkles size={12} className="text-purple-400" /></div>
+                  <div className="w-6 h-6 rounded-lg bg-accent-500/15 flex items-center justify-center"><Sparkles size={12} className="text-accent-400" /></div>
                   <div><span className="text-xs font-semibold text-surface-200">Productor Creativo</span><p className="text-[10px] text-surface-500">9 especialistas · Pipeline completo</p></div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {agentRunning && <button onClick={handleStopAgent} className="p-1 text-surface-500 hover:text-red-400"><Square size={12} /></button>}
+                  {agentRunning && <button onClick={handleStopAgent} className="p-1 text-surface-500 hover:text-red-500 dark:hover:text-red-400"><Square size={12} /></button>}
                   <button onClick={() => setShowAgent(false)} className="p-1 text-surface-500 hover:text-surface-100"><X size={14} /></button>
                 </div>
               </div>
@@ -289,14 +289,14 @@ REGLAS: Indica siempre qué especialista está trabajando (ej: "[Guionista] Aqu�
                     )}
                     {agentMessages.map((msg) => {
                       const renderContent = () => {
-                        if (msg.role === 'system') return <div className="text-center"><p className="text-[11px] text-red-400 bg-red-500/5 rounded-lg px-3 py-1 inline-block">{msg.content}</p></div>
-                        if (msg.role === 'tool' && msg.toolResult) return <div className="flex gap-2"><div className="w-5 flex-shrink-0 flex items-center justify-center"><Check size={12} className="text-green-400" /></div><div className="bg-green-500/5 border border-green-500/10 rounded-xl px-3 py-1.5 max-w-[85%]"><p className="text-[11px] text-green-400/80">{msg.toolResult.result}</p></div></div>
+                        if (msg.role === 'system') return <div className="text-center"><p className="text-[11px] text-red-600 dark:text-red-400 bg-red-500/5 rounded-lg px-3 py-1 inline-block">{msg.content}</p></div>
+                        if (msg.role === 'tool' && msg.toolResult) return <div className="flex gap-2"><div className="w-5 flex-shrink-0 flex items-center justify-center"><Check size={12} className="text-green-600 dark:text-green-400" /></div><div className="bg-green-500/5 border border-green-500/10 rounded-xl px-3 py-1.5 max-w-[85%]"><p className="text-[11px] text-green-700/80 dark:text-green-400/80">{msg.toolResult.result}</p></div></div>
                         if (msg.role === 'assistant' && msg.toolCall) {
                           const tc = msg.toolCall
                           const tl: Record<string, string> = { write_script_section: 'Escribir guion', define_concept: 'Definir concepto', create_characters: 'Crear personajes' }
                           return (<div className="space-y-1.5">
                             {msg.content && (<div className="flex gap-2"><AgentAvatar content={msg.content} /><div className="bg-surface-800 rounded-2xl rounded-tl-md px-3 py-2 max-w-[85%]"><p className="text-xs text-surface-200 whitespace-pre-wrap leading-relaxed">{msg.content}</p></div></div>)}
-                            <div className="flex gap-2"><div className="w-5 flex-shrink-0 flex items-center justify-center"><Wrench size={12} className="text-amber-400" /></div><div className={`rounded-xl px-3 py-2 max-w-[85%] ${tc.applied ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-surface-800 border border-surface-700'}`}><p className="text-[10px] text-amber-400/80 uppercase tracking-wider mb-1 flex items-center gap-1"><Play size={10} />{' '}{tl[tc.name] || tc.name}</p>{tc.name === 'write_script_section' && <p className="text-xs text-surface-300 line-clamp-3 font-mono">{tc.args.content?.slice(0, 200)}</p>}{tc.name === 'define_concept' && <p className="text-xs text-surface-300">"{tc.args.logline?.slice(0, 100)}"</p>}{tc.name === 'create_characters' && <p className="text-xs text-surface-300">{(tc.args.characters || []).map((c: any) => c.name).join(', ')}</p>}{!tc.applied ? (<button onClick={() => handleApplyTool(msg)} className="mt-1.5 flex items-center gap-1 text-[10px] text-accent-400 hover:text-accent-300"><ArrowRight size={10} /> Aplicar</button>) : (<p className="mt-1 text-[10px] text-green-400/70 flex items-center gap-1"><Check size={10} /> Aplicado</p>)}</div></div>
+                            <div className="flex gap-2"><div className="w-5 flex-shrink-0 flex items-center justify-center"><Wrench size={12} className="text-amber-600 dark:text-amber-400" /></div><div className={`rounded-xl px-3 py-2 max-w-[85%] ${tc.applied ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-surface-800 border border-surface-700'}`}><p className="eyebrow text-amber-700/80 dark:text-amber-400/80 mb-1 flex items-center gap-1"><Play size={10} />{' '}{tl[tc.name] || tc.name}</p>{tc.name === 'write_script_section' && <p className="text-xs text-surface-300 line-clamp-3 font-mono">{tc.args.content?.slice(0, 200)}</p>}{tc.name === 'define_concept' && <p className="text-xs text-surface-300">"{tc.args.logline?.slice(0, 100)}"</p>}{tc.name === 'create_characters' && <p className="text-xs text-surface-300">{(tc.args.characters || []).map((c: any) => c.name).join(', ')}</p>}{!tc.applied ? (<button onClick={() => handleApplyTool(msg)} className="mt-1.5 flex items-center gap-1 text-[10px] text-accent-400 hover:text-accent-300"><ArrowRight size={10} /> Aplicar</button>) : (<p className="mt-1 text-[10px] text-green-700/70 dark:text-green-400/70 flex items-center gap-1"><Check size={10} /> Aplicado</p>)}</div></div>
                           </div>)
                         }
                         if (msg.role === 'assistant' || msg.role === 'user') {
@@ -313,7 +313,7 @@ REGLAS: Indica siempre qué especialista está trabajando (ej: "[Guionista] Aqu�
                     })}
                     {agentRunning && (
                       <MessageScrollerItem>
-                        <div className="flex gap-2"><div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-purple-400" /></div><div className="bg-surface-800 rounded-2xl rounded-tl-md px-3 py-2">{agentStreaming ? <p className="text-xs text-surface-200 whitespace-pre-wrap">{agentStreaming}<span className="animate-pulse">▌</span></p> : <Loader size={14} className="animate-spin text-purple-400" />}</div></div>
+                        <div className="flex gap-2"><div className="w-5 h-5 rounded-full bg-accent-500/15 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-accent-400" /></div><div className="bg-surface-800 rounded-2xl rounded-tl-md px-3 py-2">{agentStreaming ? <p className="text-xs text-surface-200 whitespace-pre-wrap">{agentStreaming}<span className="animate-pulse">▌</span></p> : <Loader size={14} className="animate-spin text-accent-400" />}</div></div>
                       </MessageScrollerItem>
                     )}
                   </MessageScrollerContent>
@@ -325,7 +325,7 @@ REGLAS: Indica siempre qué especialista está trabajando (ej: "[Guionista] Aqu�
             <div className="p-3 border-t border-surface-800 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <input value={agentInput} onChange={e => setAgentInput(e.target.value)} placeholder="Habla con el productor..." className="input-field text-xs flex-1" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAgentSend() } }} disabled={agentRunning} />
-                <button onClick={() => handleAgentSend()} disabled={!agentInput.trim() || agentRunning} className="p-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 rounded-lg text-white transition-colors flex-shrink-0"><Send size={14} /></button>
+                <button onClick={() => handleAgentSend()} disabled={!agentInput.trim() || agentRunning} className="p-2 bg-accent-600 hover:bg-accent-500 disabled:opacity-40 rounded-full text-on-accent transition-colors flex-shrink-0"><Send size={14} /></button>
               </div>
             </div>
           </div>
@@ -339,10 +339,10 @@ function AgentAvatar({ content }: { content: string }) {
   for (const a of AGENT_TEAM) {
     if (content.includes(`[${a.label}]`)) {
       const Icon = a.icon
-      return <div className={`w-5 h-5 rounded-full bg-purple-500/10 flex items-center justify-center flex-shrink-0 mt-0.5 border border-purple-500/20`}><Icon size={10} className={a.color} /></div>
+      return <div className={`w-5 h-5 rounded-full bg-accent-500/10 flex items-center justify-center flex-shrink-0 mt-0.5 border border-accent-500/20`}><Icon size={10} className={a.color} /></div>
     }
   }
-  return <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-purple-400" /></div>
+  return <div className="w-5 h-5 rounded-full bg-accent-500/15 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-accent-400" /></div>
 }
 
 function simulateAgentResponse(userMsg: string): any {

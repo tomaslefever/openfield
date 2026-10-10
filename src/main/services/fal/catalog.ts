@@ -80,6 +80,20 @@ export const FAL_MODELS: FalModelCatalogEntry[] = [
   },
   // Google
   {
+    // fal.ai/models/google/nano-banana-2.1 — billed per token: ~$0.040 (1K) / $0.059 (2K) / $0.134 (4K)
+    id: 'google/nano-banana-2.1',
+    name: 'Nano Banana 2.1',
+    category: 'Google',
+    type: 'image',
+    costPerImage: 0.04,
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16', '4:1', '1:4', '8:1', '1:8'],
+    editId: 'google/nano-banana-2.1/edit',
+    aspectField: 'aspect_ratio',
+    supportsResolution: true,
+    editImageField: 'image_urls',
+  },
+  {
     id: 'fal-ai/nano-banana-pro',
     name: 'Nano Banana Pro',
     category: 'Google',
@@ -175,7 +189,9 @@ export const FAL_MODELS: FalModelCatalogEntry[] = [
   { id: 'fal-ai/kling-video/v2.5/turbo', name: 'Kling 2.5 Turbo Video', category: 'Kling', type: 'video', costPerSecond: 0.05, resolutions: ['std'], aspectRatios: ['16:9', '9:16', '1:1'] },
   { id: 'fal-ai/wan/v3/text-to-video', name: 'Wan 3.0 Video', category: 'Wan', type: 'video', costPerSecond: 0.05, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
   { id: 'fal-ai/wan/v2.1/text-to-video', name: 'Wan 2.1 Video', category: 'Wan', type: 'video', costPerSecond: 0.025, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
-  { id: 'fal-ai/bytedance/seedance-2-5', name: 'Seedance 2.5', category: 'ByteDance', type: 'video', costPerSecond: 0.18, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  // Token-metered by fal; ~$0.2205 / $0.473 / $1.164 per output second at 480p / 720p / 1080p (720p here).
+  // With video inputs: × 0.6, billed on input + output seconds (see lib/models in the renderer)
+  { id: 'fal-ai/bytedance/seedance-2-5', name: 'Seedance 2.5', category: 'ByteDance', type: 'video', costPerSecond: 0.473, resolutions: ['480p', '720p', '1080p'], aspectRatios: ['16:9', '9:16', '1:1'] },
   { id: 'fal-ai/hunyuan-video', name: 'HunyuanVideo', category: 'Tencent', type: 'video', costPerSecond: 0.03, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
   { id: 'fal-ai/ltx-video', name: 'LTX-Video 2B', category: 'Lightricks', type: 'video', costPerSecond: 0.008, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },
   { id: 'fal-ai/pixverse/v6', name: 'PixVerse V6', category: 'PixVerse', type: 'video', costPerSecond: 0.036, resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '1:1'] },

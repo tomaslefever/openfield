@@ -38,7 +38,7 @@ export function PanicButton() {
       <button
         onClick={handlePanic}
         disabled={killing}
-        className="flex items-center gap-2 px-3 py-2 bg-red-600/90 hover:bg-red-500 text-white rounded-lg text-xs font-medium shadow-lg shadow-red-900/30 transition-all hover:scale-105 disabled:opacity-60 border border-red-400/30"
+        className="flex items-center gap-2 px-3 py-2 bg-red-600/90 hover:bg-red-500 text-white rounded-pill text-xs font-medium shadow-lg shadow-red-900/30 transition-all hover:scale-105 disabled:opacity-60 border border-red-400/30"
         title="Force stop local model server"
       >
         <ZapOff size={14} className={killing ? 'animate-pulse' : ''} />

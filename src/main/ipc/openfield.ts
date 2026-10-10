@@ -25,7 +25,12 @@ function detectProvider(params: any): 'machgen' | 'fal' | 'higgsfield' | 'replic
     params.model?.startsWith('higgsfield/') ||
     params.model?.startsWith('bytedance/seedance-2.0') ||
     params.model?.startsWith('bytedance/seedance-2.5') ||
-    params.model?.startsWith('kling-video/')
+    params.model?.startsWith('kling-video/') ||
+    params.model?.startsWith('minimax/h3/') ||
+    params.model?.startsWith('alibaba/wan-3.0') ||
+    params.model?.startsWith('higgsfield-ai/') ||
+    params.model?.startsWith('flux-pro/') ||
+    params.model?.startsWith('xai/grok-imagine')
   ) {
     return 'higgsfield'
   }

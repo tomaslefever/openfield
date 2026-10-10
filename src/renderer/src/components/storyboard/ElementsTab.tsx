@@ -33,7 +33,7 @@ export function ElementsTab({ elements, onRemove, onExtract }: ElementsTabProps)
             <h2 className="text-sm font-semibold text-surface-100">Elements</h2>
             <p className="text-[11px] text-surface-500 mt-0.5">Elementos extraídos del guión: personajes, locaciones y objetos.</p>
           </div>
-          <button onClick={onExtract} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-accent-600 hover:bg-accent-500 text-white transition-colors">
+          <button onClick={onExtract} className="flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs font-medium bg-accent-600 hover:bg-accent-500 text-on-accent transition-colors">
             <Wand2 size={12} /> Re-analizar guión
           </button>
         </div>
@@ -50,7 +50,7 @@ export function ElementsTab({ elements, onRemove, onExtract }: ElementsTabProps)
               <section key={type}>
                 <div className="flex items-center gap-2 mb-2.5">
                   <Icon size={14} className={config.color} />
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-surface-400">{config.plural}</h3>
+                  <h3 className="eyebrow">{config.plural}</h3>
                   <span className="text-[10px] text-surface-600">{items.length}</span>
                 </div>
                 {items.length === 0 ? (
@@ -71,7 +71,7 @@ export function ElementsTab({ elements, onRemove, onExtract }: ElementsTabProps)
                           </div>
                           <button
                             onClick={() => onRemove(el.id)}
-                            className="p-1 text-surface-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                            className="p-1 text-surface-600 hover:text-red-500 dark:hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
                             title="Eliminar elemento"
                           >
                             <Trash2 size={12} />

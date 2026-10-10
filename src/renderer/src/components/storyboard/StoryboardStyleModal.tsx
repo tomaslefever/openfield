@@ -51,9 +51,9 @@ export function StoryboardStyleModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
+    <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
       <div
-        className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden m-4"
+        className="modal-surface w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden m-4"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -69,7 +69,7 @@ export function StoryboardStyleModal({
               {mode === 'create' ? '¿Qué estilo tendrá? Se aplicará a los prompts de las escenas.' : 'Cambiar el estilo de este storyboard'}
             </p>
           </div>
-          <button onClick={onClose} className="ml-auto p-1.5 rounded-lg text-surface-500 hover:text-surface-200 hover:bg-surface-800 transition-colors">
+          <button onClick={onClose} className="ml-auto p-1.5 rounded-full text-surface-500 hover:text-surface-200 hover:bg-surface-800 transition-colors">
             <X size={14} />
           </button>
         </div>
@@ -78,7 +78,7 @@ export function StoryboardStyleModal({
           {/* Name */}
           {mode === 'create' && (
             <div>
-              <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Nombre</label>
+              <label className="eyebrow mb-1 block">Nombre</label>
               <input
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -92,7 +92,7 @@ export function StoryboardStyleModal({
 
           {/* Preset styles */}
           <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1.5 block">Estilo visual</label>
+            <label className="eyebrow mb-1.5 block">Estilo visual</label>
             <div className="grid grid-cols-2 gap-2">
               {STYLE_OPTIONS.map(opt => {
                 const active = !customOpen && selected === opt.id
@@ -111,7 +111,7 @@ export function StoryboardStyleModal({
                     <p className="text-[9px] text-surface-500 mt-0.5 leading-snug">{opt.description}</p>
                     {active && (
                       <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-accent-500 flex items-center justify-center">
-                        <Check size={9} className="text-white" />
+                        <Check size={9} className="text-on-accent" />
                       </span>
                     )}
                   </button>
@@ -134,7 +134,7 @@ export function StoryboardStyleModal({
                 <p className="text-[9px] text-surface-500 mt-0.5 leading-snug">Describe tu propio estilo</p>
                 {customOpen && (
                   <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-accent-500 flex items-center justify-center">
-                    <Check size={9} className="text-white" />
+                    <Check size={9} className="text-on-accent" />
                   </span>
                 )}
               </button>
@@ -157,7 +157,7 @@ export function StoryboardStyleModal({
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-surface-800 flex items-center justify-end gap-2 flex-shrink-0">
-          <button onClick={onClose} className="text-[11px] px-3 py-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-800 transition-colors">
+          <button onClick={onClose} className="text-[11px] px-3 py-1.5 rounded-pill text-surface-400 hover:text-surface-200 hover:bg-surface-800 transition-colors">
             Cancel
           </button>
           <button

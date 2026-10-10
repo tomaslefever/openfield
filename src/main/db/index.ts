@@ -3,8 +3,12 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as crypto from 'crypto'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
+import { redactPayload } from '../services/payload-redact'
 
 let dbInstance: DbWrapper | null = null
+
+/** Longer start → completion spans are a task recovered across app restarts, not a real generation time */
+export const MAX_GEN_TIME_MS = 6 * 60 * 60 * 1000
 
 function toCamel(obj: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {}
@@ -247,14 +251,19 @@ export function runMigrations() {
       description TEXT DEFAULT '',
       tags TEXT DEFAULT '[]',
       image_base64 TEXT DEFAULT '',
+      image_asset_id TEXT DEFAULT '',
       prompt TEXT DEFAULT '',
       voice_id TEXT DEFAULT '',
       reference_images TEXT DEFAULT '[]',
+      reference_asset_ids TEXT DEFAULT '[]',
       pose_ref TEXT DEFAULT '',
+      pose_asset_id TEXT DEFAULT '',
       pose_task_id TEXT DEFAULT '',
       moodboard_task_id TEXT DEFAULT '',
       video_ref TEXT DEFAULT '',
+      video_asset_id TEXT DEFAULT '',
       hdri_ref TEXT DEFAULT '',
+      hdri_asset_id TEXT DEFAULT '',
       style TEXT DEFAULT '',
       properties TEXT DEFAULT '{}',
       created_at INTEGER NOT NULL,
@@ -473,6 +482,20 @@ export function runMigrations() {
   // Migration: add prop_names column to drama_shots
   try { raw.exec("ALTER TABLE drama_shots ADD COLUMN prop_names TEXT DEFAULT '[]'") } catch {}
 
+  // Migration: per-shot video input (FF · FF/LF · ingredients), motion prompt, last frame and chained clip
+  for (const col of [
+    "video_input_mode TEXT DEFAULT 'ff'",
+    'video_prompt TEXT',
+    'last_frame_url TEXT',
+    'last_frame_asset_id TEXT',
+    'video_ref_url TEXT',
+    'video_ref_local_path TEXT',
+    'video_ref_asset_id TEXT',
+    'video_ref_name TEXT',
+  ]) {
+    try { raw.exec(`ALTER TABLE drama_shots ADD COLUMN ${col}`) } catch {}
+  }
+
   // Migration: add content_type column to drama_projects
   try { raw.exec("ALTER TABLE drama_projects ADD COLUMN content_type TEXT DEFAULT 'microdrama'") } catch {}
 
@@ -505,6 +528,9 @@ export function runMigrations() {
   // Migration: add is_archived column for archiving assets
   try { raw.exec('ALTER TABLE assets ADD COLUMN is_archived INTEGER DEFAULT 0') } catch {}
   try { raw.exec('CREATE INDEX IF NOT EXISTS idx_assets_archived ON assets(is_archived)') } catch {}
+
+  // Migration: provider that generated the asset (kie, fal, higgsfield, ...)
+  try { raw.exec("ALTER TABLE assets ADD COLUMN provider TEXT DEFAULT ''") } catch {}
 
   // Drama indexes
   try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_characters_proj ON drama_characters(project_id)') } catch {}
@@ -548,7 +574,79 @@ export function runMigrations() {
         for (const row of paramRows) { try { scanForRefIds(row.parameters) } catch {} }
         const payloadRows = raw.all("SELECT payload FROM tasks WHERE payload IS NOT NULL") as any[]
         for (const row of payloadRows) { try { scanForRefIds(row.payload) } catch {} }
-        const now = Date.now()
+  // ─── One-time DB slim: legacy rows persisted base64 media inside payloads.
+  // Media now lives as binary files under the assets folders; the DB only
+  // stores asset IDs. Strip any base64 that leaked into stored JSON.
+  try {
+    const slimDone = raw.prepare("SELECT value FROM settings WHERE key = 'dbSlimBase64V1Done'").get() as any
+    if (!slimDone) {
+      console.log('[DB] Slimming legacy base64 payloads (one-time)...')
+      const payloadTables: Array<[string, string]> = [
+        ['tasks', 'task_id'],
+        ['openfield_tasks', 'task_id'],
+        ['replicate_tasks', 'task_id'],
+        ['fal_tasks', 'task_id'],
+        ['machgen_tasks', 'task_id'],
+        ['higgsfield_tasks', 'task_id'],
+        ['run_logs', 'id'],
+      ]
+      let slimmed = 0
+      for (const [table, idCol] of payloadTables) {
+        try {
+          const ids = raw.prepare(`SELECT ${idCol} AS rid FROM ${table} WHERE payload IS NOT NULL AND payload != ''`).all() as any[]
+          for (const row of ids) {
+            try {
+              const cur = raw.prepare(`SELECT payload FROM ${table} WHERE ${idCol} = ?`).get(row.rid) as any
+              if (!cur?.payload) continue
+              const parsed = JSON.parse(cur.payload)
+              const before = JSON.stringify(parsed)
+              const after = JSON.stringify(redactPayload(parsed))
+              if (after !== before) {
+                raw.prepare(`UPDATE ${table} SET payload = ? WHERE ${idCol} = ?`).run(after, row.rid)
+                slimmed++
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+      try {
+        const assetIds = raw.prepare("SELECT id FROM assets WHERE parameters IS NOT NULL AND parameters != ''").all() as any[]
+        for (const row of assetIds) {
+          try {
+            const cur = raw.prepare('SELECT parameters FROM assets WHERE id = ?').get(row.id) as any
+            if (!cur?.parameters) continue
+            const parsed = JSON.parse(cur.parameters)
+            const before = JSON.stringify(parsed)
+            const after = JSON.stringify(redactPayload(parsed))
+            if (after !== before) {
+              raw.prepare('UPDATE assets SET parameters = ? WHERE id = ?').run(after, row.id)
+              slimmed++
+            }
+          } catch {}
+        }
+      } catch {}
+      raw.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('dbSlimBase64V1Done', '1', ?)").run(Date.now())
+      console.log(`[DB] Slimmed ${slimmed} rows containing base64 payloads`)
+    }
+  } catch (err: any) {
+    console.warn('[DB] Base64 slim migration failed:', err?.message)
+  }
+
+  // ─── One-time VACUUM: reclaim the disk space freed by the slim migration ───
+  try {
+    const vacuumDone = raw.prepare("SELECT value FROM settings WHERE key = 'dbVacuumV1Done'").get() as any
+    if (!vacuumDone) {
+      console.log('[DB] Reclaiming disk space (VACUUM, one-time — may take a minute)...')
+      raw.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+      raw.exec('VACUUM')
+      raw.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('dbVacuumV1Done', '1', ?)").run(Date.now())
+      console.log('[DB] VACUUM complete')
+    }
+  } catch (err: any) {
+    console.warn('[DB] VACUUM failed:', err?.message)
+  }
+
+  const now = Date.now()
         for (const id of refIds) {
           raw.prepare("UPDATE assets SET model_used = 'ref', updated_at = ? WHERE id = ? AND model_used = 'upload'").run(now, id)
         }
@@ -727,9 +825,94 @@ export function runMigrations() {
       console.warn('[DB] Tasks unification migration warning:', err?.message)
     }
 
+  // Placeholders of tasks that already failed/cancelled but never got marked (e.g. a failure
+  // path whose cleanup errored) show as "generating" forever: turn them into error cards.
+  try {
+    raw.prepare(`
+      UPDATE assets SET
+        file_path = '__error__:' || COALESCE(NULLIF((SELECT t.error_message FROM tasks t WHERE t.task_id = assets.task_id), ''), 'Generation failed'),
+        updated_at = ?
+      WHERE (file_path IS NULL OR file_path = '') AND (local_path IS NULL OR local_path = '')
+        AND task_id IN (SELECT task_id FROM tasks WHERE status IN ('failed', 'cancelled'))
+    `).run(Date.now())
+  } catch (err: any) {
+    console.warn('[DB] Failed-placeholder cleanup warning:', err?.message)
+  }
+
+  // Backfill assets.provider for rows created before the column existed (one-time)
+  try {
+    const providerDone = raw.prepare("SELECT value FROM settings WHERE key = 'assetsProviderV1Done'").get() as any
+    if (!providerDone) {
+      // Generated assets: the owning task knows its provider ('openfield' is the KIE queue)
+      raw.exec(`
+        UPDATE assets SET provider = (
+          SELECT CASE t.provider WHEN 'openfield' THEN 'kie' ELSE t.provider END
+          FROM tasks t WHERE t.task_id = assets.task_id
+        )
+        WHERE (provider IS NULL OR provider = '') AND task_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM tasks t WHERE t.task_id = assets.task_id)
+      `)
+      // Local voice engines and ElevenLabs are encoded in model_used
+      raw.exec(`
+        UPDATE assets SET provider = CASE
+          WHEN model_used LIKE 'elevenlabs:%' THEN 'elevenlabs'
+          WHEN model_used LIKE 'piper:%' OR model_used LIKE 'kokoro:%' THEN 'local'
+          ELSE provider END
+        WHERE provider IS NULL OR provider = ''
+      `)
+      raw.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('assetsProviderV1Done', '1', ?)").run(Date.now())
+    }
+  } catch (err: any) {
+    console.warn('[DB] Assets provider backfill warning:', err?.message)
+  }
+
+  // Backfill the generation time of completed assets whose queue never recorded it (one-time).
+  // Same wall-clock start → completion figure the task-completed hook stamps on new assets;
+  // runs in SQL so no parameters payload is loaded into memory.
+  try {
+    const genTimeDone = raw.prepare("SELECT value FROM settings WHERE key = 'assetsGenTimeV1Done'").get() as any
+    if (!genTimeDone) {
+      raw.exec(`
+        UPDATE assets SET parameters = json_set(
+            CASE WHEN json_valid(assets.parameters) THEN assets.parameters ELSE '{}' END,
+            '$.generationTimeSeconds', t.secs,
+            '$.generationTimeMs', t.ms,
+            '$.generationTime', CASE WHEN t.secs = CAST(t.secs AS INTEGER) THEN CAST(CAST(t.secs AS INTEGER) AS TEXT) ELSE CAST(t.secs AS TEXT) END || 's'
+          )
+        FROM (
+          SELECT task_id, completed_at - COALESCE(started_at, created_at) AS ms,
+                 round((completed_at - COALESCE(started_at, created_at)) / 1000.0, 1) AS secs
+          FROM tasks
+          WHERE status = 'completed' AND completed_at IS NOT NULL
+            AND completed_at > COALESCE(started_at, created_at)
+            AND completed_at - COALESCE(started_at, created_at) <= ${MAX_GEN_TIME_MS}
+        ) AS t
+        WHERE assets.task_id = t.task_id
+          AND (assets.file_path NOT LIKE '__error__%' OR assets.file_path IS NULL)
+          AND CASE
+            WHEN assets.parameters IS NULL OR assets.parameters = '' THEN 1
+            WHEN json_valid(assets.parameters) THEN
+              json_extract(assets.parameters, '$.generationTime') IS NULL
+              AND json_extract(assets.parameters, '$.generationTimeSeconds') IS NULL
+              AND json_extract(assets.parameters, '$.costTime') IS NULL
+            ELSE 0 -- unparseable parameters are left untouched
+          END
+      `)
+      raw.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('assetsGenTimeV1Done', '1', ?)").run(Date.now())
+    }
+  } catch (err: any) {
+    console.warn('[DB] Generation time backfill warning:', err?.message)
+  }
+
   // Migration: image default aspect is now 1:1 (videos stay 16:9)
   try { raw.exec("UPDATE storyboards SET default_aspect_ratio = '1:1' WHERE default_aspect_ratio = '16:9'") } catch {}
   try { raw.exec("UPDATE storyboard_scenes SET aspect_ratio = '1:1' WHERE aspect_ratio = '16:9' AND image_asset_id IS NULL AND video_asset_id IS NULL") } catch {}
+
+  // Ensure elements table has asset columns
+  const elementCols = ['image_asset_id', 'pose_asset_id', 'video_asset_id', 'hdri_asset_id', 'reference_asset_ids']
+  for (const col of elementCols) {
+    try { raw.exec(`ALTER TABLE elements ADD COLUMN ${col} TEXT DEFAULT ''`) } catch {}
+  }
 
   const now = Date.now()
   const seed = raw.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)')

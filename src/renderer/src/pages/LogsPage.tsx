@@ -38,10 +38,10 @@ export function LogsPage() {
 
   const stepBadge = (step: string) => {
     const colors: Record<string, string> = {
-      error: 'bg-red-500/10 text-red-400',
-      completed: 'bg-green-500/10 text-green-400',
-      'api-request': 'bg-yellow-500/10 text-yellow-400',
-      'api-response': 'bg-blue-500/10 text-blue-400',
+      error: 'bg-red-500/10 text-red-600 dark:text-red-400',
+      completed: 'bg-green-500/10 text-green-700 dark:text-green-400',
+      'api-request': 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400',
+      'api-response': 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
     }
     return `text-[10px] px-1.5 py-0.5 rounded font-medium ${colors[step] || 'bg-surface-800 text-surface-400'}`
   }
@@ -59,7 +59,7 @@ export function LogsPage() {
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
           </button>
           <button onClick={async () => { await (window as any).electronAPI?.logs.clear(); setLogs([]) }}
-            className="btn-ghost text-xs text-red-400 flex items-center gap-1.5">
+            className="btn-ghost text-xs text-red-600 dark:text-red-400 flex items-center gap-1.5">
             <Trash2 size={12} /> Clear
           </button>
         </div>
@@ -100,7 +100,7 @@ export function LogsPage() {
                     <span className="text-[10px] text-surface-600">
                       {new Date(entries[0]?.createdAt).toLocaleTimeString()}
                     </span>
-                    {isError && <span className="text-[10px] text-red-400 truncate">{last?.message}</span>}
+                    {isError && <span className="text-[10px] text-red-600 dark:text-red-400 truncate">{last?.message}</span>}
                   </div>
                 </div>
               </div>
@@ -131,8 +131,8 @@ export function LogsPage() {
       {/* Detail sheet */}
       {selected && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setSelected(null)} />
-          <div className="relative w-[480px] h-full bg-surface-950/80 backdrop-blur-sm border-l border-surface-800 shadow-2xl overflow-y-auto">
+          <div className="modal-scrim" onClick={() => setSelected(null)} />
+          <div className="relative w-[480px] h-full bg-surface-950/80 backdrop-blur-sm border-l border-surface-800 shadow-float overflow-y-auto">
             <div className="sticky top-0 bg-surface-950/80 backdrop-blur-sm border-b border-surface-800 px-6 py-4 flex items-center justify-between z-10">
               <h2 className="text-sm font-semibold text-surface-100">Log Detail</h2>
               <button onClick={() => setSelected(null)} className="text-surface-500 hover:text-surface-100">
@@ -141,24 +141,24 @@ export function LogsPage() {
             </div>
             <div className="p-6 space-y-3">
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Step</p>
+                <p className="eyebrow mb-1">Step</p>
                 <p className={`${stepBadge(selected.step)} inline-block`}>{selected.step}</p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Timestamp</p>
+                <p className="eyebrow mb-1">Timestamp</p>
                 <p className="text-sm text-surface-200">{new Date(selected.createdAt).toLocaleString()}</p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Task ID</p>
+                <p className="eyebrow mb-1">Task ID</p>
                 <p className="text-xs font-mono text-surface-400">{selected.taskId || '—'}</p>
               </div>
               <div>
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Message</p>
+                <p className="eyebrow mb-1">Message</p>
                 <p className="text-sm text-surface-200">{selected.message}</p>
               </div>
               {selected.payload && (
                 <div>
-                  <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Payload</p>
+                  <p className="eyebrow mb-1">Payload</p>
                   <pre className="text-xs text-surface-300 bg-surface-900 rounded-lg p-3 overflow-x-auto border border-surface-800">
                     {typeof selected.payload === 'string' ? selected.payload : JSON.stringify(selected.payload, null, 2)}
                   </pre>

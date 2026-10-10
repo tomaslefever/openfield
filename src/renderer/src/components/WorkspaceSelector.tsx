@@ -23,7 +23,7 @@ export function WorkspaceSelector({ collapsed }: { collapsed: boolean }) {
           <img
             src={srcUrl(active.lastImageUrl)}
             alt=""
-            className="size-9 shrink-0 rounded-lg object-cover ring-1 ring-white/10 group-hover:opacity-20 transition-opacity"
+            className="size-9 shrink-0 rounded-lg object-cover ring-1 ring-ink/10 group-hover:opacity-20 transition-opacity"
           />
         ) : (
           <span
@@ -51,7 +51,7 @@ export function WorkspaceSelector({ collapsed }: { collapsed: boolean }) {
           <img
             src={srcUrl(active.lastImageUrl)}
             alt=""
-            className="size-8 rounded-lg object-cover ring-1 ring-white/10 transition-opacity"
+            className="size-8 rounded-lg object-cover ring-1 ring-ink/10 transition-opacity"
           />
         ) : (
           <span

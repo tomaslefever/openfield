@@ -4,20 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { ProviderLogo } from './icons/ProviderLogos'
+import type { ProviderId } from '../stores/providers-store'
 
 interface ProviderStatus {
-  provider:
-    | 'kie'
-    | 'replicate'
-    | 'fal'
-    | 'elevenlabs'
-    | 'machgen'
-    | 'higgsfield'
-    | 'deepseek'
-    | 'openai'
-    | 'anthropic'
-    | 'gemini'
-    | 'openrouter'
+  provider: ProviderId
   label: string
   kind: 'credits' | 'account' | 'dollars' | 'token'
   value?: number | string
@@ -38,6 +28,16 @@ interface ProviderDef {
 const PROVIDERS: ProviderDef[] = [
   // Generación Audiovisual
   {
+    id: 'apimart',
+    label: 'APIMart',
+    description: 'Gateway multi-modelo: GPT Image, Kling, Seedance, Sora, VEO3 y más',
+    icon: <ProviderLogo provider="apimart" size={18} />,
+    keyName: 'apimartApiKey',
+    keyPlaceholder: 'sk-... (APIMart API key)',
+    helperUrl: 'https://apimart.ai/keys',
+    category: 'media',
+  },
+  {
     id: 'machgen',
     label: 'MachGen',
     description: 'Dollar balance via MachGen API',
@@ -50,10 +50,10 @@ const PROVIDERS: ProviderDef[] = [
   {
     id: 'higgsfield',
     label: 'Higgsfield AI',
-    description: 'Seedance 2.0 via Higgsfield API',
+    description: 'Seedance 2.5 / Kling / Wan / MiniMax via Higgsfield',
     icon: <ProviderLogo provider="higgsfield" size={18} />,
     keyName: 'higgsfieldApiKey',
-    keyPlaceholder: 'KEY_ID:KEY_SECRET (Higgsfield key)',
+    keyPlaceholder: 'KEY_ID:KEY_SECRET o API Key (console.higgsfield.ai)',
     helperUrl: 'https://console.higgsfield.ai',
     category: 'media',
   },
@@ -234,7 +234,7 @@ export function ProvidersSection() {
     const status = statuses[p.id]
     const statusText = formatStatus(status)
     return (
-      <Card key={p.id} className="bg-surface-900 border-surface-800">
+      <Card key={p.id} className="bg-surface-900 border-surface-800 rounded-2xl shadow-none">
         <CardContent className="p-4 flex flex-col gap-3">
           <div className="flex items-center gap-2.5">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-950 border border-surface-700/60 p-1 shadow-sm">
@@ -245,7 +245,7 @@ export function ProvidersSection() {
               <p className="text-[10px] text-surface-500 truncate">{p.description}</p>
             </div>
             {configured ? (
-              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
                 <Check size={10} /> Connected
               </span>
             ) : (
@@ -272,7 +272,7 @@ export function ProvidersSection() {
                 className="h-8 text-xs bg-surface-950 border-surface-700"
                 autoFocus
               />
-              {error && <p className="text-[10px] text-red-400">{error}</p>}
+              {error && <p className="text-[10px] text-red-600 dark:text-red-400">{error}</p>}
               <div className="flex items-center gap-1.5">
                 <Button
                   size="sm"
@@ -307,7 +307,7 @@ export function ProvidersSection() {
                 size="sm"
                 variant="ghost"
                 onClick={() => handleRemove(p)}
-                className="h-7 text-xs text-surface-500 hover:text-red-400"
+                className="h-7 text-xs text-surface-500 hover:text-red-600 dark:hover:text-red-400"
               >
                 Disconnect
               </Button>
@@ -352,7 +352,7 @@ export function ProvidersSection() {
       {/* Modelos de Lenguaje (LLM) */}
       <div className="pt-4 border-t border-surface-800">
         <div className="flex items-center gap-2 mb-3">
-          <Bot size={16} className="text-purple-400" />
+          <Bot size={16} className="text-purple-600 dark:text-purple-400" />
           <div>
             <h2 className="text-sm font-semibold text-surface-100">Modelos de Lenguaje (LLM)</h2>
             <p className="text-[11px] text-surface-500">DeepSeek, OpenAI, Anthropic y Google Gemini para guiones y prompts.</p>

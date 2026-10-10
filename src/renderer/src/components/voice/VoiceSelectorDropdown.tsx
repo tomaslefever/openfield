@@ -282,7 +282,7 @@ export function VoiceSelectorDropdown({
             </span>
           )}
           {selectedVoice?.provider === 'elevenlabs' && (
-            <span className="text-[9px] font-semibold text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/20 hidden md:inline flex-shrink-0">
+            <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/20 hidden md:inline flex-shrink-0">
               11Labs
             </span>
           )}
@@ -297,7 +297,7 @@ export function VoiceSelectorDropdown({
       {/* Dropdown Menu */}
       {isOpen && (
         <div
-          className={`absolute z-50 w-72 md:w-80 bg-surface-900 border border-surface-700 rounded-xl shadow-2xl overflow-hidden flex flex-col ${
+          className={`absolute z-50 w-72 md:w-80 popover-surface rounded-2xl overflow-hidden flex flex-col ${
             dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
           } right-0`}
           style={{ maxHeight: '340px' }}
@@ -325,7 +325,7 @@ export function VoiceSelectorDropdown({
               onClick={() => fetchVoices(true)}
               disabled={isLoading || isSearchingApi}
               title="Recargar voces desde ElevenLabs"
-              className="p-1.5 rounded-lg bg-surface-800 hover:bg-surface-700 text-surface-400 hover:text-surface-200 transition-colors"
+              className="p-1.5 rounded-full bg-surface-800 hover:bg-surface-700 text-surface-400 hover:text-surface-200 transition-colors"
             >
               <RefreshCw size={12} className={isLoading ? 'animate-spin text-accent-400' : ''} />
             </button>
@@ -342,7 +342,7 @@ export function VoiceSelectorDropdown({
             {/* ElevenLabs Group */}
             {elevenlabsList.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-[10px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center justify-between">
+                <div className="px-2 py-1 eyebrow text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
                   <span>Voces ElevenLabs ({elevenlabsList.length})</span>
                   <span className="text-[9px] text-surface-500 font-normal">HD TTS</span>
                 </div>
@@ -387,7 +387,7 @@ export function VoiceSelectorDropdown({
                             title={isPlaying ? 'Pausar audio de muestra' : 'Escuchar muestra de voz'}
                             className={`p-1.5 rounded-full flex-shrink-0 transition-colors ${
                               isPlaying
-                                ? 'bg-accent-500 text-white'
+                                ? 'bg-accent-500 text-on-accent'
                                 : 'bg-surface-800 hover:bg-accent-600/30 text-surface-400 hover:text-accent-300'
                             }`}
                           >
@@ -404,7 +404,7 @@ export function VoiceSelectorDropdown({
             {/* KIE / Standard Presets Group */}
             {kieList.length > 0 && (
               <div className="pt-1 border-t border-surface-800/80">
-                <div className="px-2 py-1 text-[10px] font-semibold text-surface-400 uppercase tracking-wider">
+                <div className="px-2 py-1 eyebrow">
                   Voces Predefinidas KIE ({kieList.length})
                 </div>
 

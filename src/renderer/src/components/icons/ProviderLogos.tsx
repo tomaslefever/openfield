@@ -321,9 +321,48 @@ export interface ProviderLogoComponentProps {
   className?: string
 }
 
+/**
+ * APIMart Official Logo (Neural AI Gateway A)
+ */
+export function ApimartLogo({ size = 16, className = '', ...props }: ProviderLogoProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      className={`shrink-0 ${className}`}
+      {...props}
+    >
+      <rect width="24" height="24" rx="5.5" fill="url(#apimart-grad)" />
+      <path
+        d="M7 17.5L12 6.5L17 17.5"
+        stroke="#ffffff"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8.5 14H15.5"
+        stroke="#ffffff"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="6.5" r="1.6" fill="#38bdf8" />
+      <defs>
+        <linearGradient id="apimart-grad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#6366f1" />
+          <stop offset="1" stopColor="#06b6d4" />
+        </linearGradient>
+      </defs>
+    </svg>
+  )
+}
+
 export function ProviderLogo({ provider, size = 16, className = '' }: ProviderLogoComponentProps) {
   const norm = (provider || 'kie').toLowerCase()
 
+  if (norm === 'apimart') return <ApimartLogo size={size} className={className} />
   if (norm === 'replicate') return <ReplicateLogo size={size} className={className} />
   if (norm === 'fal') return <FalLogo size={size} className={className} />
   if (norm === 'elevenlabs') return <ElevenLabsLogo size={size} className={className} />

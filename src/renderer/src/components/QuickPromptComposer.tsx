@@ -15,6 +15,7 @@ const IMAGE_GEN_MODELS: ImageModelOption[] = [
   { id: 'gpt-image-2-text-to-image', name: 'GPT Image 2', category: 'OpenAI' },
   { id: 'gpt-image-2-image-to-image', name: 'GPT Image 2 I2I', category: 'OpenAI' },
   { id: 'nano-banana-2', name: 'Nano Banana 2', category: 'Google' },
+  { id: 'nano-banana-2-1', name: 'Nano Banana 2.1', category: 'Google' },
   { id: 'nano-banana-2-lite', name: 'Nano Banana 2 Lite', category: 'Google' },
   { id: 'seedream-5-pro-text-to-image', name: 'Seedream 5 Pro', category: 'Seedream' },
   { id: 'seedream-5-pro-image-to-image', name: 'Seedream 5 Pro I2I', category: 'Seedream' },
@@ -43,6 +44,8 @@ interface QuickPromptComposerProps {
   resolutionLocked?: boolean
   promptLocked?: boolean
   styleSuffix?: string
+  /** Header label, e.g. the slot being generated */
+  title?: string
   onGenerated: (result: QuickPromptComposerResult) => void
   onTaskCreated?: (taskId: string) => void
   onClose: () => void
@@ -72,6 +75,7 @@ export function QuickPromptComposer({
   resolutionLocked = false,
   promptLocked = false,
   styleSuffix = '',
+  title = 'Quick Generate',
   onGenerated,
   onTaskCreated,
   onClose,
@@ -206,11 +210,50 @@ export function QuickPromptComposer({
     setShowInsertMenu(false)
   }
 
+  const handleInsertLibraryOpen = () => {
+    setShowInsertMenu(false)
+    setShowInsertLibrary(true)
+  }
+
+  const handleInsertLibrarySelect = async (assetOrAssets: any | any[]) => {
+    const assets = Array.isArray(assetOrAssets) ? assetOrAssets : [assetOrAssets]
+    if (assets.length === 0) return
+    try {
+      const api = (window as any).electronAPI
+      const results = await api?.assets.readBase64(assets.map((a: any) => (typeof a === 'string' ? a : a?.id)))
+      if (Array.isArray(results)) {
+        const newRefs = results
+          .filter((r: any) => r?.base64)
+          .map((r: any, idx: number) => ({
+            base64: r.base64,
+            mime: r.mime || (assets[idx]?.type === 'video' ? 'video/mp4' : assets[idx]?.type === 'audio' ? 'audio/mpeg' : 'image/png')
+          }))
+        if (newRefs.length > 0) {
+          setExtRefs(prev => [...prev, ...newRefs])
+        }
+      }
+    } catch { /* ignore */ }
+    setShowInsertLibrary(false)
+  }
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     dragCounter.current = 0
     setDragOver(false)
+
+    // Check openfield assets
+    const assetsJson = e.dataTransfer?.getData('application/x-openfield-assets')
+    const assetJson = e.dataTransfer?.getData('application/x-openfield-asset')
+    if (assetsJson || assetJson) {
+      try {
+        const raw = assetsJson ? JSON.parse(assetsJson) : [JSON.parse(assetJson)]
+        const assetsList = Array.isArray(raw) ? raw : [raw]
+        await handleInsertLibrarySelect(assetsList)
+        return
+      } catch {}
+    }
+
     const files = e.dataTransfer?.files
     if (!files) return
     for (let i = 0; i < files.length; i++) {
@@ -225,32 +268,6 @@ export function QuickPromptComposer({
 
   const removeExtRef = (i: number) => {
     setExtRefs(prev => prev.filter((_, j) => j !== i))
-  }
-
-  const handleInsertLibraryOpen = () => {
-    setShowInsertMenu(false)
-    setShowInsertLibrary(true)
-  }
-
-  const handleInsertLibrarySelect = async (assetOrAssets: any | any[]) => {
-    const assets = Array.isArray(assetOrAssets) ? assetOrAssets : [assetOrAssets]
-    if (assets.length === 0) return
-    try {
-      const api = (window as any).electronAPI
-      const results = await api?.assets.readBase64(assets.map((a: any) => a.id))
-      if (Array.isArray(results)) {
-        const newRefs = results
-          .filter((r: any) => r?.base64)
-          .map((r: any, idx: number) => ({
-            base64: r.base64,
-            mime: r.mime || (assets[idx]?.type === 'video' ? 'video/mp4' : assets[idx]?.type === 'audio' ? 'audio/mpeg' : 'image/png')
-          }))
-        if (newRefs.length > 0) {
-          setExtRefs(prev => [...prev, ...newRefs])
-        }
-      }
-    } catch { /* ignore */ }
-    setShowInsertLibrary(false)
   }
 
   const handleGenerate = async () => {
@@ -287,10 +304,12 @@ export function QuickPromptComposer({
         if (!mountedRef.current) return
         ;(async () => {
           try {
-            const results = await api.assets.readBase64([data.asset?.id])
+            // Task queues report `assetId`; older payloads nested it as `asset.id`
+            const assetId = data.assetId ?? data.asset?.id
+            const results = assetId ? await api.assets.readBase64([assetId]) : []
             const b64 = results?.[0]?.base64 || ''
-              if (b64 && mountedRef.current) {
-              onGenerated({ base64: b64, prompt: promptWithStyle, model, taskId, assetId: data.asset?.id || taskId })
+            if (b64 && mountedRef.current) {
+              onGenerated({ base64: b64, prompt: promptWithStyle, model, taskId, assetId: assetId || taskId })
             }
           } catch { /* ignore */ }
           setGenerating(false)
@@ -328,7 +347,7 @@ export function QuickPromptComposer({
     <div className="fixed inset-0 z-50" onClick={onClose}>
       <div
         ref={popoverRef}
-        className={`absolute left-1/2 top-1/3 -translate-x-1/2 bg-surface-900 border rounded-2xl shadow-2xl shadow-black/40 w-[420px] transition-colors ${dragOver ? 'border-accent-500/60' : 'border-surface-700/60'}`}
+        className={`absolute left-1/2 top-1/3 -translate-x-1/2 bg-canvas border rounded-block shadow-float w-[420px] transition-colors ${dragOver ? 'border-accent-500/60' : 'border-hairline'}`}
         onClick={(e) => e.stopPropagation()}
         onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); dragCounter.current++; setDragOver(true) }}
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
@@ -341,7 +360,7 @@ export function QuickPromptComposer({
             <div className="w-5 h-5 bg-accent-500/10 rounded-md flex items-center justify-center">
               <Sparkles size={10} className="text-accent-400" />
             </div>
-            <span className="text-[12px] font-medium text-surface-300">Quick Generate</span>
+            <span className="text-[12px] font-medium text-surface-300">{title}</span>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -400,7 +419,7 @@ export function QuickPromptComposer({
                 <Plus size={10} />
               </button>
               {showInsertMenu && (
-                <div className="absolute top-full left-0 mt-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[190px] shadow-xl z-50">
+                <div className="absolute top-full left-0 mt-1.5 popover-surface rounded-2xl py-1 min-w-[190px] z-50">
                   <button onClick={handleInsertLibraryOpen}
                     className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 text-surface-300 hover:bg-surface-700/50 transition-colors">
                     <Library size={12} className="text-accent-400" /> Insert from library
@@ -445,7 +464,7 @@ export function QuickPromptComposer({
             )}
             {/* @-mention dropdown */}
             {atOpen && !promptLocked && (
-              <div className="absolute left-2 bottom-full mb-1 bg-surface-800 border border-surface-700 rounded-lg py-1 min-w-[180px] max-h-[200px] overflow-y-auto shadow-xl z-50">
+              <div className="absolute left-2 bottom-full mb-1 popover-surface rounded-2xl py-1 min-w-[180px] max-h-[200px] overflow-y-auto z-50">
                 {filteredElements.length === 0 ? (
                   <p className="px-3 py-2 text-[11px] text-surface-500">
                     {elements.length === 0 ? 'No elements created yet' : 'No matching elements'}
@@ -470,7 +489,7 @@ export function QuickPromptComposer({
           <button
             onClick={handleGenerate}
             disabled={!fullPrompt || generating}
-            className="flex-shrink-0 w-8 h-8 bg-accent-600 hover:bg-accent-500 disabled:bg-surface-700 disabled:text-surface-600 text-white rounded-xl flex items-center justify-center transition-colors"
+            className="flex-shrink-0 w-8 h-8 bg-accent-600 hover:bg-accent-500 disabled:bg-surface-700 disabled:text-surface-600 text-on-accent rounded-full flex items-center justify-center transition-colors"
           >
             {generating ? (
               <RefreshCw size={14} className="animate-spin" />
@@ -487,12 +506,12 @@ export function QuickPromptComposer({
           <div className="relative">
             <button
               onClick={() => setModelOpen(!modelOpen)}
-              className="flex items-center gap-1 px-2 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-lg text-[11px] font-medium text-surface-400 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 bg-surface-800/80 hover:bg-surface-700/80 rounded-pill text-[11px] font-medium text-surface-400 transition-colors"
             >
               <Wand2 size={10} /> {selectedModel?.name} <ChevronDown size={10} />
             </button>
             {modelOpen && (
-              <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[200px] shadow-xl max-h-[190px] overflow-y-auto z-50">
+              <div className="absolute bottom-full left-0 mb-1.5 popover-surface rounded-2xl py-1 min-w-[200px] max-h-[190px] overflow-y-auto z-50">
                 {IMAGE_GEN_MODELS.map((m) => (
                   <button
                     key={m.id}
@@ -514,7 +533,7 @@ export function QuickPromptComposer({
           <div className="relative">
             <button
               onClick={() => !aspectRatioLocked && setArOpen(!arOpen)}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-pill text-[11px] font-medium transition-colors ${
                 aspectRatioLocked
                   ? 'bg-surface-800/40 text-surface-600 cursor-not-allowed'
                   : 'bg-surface-800/80 hover:bg-surface-700/80 text-surface-400'
@@ -523,7 +542,7 @@ export function QuickPromptComposer({
               {ar} {!aspectRatioLocked && <ChevronDown size={10} />}
             </button>
             {arOpen && !aspectRatioLocked && (
-              <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-lg py-1 shadow-xl z-50 max-h-[165px] overflow-y-auto">
+              <div className="absolute bottom-full left-0 mb-1.5 popover-surface rounded-2xl py-1 z-50 max-h-[165px] overflow-y-auto">
                 {ASPECT_RATIOS.map((r) => (
                   <button
                     key={r}
@@ -542,7 +561,7 @@ export function QuickPromptComposer({
           <div className="relative">
             <button
               onClick={() => !resolutionLocked && setResOpen(!resOpen)}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-pill text-[11px] font-medium transition-colors ${
                 resolutionLocked
                   ? 'bg-surface-800/40 text-surface-600 cursor-not-allowed'
                   : 'bg-surface-800/80 hover:bg-surface-700/80 text-surface-400'
@@ -551,7 +570,7 @@ export function QuickPromptComposer({
               {res} {!resolutionLocked && <ChevronDown size={10} />}
             </button>
             {resOpen && !resolutionLocked && (
-              <div className="absolute bottom-full left-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-lg py-1 shadow-xl z-50 max-h-[120px] overflow-y-auto">
+              <div className="absolute bottom-full left-0 mb-1.5 popover-surface rounded-2xl py-1 z-50 max-h-[120px] overflow-y-auto">
                 {['1K', '2K', '4K'].map((r) => (
                   <button
                     key={r}

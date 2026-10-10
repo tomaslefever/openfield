@@ -4,9 +4,12 @@ import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './
 import * as crypto from 'crypto'
 import * as fs from 'fs/promises'
 import { OpenfieldApiClient } from './kie'
-import { ensurePlayableVideo, ensureImageWebp, getAssetManager } from './asset-manager'
+import { ensurePlayableVideo, ensureImageWebp } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
+import { redactPayload } from './payload-redact'
+import { persistMediaToAssets, hydratePayloadMedia } from './media-persist'
 import * as path from 'path'
+import { registerRecoverableProvider, readApiKey, canAutoResume, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
 
 export function extractUrls(resultJson: any): string[] {
   if (!resultJson) return []
@@ -144,20 +147,20 @@ function buildStoredParams(taskPayload: any, raw: any, taskId: string, extraPara
       }
     }
   } catch {}
-  return JSON.stringify(base)
+  return JSON.stringify(redactPayload(base))
 }
 
 function logRun(raw: any, taskId: string, step: string, message: string, payload?: any, level = 'info', workspaceId?: string) {
   try {
     const ws = workspaceId || getTaskWorkspace(taskId)
     raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(stripForStorage(payload)) : null, ws, Date.now())
+      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(redactPayload(payload)) : null, ws, Date.now())
   } catch {}
 }
 
-export class TaskQueue extends EventEmitter {
+export class TaskQueue extends EventEmitter implements RecoverableQueue {
   private apiClient: OpenfieldApiClient
-  private processing = new Set<string>()
+  readonly processing = new Set<string>()
   private coolingDown = new Set<string>()
   private maxConcurrent = 3
 
@@ -176,35 +179,11 @@ export class TaskQueue extends EventEmitter {
     const now = Date.now()
     const wsId = getActiveWorkspaceId()
 
-    // Save reference images to disk as binary assets (so parameters only store asset IDs)
-    const enrichedPayload = { ...payload }
-    try {
-      const am = getAssetManager()
-      if (enrichedPayload.imageBase64 && typeof enrichedPayload.imageBase64 === 'string' && enrichedPayload.imageBase64.length > 100) {
-        const r = await am.importBase64(enrichedPayload.imageBase64, enrichedPayload.imageMime || 'image/png', 'input_image.png', { modelUsed: 'ref', workspaceId: wsId })
-        enrichedPayload.imageAssetId = r.id
-      }
-      if (enrichedPayload.imageRefs && Array.isArray(enrichedPayload.imageRefs)) {
-        enrichedPayload.imageRefs = await Promise.all(enrichedPayload.imageRefs.map(async (r: any) => {
-          if (r.base64 && r.base64.length > 100) {
-            const a = await am.importBase64(r.base64, r.mime || 'image/png', r.name || 'ref.png', { modelUsed: 'ref', workspaceId: wsId })
-            return { ...r, assetId: a.id }
-          }
-          return r
-        }))
-      }
-      if (enrichedPayload.firstFrameBase64 && typeof enrichedPayload.firstFrameBase64 === 'string' && enrichedPayload.firstFrameBase64.length > 100) {
-        const r = await am.importBase64(enrichedPayload.firstFrameBase64, 'image/png', 'firstframe.png', { modelUsed: 'ref', workspaceId: wsId })
-        enrichedPayload.firstFrameAssetId = r.id
-      }
-      if (enrichedPayload.lastFrameBase64 && typeof enrichedPayload.lastFrameBase64 === 'string' && enrichedPayload.lastFrameBase64.length > 100) {
-        const r = await am.importBase64(enrichedPayload.lastFrameBase64, 'image/png', 'lastframe.png', { modelUsed: 'ref', workspaceId: wsId })
-        enrichedPayload.lastFrameAssetId = r.id
-      }
-    } catch (err) { console.warn('[TaskQueue] Failed to save refs to disk:', err) }
+    // Save reference media to disk as binary assets (so payloads only store asset IDs, never base64)
+    const enrichedPayload = await persistMediaToAssets(payload)
 
-    // Store payloads stripped of large binary data for assets/parameters (keep structure for recreate)
-    const storedPayload = stripForStorage(enrichedPayload)
+    // Store payloads stripped of base64 (keep structure + asset IDs for recreate)
+    const storedPayload = redactPayload(enrichedPayload)
 
     logRun(raw, taskId, 'enqueue', `Task enqueued: type=${type}`, { type, model: payload?.model, prompt: payload?.prompt?.substring(0, 100), hasImage: !!payload?.imageBase64 }, 'info', wsId)
 
@@ -212,16 +191,16 @@ export class TaskQueue extends EventEmitter {
     // disk-backed refs instead of overwriting them with raw base64.
     raw.prepare(
       'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, \'openfield\', ?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'pending', type, JSON.stringify(enrichedPayload), wsId, now, now)
+    ).run(taskId, 'pending', type, JSON.stringify(storedPayload), wsId, now, now)
 
     // Create optimistic placeholder asset immediately
     const assetId = crypto.randomUUID()
     raw.prepare(
-      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, provider, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       assetId, type, '', '', `pending-${taskId}`, type === 'image' ? 'image/png' : type === 'audio' ? 'audio/mpeg' : 'video/mp4',
-      payload?.model || '', payload?.prompt || '', JSON.stringify(storedPayload),
+      payload?.model || '', 'kie', payload?.prompt || '', JSON.stringify(storedPayload),
       0, taskId, wsId, now, now
     )
     raw.save()
@@ -230,7 +209,7 @@ export class TaskQueue extends EventEmitter {
     this.processQueue()
     return taskId
   }
-  private async processQueue() {
+  async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
     const pending = raw.prepare('SELECT * FROM tasks WHERE provider = \'openfield\' AND status = ? ORDER BY created_at ASC').all('pending')
@@ -257,12 +236,16 @@ export class TaskQueue extends EventEmitter {
     try {
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : task.payload
 
+      // Re-hydrate media from binary assets (base64 only lives in memory here)
+      await hydratePayloadMedia(payload)
+
       // If we already have an API task ID (recovery), skip creation and poll directly
       let kieTaskId = task.kieTaskId || task.openfieldTaskId || task.externalId || payload?.kieTaskId
       if (kieTaskId) {
         logRun(raw, task.taskId, 'recovery', `Resuming existing task: ${kieTaskId}`)
       } else {
-        logRun(raw, task.taskId, 'api-request', `Sending to API: model=${payload?.model || 'unknown'}, prompt=${(payload?.prompt || '').substring(0, 100)}, hasImage=${!!payload?.imageBase64}`, payload)
+        const hasAnyImage = Boolean(payload?.imageBase64 || (payload?.imageRefs && payload.imageRefs.length > 0) || payload?.firstFrameBase64 || payload?.imageUrl || payload?.image_url)
+        logRun(raw, task.taskId, 'api-request', `Sending to API: model=${payload?.model || 'unknown'}, prompt=${(payload?.prompt || '').substring(0, 100)}, hasImage=${hasAnyImage}`, payload)
 
         if (task.type === 'image') {
           kieTaskId = await this.apiClient.generateImage(payload || {})
@@ -279,7 +262,7 @@ export class TaskQueue extends EventEmitter {
         // Store KIE task ID in dedicated column and payload for recovery
         payload.kieTaskId = kieTaskId
         raw.prepare('UPDATE tasks SET payload = ?, external_id = ?, openfield_task_id = ? WHERE task_id = ?')
-            .run(JSON.stringify(payload), kieTaskId, kieTaskId, task.taskId)
+            .run(JSON.stringify(redactPayload(payload)), kieTaskId, kieTaskId, task.taskId)
       }
 
       raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), task.taskId)
@@ -431,11 +414,11 @@ export class TaskQueue extends EventEmitter {
           localAssetId = placeholder.id
         } else {
           raw.prepare(
-            `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, file_size, credits_used, task_id, workspace_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, provider, prompt, parameters, file_size, credits_used, task_id, workspace_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             assetId, type, remoteUrl, localPath, fileName, mime,
-            taskPayload?.model || result.model || '',
+            taskPayload?.model || result.model || '', 'kie',
             taskPayload?.prompt || '',
             buildStoredParams(taskPayload, raw, task.taskId, extraParams),
             fileSize,
@@ -544,7 +527,8 @@ export class TaskQueue extends EventEmitter {
       error.message.toLowerCase().includes('incorrect') ||
       error.message.toLowerCase().includes('invalid')
 
-    if (retryCount <= 3 && !isNonRetryable) {
+    // Only resume an accepted job; never resubmit (see canAutoResume)
+    if (retryCount <= 3 && !isNonRetryable && canAutoResume(taskId, error)) {
       raw.prepare('UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
         .run('pending', retryCount, error.message, Date.now(), taskId)
       this.emit('task:retry', { taskId, attempt: retryCount, error: error.message })
@@ -584,6 +568,19 @@ export class TaskQueue extends EventEmitter {
     return this.apiClient.getEstimatedCost(modelId, duration)
   }
 
+  // ─── RecoverableQueue (see task-recovery.ts) ─────────────────
+
+  async checkRemote(_task: any, kieTaskId: string): Promise<RemoteTaskStatus> {
+    const detail = await this.apiClient.getTaskDetail(kieTaskId)
+    if (detail.state === 'success') return { state: 'completed', result: detail }
+    if (detail.state === 'fail') return { state: 'failed', error: detail.failMsg || 'Generation failed' }
+    return { state: 'running', detail: detail.state, progress: detail.progress }
+  }
+
+  async completeRemote(task: any, result: any, kieTaskId: string): Promise<void> {
+    await this.handleSuccess(task, result, kieTaskId)
+  }
+
   async cancelTask(taskId: string) {
     const raw = getRawDb()
     raw.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?').run('cancelled', Date.now(), taskId)
@@ -612,3 +609,8 @@ export function initTaskQueue(apiKey: string): TaskQueue {
   instance = new TaskQueue(apiKey)
   return instance
 }
+
+registerRecoverableProvider('openfield', () => {
+  const key = readApiKey('openfieldApiKey', 'kieApiKey')
+  return key ? getTaskQueue(key) : null
+})

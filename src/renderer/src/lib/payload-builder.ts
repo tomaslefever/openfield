@@ -108,6 +108,8 @@ export function buildVideoPayload(
     firstFrameUrl?: string
     lastFrameAssetId?: string
     lastFrameBase64?: string
+    /** Ingredients: reference images for the reference-to-video endpoint (ignored when a first frame is set) */
+    imageRefs?: Array<{ assetId?: string; base64?: string; url?: string; mime?: string; name?: string; refType?: string }>
     videoRefs?: Array<{ assetId?: string; base64?: string; url?: string; localPath?: string; mime?: string; name?: string; duration?: number }>
     audioAssetId?: string
     audioBase64?: string
@@ -118,10 +120,16 @@ export function buildVideoPayload(
 ): VideoGenerationPayload {
   const hasVideoRefs = Boolean(options?.videoRefs && options.videoRefs.length > 0)
   const hasFirstFrame = Boolean(options?.firstFrameAssetId || options?.firstFrameBase64 || options?.firstFrameUrl)
+  const hasLastFrame = Boolean(options?.lastFrameAssetId || options?.lastFrameBase64)
+  const hasIngredients = !hasFirstFrame && Boolean(options?.imageRefs && options.imageRefs.length > 0)
   const modelId = (hasVideoRefs && model.refId)
     ? model.refId
+    : hasFirstFrame && hasLastFrame && model.fflfId
+    ? model.fflfId
     : hasFirstFrame
     ? (model.i2vId || model.t2vId || model.name)
+    : hasIngredients
+    ? (model.refId || model.i2vId || model.t2vId || model.name)
     : (model.t2vId || model.name)
 
   const payload: VideoGenerationPayload = {
@@ -156,6 +164,10 @@ export function buildVideoPayload(
 
   if (options?.firstFrameUrl) {
     payload.firstFrameUrl = options.firstFrameUrl
+  }
+
+  if (hasIngredients) {
+    payload.imageRefs = options!.imageRefs
   }
 
   if (options?.lastFrameAssetId) {

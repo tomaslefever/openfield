@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { onThemeChange } from '../../lib/theme'
 import { Play, Pause, Scissors } from 'lucide-react'
 import { audioBufferToBase64, formatTime, sliceAudioBuffer } from '../../lib/wav'
 
@@ -64,7 +65,11 @@ export function AudioTrimEditor({ buffer, onChange }: AudioTrimEditorProps) {
     if (!ctx) return
     ctx.scale(dpr, dpr)
 
-    ctx.fillStyle = '#121215'
+    // Theme tokens (RGB channels on <html>, see index.css) so the waveform follows light/dark
+    const rootStyle = getComputedStyle(document.documentElement)
+    const token = (name: string, alpha = 1) => `rgb(${rootStyle.getPropertyValue(`--${name}`).trim()} / ${alpha})`
+
+    ctx.fillStyle = token('surface-soft')
     ctx.fillRect(0, 0, w, h)
 
     const dur = Math.max(0.001, buffer.duration)
@@ -73,26 +78,26 @@ export function AudioTrimEditor({ buffer, onChange }: AudioTrimEditorProps) {
     const endX = toX(end)
 
     // Selected region
-    ctx.fillStyle = 'rgba(99, 102, 241, 0.16)'
+    ctx.fillStyle = token('ink', 0.1)
     ctx.fillRect(startX, 0, endX - startX, h)
 
     // Waveform
     const peaks = peaksRef.current
     const mid = h / 2
-    ctx.fillStyle = '#3f3f46'
+    ctx.fillStyle = token('surface-600')
     for (let i = 0; i < peaks.length; i++) {
       const x = (i / peaks.length) * w
       const amp = Math.max(1, peaks[i] * (h / 2))
       const inRegion = x >= startX && x <= endX
-      if (inRegion) ctx.fillStyle = '#818cf8'
-      else ctx.fillStyle = '#3f3f46'
+      if (inRegion) ctx.fillStyle = token('accent-400')
+      else ctx.fillStyle = token('surface-600')
       ctx.fillRect(x, mid - amp / 2, Math.max(1, w / peaks.length), amp)
     }
 
     // Playhead
     if (playing || currentTime > 0) {
       const px = toX(currentTime)
-      ctx.fillStyle = '#f4f4f5'
+      ctx.fillStyle = token('ink')
       ctx.fillRect(px - 0.5, 0, 1, h)
     }
 
@@ -115,7 +120,12 @@ export function AudioTrimEditor({ buffer, onChange }: AudioTrimEditorProps) {
     draw()
     const onResize = () => draw()
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    // The canvas reads theme colors when drawing: repaint on theme switch
+    const offTheme = onThemeChange(() => requestAnimationFrame(draw))
+    return () => {
+      window.removeEventListener('resize', onResize)
+      offTheme()
+    }
   }, [draw])
 
   // Playhead animation
@@ -236,15 +246,15 @@ export function AudioTrimEditor({ buffer, onChange }: AudioTrimEditorProps) {
           style={{ cursor: hoverHandle || dragRef.current ? 'ew-resize' : 'crosshair' }}
         />
         {/* Time labels under markers */}
-        <div className="absolute -bottom-4 left-0 text-[9px] font-mono text-cyan-400 pointer-events-none">{formatTime(start)}</div>
-        <div className="absolute -bottom-4 right-0 text-[9px] font-mono text-pink-400 pointer-events-none">{formatTime(end)}</div>
+        <div className="absolute -bottom-4 left-0 text-[9px] font-mono text-cyan-600 dark:text-cyan-400 pointer-events-none">{formatTime(start)}</div>
+        <div className="absolute -bottom-4 right-0 text-[9px] font-mono text-pink-600 dark:text-pink-400 pointer-events-none">{formatTime(end)}</div>
       </div>
 
       <div className="flex items-center justify-between mt-5">
         <div className="flex items-center gap-2">
           <button
             onClick={togglePlay}
-            className="w-8 h-8 rounded-full bg-accent-600 hover:bg-accent-500 text-white flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-full bg-accent-600 hover:bg-accent-500 text-on-accent flex items-center justify-center transition-colors"
             title={playing ? 'Pause' : 'Play selection'}
           >
             {playing ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}
@@ -255,7 +265,7 @@ export function AudioTrimEditor({ buffer, onChange }: AudioTrimEditorProps) {
         </div>
         <button
           onClick={applyTrim}
-          className="px-3 py-1.5 rounded-lg bg-surface-800 hover:bg-surface-700 text-surface-300 text-[11px] font-medium transition-colors flex items-center gap-1.5"
+          className="px-3 py-1.5 rounded-pill bg-surface-800 hover:bg-surface-700 text-surface-300 text-[11px] font-medium transition-colors flex items-center gap-1.5"
           title="Trim the file to the selected region"
         >
           <Scissors size={11} /> Trim to selection

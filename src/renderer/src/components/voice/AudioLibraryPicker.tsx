@@ -75,8 +75,8 @@ export function AudioLibraryPicker({ onClose, onSelect }: AudioLibraryPickerProp
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="bg-surface-950 border border-surface-800 rounded-2xl w-[560px] max-w-[94vw] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="modal-surface w-[560px] max-w-[94vw] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-surface-800">
           <AudioLines size={15} className="text-accent-400" />
           <p className="text-sm font-semibold text-surface-100 flex-1">Insert audio from library</p>
@@ -89,7 +89,7 @@ export function AudioLibraryPicker({ onClose, onSelect }: AudioLibraryPickerProp
               className="input-field pl-7 text-xs w-full"
             />
           </div>
-          <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-white hover:bg-surface-800 transition-colors">
+          <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-ink hover:bg-surface-800 transition-colors">
             <X size={15} />
           </button>
         </div>
@@ -124,7 +124,7 @@ export function AudioLibraryPicker({ onClose, onSelect }: AudioLibraryPickerProp
                     <button
                       onClick={() => handleUse(asset)}
                       disabled={usingId === asset.id}
-                      className="px-2.5 py-1 rounded-lg bg-accent-600/90 hover:bg-accent-500 text-white text-[10px] font-medium transition-colors flex items-center gap-1 flex-shrink-0 disabled:opacity-60"
+                      className="px-2.5 py-1 rounded-pill bg-accent-600/90 hover:bg-accent-500 text-on-accent text-[10px] font-medium transition-colors flex items-center gap-1 flex-shrink-0 disabled:opacity-60"
                     >
                       {usingId === asset.id ? <Loader size={10} className="animate-spin" /> : <Download size={10} />}
                       Use
@@ -153,7 +153,7 @@ export function AudioLibraryPicker({ onClose, onSelect }: AudioLibraryPickerProp
 
         {error && (
           <div className="px-4 py-2 border-t border-surface-800">
-            <p className="text-[11px] text-red-400">{error}</p>
+            <p className="text-[11px] text-red-600 dark:text-red-400">{error}</p>
           </div>
         )}
       </div>

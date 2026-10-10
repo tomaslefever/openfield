@@ -1,19 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import {
-  Sparkles,
-  FileText,
-  Clapperboard,
-  ArrowRight,
-  RefreshCw,
-  Plus,
-  Trash2,
-  Layers,
-  Bot,
-  AlertTriangle,
-  Clock,
-  Lock,
-  SlidersHorizontal,
-} from 'lucide-react'
+import { Sparkles, Plus, Trash2, Loader2, Minus, ChevronDown } from 'lucide-react'
 import { useShortDramaStore } from '../../../stores/short-drama-store'
 import { useProvidersStore, isModelConfigured } from '../../../stores/providers-store'
 import { useAppStore } from '../../../stores/app-store'
@@ -21,10 +7,20 @@ import { LLM_MODELS } from '../../../lib/models'
 import { AspectRatioSelector } from '../../models/AspectRatioSelector'
 import { ModelSelectorDropdown } from '../../models/ModelSelectorDropdown'
 import { StreamDuration } from '../../StreamDuration'
-import {
-  DramaContentType,
-  CONTENT_TYPES_CONFIG,
-} from '../../../lib/content-type-prompts'
+import { CONTENT_TYPES_CONFIG } from '../../../lib/content-type-prompts'
+import { StageLayout, StageHeader, StageFooter, SectionHeader, IconAction } from './ui'
+
+function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="eyebrow">{label}</span>
+        {hint && <span className="text-meta text-ink-subtle">{hint}</span>}
+      </div>
+      {children}
+    </div>
+  )
+}
 
 export function Stage1Script() {
   const { configuredProviders } = useProvidersStore()
@@ -59,550 +55,275 @@ export function Stage1Script() {
     setStage,
   } = useShortDramaStore()
 
-  const hasConfiguredLlm = useMemo(() => {
-    return LLM_MODELS.some((m) => isModelConfigured(m, configuredProviders))
-  }, [configuredProviders])
+  const hasConfiguredLlm = useMemo(
+    () => LLM_MODELS.some((m) => isModelConfigured(m, configuredProviders)),
+    [configuredProviders],
+  )
 
-  // Automatically select first configured LLM if current selected model is not integrated
+  // Fall back to the first configured LLM when the saved one has no key
   useEffect(() => {
     if (!isModelConfigured(llmModel, configuredProviders)) {
       const firstConfigured = LLM_MODELS.find((m) => isModelConfigured(m, configuredProviders))
-      if (firstConfigured) {
-        setLlmModel(firstConfigured)
-      }
+      if (firstConfigured) setLlmModel(firstConfigured)
     }
   }, [configuredProviders, llmModel, setLlmModel])
 
   const activeConfig = CONTENT_TYPES_CONFIG[contentType || 'microdrama'] || CONTENT_TYPES_CONFIG.microdrama
-  const [activeTab, setActiveTab] = useState<'shots' | 'markdown'>('shots')
-
-  const handleExampleClick = (example: string) => {
-    setMetadata({ ideaPrompt: example })
-  }
-
-  const handleGenerate = async () => {
-    await generateScriptBreakdown()
-  }
+  const [activeTab, setActiveTab] = useState<'shots' | 'script'>('shots')
+  const [showDirectives, setShowDirectives] = useState(contentType === 'libre' || !!customPromptGuide)
 
   const hasGeneratedContent = shots.length > 0
   const isAuto = !shotsCount || shotsCount <= 0
+  const shotsValue = shotsCount && shotsCount > 0 ? shotsCount : 4
+  const canGenerate = !!ideaPrompt.trim() && !isGeneratingScript && hasConfiguredLlm && isModelConfigured(llmModel, configuredProviders)
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto p-6 space-y-6">
-      {/* Configuration & Premise Input Card */}
-      <div className="card p-6 border-surface-800 bg-surface-900/60 shadow-lg">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-accent-500/10 border border-accent-500/20 flex items-center justify-center flex-shrink-0">
-              <Clapperboard size={18} className="text-accent-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-surface-100">
-                  Premisa & Desglose Creativo
-                </h2>
-                {/* Locked Content Type Badge */}
-                <div
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${activeConfig.badgeBg} ${activeConfig.badgeColor} border ${activeConfig.badgeBorder} flex items-center gap-1`}
-                  title="Tipo de contenido fijado al crear la pieza"
-                >
-                  <span>{activeConfig.label}</span>
-                  <Lock size={10} className="opacity-70" />
-                </div>
-              </div>
-              <p className="text-xs text-surface-400">
-                {activeConfig.tagline}
-              </p>
-            </div>
-          </div>
+    <StageLayout>
+      <StageHeader stage={1} title="Guión y desglose" description={activeConfig.tagline}>
+        <ModelSelectorDropdown
+          kind="llm"
+          selectedModelId={llmModel.modelId || llmModel.name}
+          onSelect={(m) => setLlmModel(m)}
+          compact
+          onlyConfigured
+        />
+        <AspectRatioSelector value={aspectRatio} onChange={(ar) => setMetadata({ aspectRatio: ar })} compact />
+      </StageHeader>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* LLM Model Selector */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-surface-400 font-medium flex items-center gap-1">
-                <Bot size={13} className="text-accent-400" /> Motor LLM:
-              </span>
-              <ModelSelectorDropdown
-                kind="llm"
-                selectedModelId={llmModel.modelId || llmModel.name}
-                onSelect={(m) => setLlmModel(m)}
-                compact
-                onlyConfigured
-              />
-            </div>
-
-            {/* Aspect Ratio Selector */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-surface-400 font-medium">Formato:</span>
-              <AspectRatioSelector
-                value={aspectRatio}
-                onChange={(ar) => setMetadata({ aspectRatio: ar })}
-                compact
-              />
-            </div>
+      {!hasConfiguredLlm && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-hairline bg-surface-soft p-4">
+          <div>
+            <p className="text-body font-emphasis text-ink">Configura un proveedor de LLM</p>
+            <p className="text-meta text-ink-subtle mt-0.5">
+              El guión se escribe con DeepSeek, OpenAI, Anthropic, Gemini, OpenRouter o KIE. Añade al menos una API key.
+            </p>
           </div>
+          <button onClick={() => useAppStore.getState().setPage('providers')} className="btn-primary flex-shrink-0">
+            Ir a proveedores
+          </button>
         </div>
+      )}
 
-        {/* Premise input */}
-        <div className="space-y-2">
-          <label className="block text-xs font-medium text-surface-300">
-            Idea, Concepto o Premisa ({activeConfig.shortLabel}):
-          </label>
+      <section className="space-y-5">
+        <Field label={`Idea · ${activeConfig.shortLabel}`}>
           <textarea
             value={ideaPrompt}
             onChange={(e) => setMetadata({ ideaPrompt: e.target.value })}
             placeholder={activeConfig.inputPlaceholder}
-            className="input-field w-full h-24 text-xs font-sans resize-none p-3"
+            rows={4}
+            className="input-field resize-none leading-relaxed"
           />
-
-          {/* Quick example tags */}
-          <div className="flex items-center gap-2 flex-wrap pt-1">
-            <span className="text-[10px] text-surface-500">Ideas recomendadas:</span>
+          <div className="flex items-center gap-1 flex-wrap mt-2">
+            <span className="text-meta text-ink-subtle mr-1">Ejemplos</span>
             {activeConfig.examplePremises.map((ex, i) => (
               <button
                 key={i}
                 type="button"
-                onClick={() => handleExampleClick(ex)}
-                className="text-[10px] px-2.5 py-0.5 rounded bg-surface-800 hover:bg-surface-700 text-surface-400 hover:text-surface-200 border border-surface-700 transition-colors"
+                onClick={() => setMetadata({ ideaPrompt: ex })}
+                title={ex}
+                className="h-7 px-3 rounded-pill text-meta text-ink-muted hover:text-ink hover:bg-surface-800 transition-colors"
               >
-                Idea #{i + 1}
+                Idea {i + 1}
               </button>
             ))}
           </div>
-        </div>
+        </Field>
 
-        {/* Custom Prompt Guide (shown prominently for 'libre', or expandable for other types) */}
-        {contentType === 'libre' ? (
-          <div className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30 space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                <SlidersHorizontal size={13} className="text-cyan-400" />
-                Guía de Extracción y Prompts (Directivas IA)
-              </label>
-              <span className="text-[10px] text-cyan-400/90 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20 font-medium">
-                Prioridad Máxima
-              </span>
-            </div>
-            <p className="text-[11px] text-surface-400">
-              Instrucciones personalizadas que guían al LLM en cómo estructurar las escenas, los personajes y el estilo de los prompts en inglés.
-            </p>
-            <textarea
-              value={customPromptGuide}
-              onChange={(e) => setMetadata({ customPromptGuide: e.target.value })}
-              placeholder="Ingresa tus directivas para estructurar la extracción de escenas y prompts..."
-              className="input-field w-full h-24 text-xs font-mono resize-none p-3 bg-surface-900/90 border-cyan-500/30 focus:border-cyan-400 text-surface-200"
-            />
-          </div>
-        ) : (
-          <details className="group border border-surface-800 rounded-xl bg-surface-900/30 overflow-hidden text-xs">
-            <summary className="px-3.5 py-2 cursor-pointer select-none text-surface-400 hover:text-surface-200 flex items-center justify-between font-medium">
-              <span className="flex items-center gap-1.5 text-xs">
-                <SlidersHorizontal size={13} className="text-surface-400" />
-                Directivas Personalizadas de Extracción / Prompts (Opcional)
-              </span>
-              <span className="text-[10px] text-surface-500 group-open:rotate-180 transition-transform">▼</span>
-            </summary>
-            <div className="p-3.5 pt-1 border-t border-surface-800/60 space-y-1.5">
-              <p className="text-[11px] text-surface-400">
-                Pautas adicionales para que el LLM adapte la extracción de escenas y redacción de prompts según tus necesidades específicas.
-              </p>
-              <textarea
-                value={customPromptGuide}
-                onChange={(e) => setMetadata({ customPromptGuide: e.target.value })}
-                placeholder="Directivas opcionales para complementar las reglas base del formato..."
-                className="input-field w-full h-20 text-xs font-mono resize-none p-2.5 bg-surface-900 border-surface-700"
-              />
-            </div>
-          </details>
-        )}
-
-        {/* Controls Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-surface-800">
-          <div>
-            <label className="block text-[10px] text-surface-500 uppercase tracking-wider mb-1">
-              Categoría / Género
-            </label>
-            <select
-              value={genre}
-              onChange={(e) => setMetadata({ genre: e.target.value })}
-              className="input-field text-xs w-full"
-            >
-              {activeConfig.genres.map((g) => (
-                <option key={g} value={g} className="bg-surface-900">
-                  {g}
-                </option>
-              ))}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Género">
+            <select value={genre} onChange={(e) => setMetadata({ genre: e.target.value })} className="input-field cursor-pointer">
+              {activeConfig.genres.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] text-surface-500 uppercase tracking-wider mb-1">
-              Tono de la Pieza
-            </label>
-            <select
-              value={tone}
-              onChange={(e) => setMetadata({ tone: e.target.value })}
-              className="input-field text-xs w-full"
-            >
-              {activeConfig.tones.map((t) => (
-                <option key={t} value={t} className="bg-surface-900">
-                  {t}
-                </option>
-              ))}
+          </Field>
+          <Field label="Tono">
+            <select value={tone} onChange={(e) => setMetadata({ tone: e.target.value })} className="input-field cursor-pointer">
+              {activeConfig.tones.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] text-surface-500 uppercase tracking-wider">
-                Escenas / Tomas
-              </label>
-              <span className="text-[10px] text-surface-400 font-mono">
-                {isAuto ? '✨ Auto (IA)' : `~${(shotsCount || 4) * 5}s`}
-              </span>
-            </div>
-
-            <div className="space-y-1.5">
-              {/* Segmented Toggle: Auto vs Libre */}
-              <div className="flex items-center p-0.5 bg-surface-900 rounded-lg border border-surface-800">
+          </Field>
+          <Field label="Tomas" hint={isAuto ? 'La IA decide' : `~${shotsValue * 5}s`}>
+            <div className="flex items-center gap-1 h-[38px]">
+              <div className="flex items-center p-0.5 rounded-pill border border-hairline bg-surface-soft">
                 <button
                   type="button"
                   onClick={() => setMetadata({ shotsCount: 0 })}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-xs font-medium transition-all ${
-                    isAuto
-                      ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30 shadow-sm font-semibold'
-                      : 'text-surface-400 hover:text-surface-200'
-                  }`}
-                  title="El modelo de IA decidirá la cantidad óptima de escenas"
+                  className={`h-7 px-3 rounded-pill text-meta font-emphasis transition-colors ${isAuto ? 'bg-accent-600 text-on-accent' : 'text-ink-muted hover:text-ink'}`}
                 >
-                  <Sparkles size={11} className={isAuto ? 'text-accent-400' : 'text-surface-400'} />
                   Auto
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    const fallback = shotsCount && shotsCount > 0 ? shotsCount : 4
-                    setMetadata({ shotsCount: fallback })
-                  }}
-                  className={`flex-1 py-1 px-2 rounded-md text-xs font-medium transition-all ${
-                    !isAuto
-                      ? 'bg-surface-800 text-surface-100 border border-surface-700 shadow-sm font-semibold'
-                      : 'text-surface-400 hover:text-surface-200'
-                  }`}
-                  title="Define libremente una cantidad exacta de escenas"
+                  onClick={() => setMetadata({ shotsCount: shotsValue })}
+                  className={`h-7 px-3 rounded-pill text-meta font-emphasis transition-colors ${!isAuto ? 'bg-accent-600 text-on-accent' : 'text-ink-muted hover:text-ink'}`}
                 >
-                  Libre
+                  Fijo
                 </button>
               </div>
-
-              {/* Input for Libre Mode or Hint for Auto Mode */}
-              {!isAuto ? (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const current = shotsCount && shotsCount > 0 ? shotsCount : 4
-                      setMetadata({ shotsCount: Math.max(1, current - 1) })
-                    }}
-                    className="w-7 h-7 flex items-center justify-center rounded bg-surface-800 hover:bg-surface-700 text-surface-300 hover:text-surface-100 transition-colors text-xs font-bold shrink-0 border border-surface-700/50"
-                    title="Disminuir escenas"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min={1}
-                    value={shotsCount && shotsCount > 0 ? shotsCount : ''}
-                    placeholder="Ej. 6"
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10)
-                      if (!isNaN(val)) {
-                        setMetadata({ shotsCount: Math.max(1, val) })
-                      } else if (e.target.value === '') {
-                        setMetadata({ shotsCount: 1 })
-                      }
-                    }}
-                    className="input-field text-xs flex-1 font-mono text-center px-1.5 py-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const current = shotsCount && shotsCount > 0 ? shotsCount : 4
-                      setMetadata({ shotsCount: current + 1 })
-                    }}
-                    className="w-7 h-7 flex items-center justify-center rounded bg-surface-800 hover:bg-surface-700 text-surface-300 hover:text-surface-100 transition-colors text-xs font-bold shrink-0 border border-surface-700/50"
-                    title="Aumentar escenas"
-                  >
-                    +
-                  </button>
-                  <span className="text-xs font-semibold text-accent-400 font-mono shrink-0 pl-0.5">
-                    tomas
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center justify-center gap-1.5 py-1 px-2 rounded bg-accent-500/5 border border-accent-500/10 text-[10px] text-surface-400 text-center">
-                  <span className="text-accent-400/80">✨</span>
-                  <span>Definida por la IA según la narrativa</span>
+              {!isAuto && (
+                <div className="flex items-center gap-0.5 ml-1">
+                  <IconAction icon={Minus} title="Menos tomas" onClick={() => setMetadata({ shotsCount: Math.max(1, shotsValue - 1) })} />
+                  <span className="w-7 text-center font-mono text-body text-ink">{shotsValue}</span>
+                  <IconAction icon={Plus} title="Más tomas" onClick={() => setMetadata({ shotsCount: shotsValue + 1 })} />
                 </div>
               )}
             </div>
-          </div>
-
-          <div>
-            <label className="block text-[10px] text-surface-500 uppercase tracking-wider mb-1">
-              Estilo Visual Coherente
-            </label>
+          </Field>
+          <Field label="Estilo visual">
             <input
-              type="text"
               value={visualStyle}
               onChange={(e) => setMetadata({ visualStyle: e.target.value })}
-              className="input-field text-xs w-full"
-              placeholder="Fotorealista, 8K, iluminación dramática..."
+              placeholder="Fotorealista, iluminación dramática…"
+              className="input-field"
             />
-          </div>
+          </Field>
         </div>
 
-        {/* Unconfigured LLM Warning Banner */}
-        {!hasConfiguredLlm && (
-          <div className="mt-4 bg-amber-500/10 border border-amber-500/25 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200 shadow-sm">
-            <div className="flex items-center gap-2.5">
-              <AlertTriangle size={18} className="text-amber-400 shrink-0" />
-              <div>
-                <p className="font-semibold text-amber-300">No hay ningún proveedor de LLM integrado</p>
-                <p className="text-[11px] text-amber-400/90 mt-0.5">
-                  Para generar guiones y desgloses necesitas configurar al menos una API Key de DeepSeek, OpenAI, Anthropic, Google Gemini o KIE.ai.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => useAppStore.getState().setPage('providers')}
-              className="px-3.5 py-1.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white font-medium text-xs whitespace-nowrap shadow-sm shrink-0 self-start sm:self-center"
-            >
-              Configurar Proveedores
-            </button>
-          </div>
-        )}
-
-        {/* Error Banner */}
-        {scriptError && (
-          <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3.5 flex items-start gap-3 text-xs text-red-200">
-            <AlertTriangle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-red-300">
-                Error al desglosar con {llmModel.name}:
-              </div>
-              <p className="text-[11px] text-red-400/90 mt-0.5 break-words">{scriptError}</p>
-            </div>
-            <button
-              onClick={handleGenerate}
-              className="px-2.5 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 font-medium text-xs flex items-center gap-1 border border-red-500/30 flex-shrink-0"
-            >
-              <RefreshCw size={11} /> Reintentar
-            </button>
-          </div>
-        )}
-
-        {/* Generate Button */}
-        <div className="flex items-center justify-between mt-6 pt-4 border-t border-surface-800">
-          <span className="text-xs text-surface-500">
-            {!hasConfiguredLlm
-              ? 'Configura un proveedor de LLM en Ajustes para continuar.'
-              : hasGeneratedContent
-              ? `${shots.length} tomas, ${characters.length} personajes, ${scenarios.length} locaciones y ${props.length} objetos extraídos con ${llmModel.name}.`
-              : `Listo para desglosar con ${llmModel.name}.`}
-          </span>
+        <div>
           <button
-            onClick={handleGenerate}
-            disabled={!ideaPrompt.trim() || isGeneratingScript || !hasConfiguredLlm || !isModelConfigured(llmModel, configuredProviders)}
-            title={!hasConfiguredLlm ? 'Configura un proveedor de LLM en Ajustes para generar' : undefined}
-            className="btn-primary text-xs flex items-center gap-2 px-4 py-2"
+            type="button"
+            onClick={() => setShowDirectives(!showDirectives)}
+            className="flex items-center gap-1.5 text-meta text-ink-muted hover:text-ink transition-colors"
           >
-            {isGeneratingScript ? (
-              <>
-                <RefreshCw size={14} className="animate-spin" />
-                Desglosando con {llmModel.name}...
-              </>
-            ) : (
-              <>
-                <Sparkles size={14} />
-                {hasGeneratedContent ? 'Regenerar Guión y Desglose' : 'Generar Guión & Desglose'}
-              </>
-            )}
+            <ChevronDown size={13} className={`transition-transform ${showDirectives ? '' : '-rotate-90'}`} />
+            Directivas para la IA {contentType === 'libre' ? '(recomendadas en formato libre)' : '(opcional)'}
+          </button>
+          {showDirectives && (
+            <textarea
+              value={customPromptGuide}
+              onChange={(e) => setMetadata({ customPromptGuide: e.target.value })}
+              placeholder="Cómo estructurar escenas y personajes, y cómo redactar los prompts de imagen y video…"
+              rows={3}
+              className="input-field resize-none text-meta leading-relaxed mt-2"
+            />
+          )}
+        </div>
+
+        {scriptError && (
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
+            <div className="min-w-0">
+              <p className="text-body font-emphasis text-red-600 dark:text-red-400">No se pudo escribir el guión con {llmModel.name}</p>
+              <p className="text-meta text-ink-muted mt-0.5 break-words">{scriptError}</p>
+            </div>
+            <button onClick={() => generateScriptBreakdown()} className="btn-secondary flex-shrink-0">Reintentar</button>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-meta text-ink-subtle">
+            {hasGeneratedContent
+              ? `${shots.length} tomas · ${characters.length} personajes · ${scenarios.length} locaciones · ${props.length} objetos`
+              : `Se escribirá con ${llmModel.name}`}
+          </p>
+          <button onClick={() => generateScriptBreakdown()} disabled={!canGenerate} className="btn-primary flex items-center gap-1.5 self-start sm:self-auto">
+            {isGeneratingScript ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            {isGeneratingScript ? 'Escribiendo…' : hasGeneratedContent ? 'Reescribir guión' : 'Escribir guión'}
           </button>
         </div>
-      </div>
+      </section>
 
-      {/* Generated Breakdown / Shots Section */}
       {hasGeneratedContent && (
-        <div className="card p-6 border-surface-800 bg-surface-900/60 shadow-lg space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-surface-800">
-            <div className="flex items-center gap-3">
-              <h3 className="text-sm font-semibold text-surface-100 flex items-center gap-2">
-                <FileText size={15} className="text-accent-400" />
-                {title || 'Guión Estructurado'}
-              </h3>
-              {logline && (
-                <span className="text-xs text-surface-400 italic hidden md:inline border-l border-surface-700 pl-3">
-                  "{logline}"
-                </span>
-              )}
+        <section>
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pb-4 mb-4 border-b border-hairline">
+            <div className="min-w-0">
+              <p className="text-title text-ink truncate">{title || 'Guión'}</p>
+              {logline && <p className="text-meta text-ink-subtle mt-0.5">{logline}</p>}
             </div>
-
-            <div className="flex items-center gap-2">
-              <div className="flex items-center bg-surface-800 rounded-lg p-0.5 border border-surface-700">
+            <div className="flex items-center p-0.5 rounded-pill border border-hairline bg-surface-soft flex-shrink-0">
+              {(['shots', 'script'] as const).map((tab) => (
                 <button
+                  key={tab}
                   type="button"
-                  onClick={() => setActiveTab('shots')}
-                  className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                    activeTab === 'shots'
-                      ? 'bg-accent-500/20 text-accent-400 font-medium'
-                      : 'text-surface-400 hover:text-surface-200'
-                  }`}
+                  onClick={() => setActiveTab(tab)}
+                  className={`h-7 px-3 rounded-pill text-meta font-emphasis transition-colors ${activeTab === tab ? 'bg-accent-600 text-on-accent' : 'text-ink-muted hover:text-ink'}`}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <Layers size={12} /> Desglose de Tomas ({shots.length})
-                  </span>
+                  {tab === 'shots' ? `Tomas · ${shots.length}` : 'Texto'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('markdown')}
-                  className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                    activeTab === 'markdown'
-                      ? 'bg-accent-500/20 text-accent-400 font-medium'
-                      : 'text-surface-400 hover:text-surface-200'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <FileText size={12} /> Guión Texto
-                  </span>
-                </button>
-              </div>
-
-              <button
-                onClick={() => setStage(2)}
-                className="btn-primary text-xs flex items-center gap-1.5 px-3 py-1.5"
-              >
-                Siguiente: Personajes & Props <ArrowRight size={13} />
-              </button>
+              ))}
             </div>
           </div>
 
-          {/* Tab Content */}
           {activeTab === 'shots' ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {shots.map((shot, index) => (
-                <div
-                  key={shot.id}
-                  className="bg-surface-950/60 border border-surface-800 rounded-xl p-4 hover:border-surface-700 transition-colors space-y-3"
-                >
-                  <div className="flex items-center justify-between">
+                <div key={shot.id} className="group grid gap-3 rounded-2xl border border-hairline bg-surface-soft p-4 md:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <span className="font-mono text-body text-ink-subtle w-6 pt-1">{String(index + 1).padStart(2, '0')}</span>
+                  <div className="space-y-2 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-accent-400 bg-accent-500/10 px-2 py-0.5 rounded border border-accent-500/20">
-                        Toma {index + 1}
-                      </span>
                       <input
-                        type="text"
                         value={shot.cameraMovement}
                         onChange={(e) => updateShot(shot.id, { cameraMovement: e.target.value })}
-                        placeholder="Tipo de plano (ej. Primer plano)"
-                        className="bg-surface-800 text-surface-200 text-xs px-2 py-1 rounded border border-surface-700 outline-none w-48"
+                        placeholder="Plano (ej. primer plano)"
+                        className="min-w-0 flex-1 bg-transparent text-meta font-emphasis text-ink outline-none border-b border-transparent focus:border-hairline"
                       />
-                      <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-surface-500 font-mono flex items-center gap-0.5">
-                          <Clock size={10} />
-                        </span>
-                        <StreamDuration
-                          value={shot.estimatedDuration || 5}
-                          options={videoModel.durationOptions}
-                          min={videoModel.provider === 'replicate' && videoModel.name.includes('P-Video') ? 1 : 4}
-                          max={videoModel.durationMax || 15}
-                          onChange={(val) => updateShot(shot.id, { estimatedDuration: val })}
-                        />
-                      </div>
+                      <StreamDuration
+                        value={shot.estimatedDuration || 5}
+                        options={videoModel.durationOptions}
+                        min={videoModel.provider === 'replicate' && videoModel.name.includes('P-Video') ? 1 : 4}
+                        max={videoModel.durationMax || 15}
+                        onChange={(val) => updateShot(shot.id, { estimatedDuration: val })}
+                      />
                     </div>
-
-                    <button
-                      onClick={() => removeShot(shot.id)}
-                      className="text-surface-500 hover:text-red-400 p-1 transition-colors"
-                      title="Eliminar toma"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <textarea
+                      value={shot.actionPrompt}
+                      onChange={(e) => updateShot(shot.id, { actionPrompt: e.target.value })}
+                      placeholder="Qué se ve en la toma…"
+                      rows={3}
+                      className="input-field resize-none text-meta leading-relaxed"
+                    />
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] text-surface-500 uppercase mb-1">
-                        Acción Visual:
-                      </label>
-                      <textarea
-                        value={shot.actionPrompt}
-                        onChange={(e) => updateShot(shot.id, { actionPrompt: e.target.value })}
-                        className="input-field text-xs w-full h-16 resize-none"
-                        placeholder="Descripción de la acción visual..."
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-[10px] text-surface-500 uppercase">
-                          Diálogo / Voz en Off:
-                        </label>
-                        <input
-                          type="text"
-                          value={shot.dialogueSpeaker}
-                          onChange={(e) => updateShot(shot.id, { dialogueSpeaker: e.target.value })}
-                          placeholder="Hablante"
-                          className="bg-surface-800 text-surface-300 text-[10px] px-1.5 py-0.5 rounded border border-surface-700 outline-none w-24 text-right"
-                        />
-                      </div>
-                      <textarea
-                        value={shot.dialogueText}
-                        onChange={(e) => updateShot(shot.id, { dialogueText: e.target.value })}
-                        className="input-field text-xs w-full h-16 resize-none font-serif italic text-surface-200"
-                        placeholder="Diálogo o narración de la escena..."
-                      />
-                    </div>
+                  <div className="space-y-2 min-w-0">
+                    <input
+                      value={shot.dialogueSpeaker}
+                      onChange={(e) => updateShot(shot.id, { dialogueSpeaker: e.target.value })}
+                      placeholder="Quién habla"
+                      className="w-full bg-transparent text-meta font-emphasis text-ink outline-none border-b border-transparent focus:border-hairline"
+                    />
+                    <textarea
+                      value={shot.dialogueText}
+                      onChange={(e) => updateShot(shot.id, { dialogueText: e.target.value })}
+                      placeholder="Diálogo o narración (opcional)"
+                      rows={3}
+                      className="input-field resize-none text-meta leading-relaxed"
+                    />
+                  </div>
+                  <div className="md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <IconAction icon={Trash2} title="Eliminar toma" danger onClick={() => removeShot(shot.id)} />
                   </div>
                 </div>
               ))}
-
               <button
                 onClick={() => addShot()}
-                className="w-full py-2.5 border border-dashed border-surface-700 hover:border-accent-500/40 rounded-xl text-xs text-surface-400 hover:text-accent-400 flex items-center justify-center gap-1.5 transition-colors bg-surface-900/30"
+                className="w-full h-11 rounded-2xl border border-dashed border-surface-700 text-meta text-ink-muted hover:text-ink hover:border-surface-500 flex items-center justify-center gap-1.5 transition-colors"
               >
-                <Plus size={14} /> Añadir Nueva Toma
+                <Plus size={13} /> Añadir toma
               </button>
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-surface-400">
-                  Edita o pega tu guión estructurado (soporta <code>## Escena (duración)</code> y <code>### Toma (duración)</code>).
-                </span>
+              <SectionHeader title="Guión en texto">
                 <button
                   type="button"
-                  onClick={() => {
-                    parseScriptToShots()
-                    setActiveTab('shots')
-                  }}
-                  className="btn-primary text-xs flex items-center gap-1.5 px-3 py-1.5 shadow-sm"
-                  title="Extraer tomas, diálogos y duraciones desde el guión"
+                  onClick={() => { parseScriptToShots(); setActiveTab('shots') }}
+                  className="btn-secondary flex items-center gap-1.5"
+                  title="Reemplaza las tomas por las que encuentre en el texto"
                 >
-                  <Sparkles size={13} /> Extraer Tomas del Guión
+                  Extraer tomas del texto
                 </button>
-              </div>
+              </SectionHeader>
+              <p className="text-meta text-ink-subtle">
+                Usa <code className="font-mono">## Escena (5s)</code> y <code className="font-mono">### Toma (5s)</code> para que se detecten escenas, tomas y duraciones.
+              </p>
               <textarea
                 value={script}
                 onChange={(e) => setScript(e.target.value)}
-                placeholder={`## Escena 1 (5s): Encuentro en el callejón\nDescripción de la acción visual en la escena...\n\n### Toma 1 (5s)\nPlano medio. El personaje observa cauteloso a su alrededor.\n\nCARLOS: "No deberías estar aquí."\n\n## Escena 2 (8 seg): La persecución`}
-                className="input-field w-full h-80 font-mono text-xs p-4 leading-relaxed resize-none"
+                placeholder={`## Escena 1 (5s): Encuentro en el callejón\nDescripción de la acción…\n\n### Toma 1 (5s)\nPlano medio. El personaje observa a su alrededor.\n\nCARLOS: "No deberías estar aquí."`}
+                className="input-field h-96 font-mono text-meta leading-relaxed resize-none"
               />
             </div>
           )}
-        </div>
+        </section>
       )}
-    </div>
+
+      <StageFooter next={hasGeneratedContent ? { label: 'Siguiente: elenco', onClick: () => setStage(2) } : undefined} />
+    </StageLayout>
   )
 }

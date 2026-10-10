@@ -57,9 +57,9 @@ export function EditorSection({ projectId }: { projectId: string }) {
               <Plus size={12} /> Agregar
             </button>
             {showQuickAdd && (
-              <div className="absolute bottom-full right-0 mb-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[200px] shadow-xl z-50">
+              <div className="absolute bottom-full right-0 mb-1.5 popover-surface rounded-2xl py-1 min-w-[200px] z-50">
                 {storyboard.filter(s => s.generatedImageBase64 || s.generatedVideoPath).length > 0 && (
-                  <div className="px-3 py-1 text-[10px] text-surface-500 uppercase tracking-wider">Desde Storyboard</div>
+                  <div className="eyebrow px-3 py-1">Desde Storyboard</div>
                 )}
                 {storyboard.filter(s => s.generatedImageBase64 || s.generatedVideoPath).map(sb => (
                   <button key={sb.id} onClick={() => handleAddStoryboardClip(sb)} className="w-full text-left px-3 py-1.5 text-xs text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 transition-colors flex items-center gap-2">
@@ -67,7 +67,7 @@ export function EditorSection({ projectId }: { projectId: string }) {
                     {sb.description.slice(0, 30) || 'Shot'}...
                   </button>
                 ))}
-                <div className="px-3 py-1 text-[10px] text-surface-500 uppercase tracking-wider mt-1">Rápido</div>
+                <div className="eyebrow px-3 py-1 mt-1">Rápido</div>
                 {COMMON_ACTIONS.map(a => (
                   <button key={a.label} onClick={() => {
                     addEditorClip(projectId, {
@@ -161,7 +161,7 @@ export function EditorSection({ projectId }: { projectId: string }) {
                         <span className="text-[9px] text-accent-400/70">{clip.duration}s</span>
                         <button
                           onClick={() => removeEditorClip(projectId, clip.id)}
-                          className="opacity-0 group-hover:opacity-100 text-surface-400 hover:text-red-400 transition-all"
+                          className="opacity-0 group-hover:opacity-100 text-surface-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
                         >
                           <Trash2 size={11} />
                         </button>

@@ -23,6 +23,15 @@ export interface MachgenVideoConfig {
 
 export interface MachgenUpscaleConfig {
   factor?: number | null
+  /** Topaz engine (e.g. proteus, starlight-hq); omitted = the tier default */
+  engine?: string | null
+}
+
+export interface MachgenImageConfig {
+  height: number
+  width?: number | null
+  aspect_ratio?: string | null
+  infer_steps?: number | null
 }
 
 export interface MachgenReferenceOrderItem {
@@ -54,7 +63,12 @@ export interface MachgenTaskInput {
   reference_order?: MachgenReferenceOrderItem[] | null
   moderate?: boolean
   video_config?: MachgenVideoConfig | null
+  image_config?: MachgenImageConfig | null
   upscale_config?: MachgenUpscaleConfig | null
+  /** Seedance 2.5 only: render a 480p sample */
+  draft?: boolean
+  /** Seedance 2.5 only: render the 1080p final of this completed draft (MachGen task id) */
+  draft_source_task_id?: string
 }
 
 export type MachgenTaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
@@ -118,6 +132,8 @@ export interface MachgenModelDef {
   supportsEndFrame?: boolean
   supportsR2V?: boolean
   supportsUpscale?: boolean
+  /** Topaz upscale engines accepted by this model */
+  upscaleEngines?: string[]
   supportsT2I?: boolean
   supportsI2I?: boolean
   supportsT2S?: boolean
@@ -129,7 +145,11 @@ export interface MachgenModelDef {
   allowedHeights?: number[]
   allowedAspectRatios?: string[]
   allowedDurations?: number[]
+  allowedSizes?: [number, number][]
   defaultFps?: number
+  /** Frame rates the API accepts per task (e.g. { R2V: [30] }); a requested fps outside the list snaps to the nearest one */
+  allowedFps?: Partial<Record<string, number[]>>
   defaultInferSteps?: number
-  prices?: { resolution: string; height?: number; costPerSec?: number; cost?: number }[]
+  /** `costPerSecWithVideoInput`: rate billed on input + output seconds when a video ref is attached */
+  prices?: { resolution: string; height?: number; costPerSec?: number; costPerSecWithVideoInput?: number; cost?: number }[]
 }

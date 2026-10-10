@@ -19,7 +19,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
     if (this.state.error) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-surface-500 gap-4 p-8">
-          <p className="text-sm text-red-400">Error al cargar Cinema Studio</p>
+          <p className="text-sm text-red-600 dark:text-red-400">Error al cargar Cinema Studio</p>
           <pre className="text-xs text-surface-600 bg-surface-800 p-3 rounded-lg max-w-xl overflow-auto">{this.state.error.message}</pre>
           <button onClick={() => this.setState({ error: null })} className="btn-primary text-sm">Reintentar</button>
         </div>
@@ -77,7 +77,7 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
         </button>
 
         {showDropdown && (
-          <div className="absolute top-full left-0 mt-1.5 bg-surface-800 border border-surface-700 rounded-xl py-1 min-w-[240px] shadow-xl z-50 max-h-[280px] flex flex-col">
+          <div className="absolute top-full left-0 mt-1.5 popover-surface rounded-2xl py-1 min-w-[240px] z-50 max-h-[280px] flex flex-col">
             <div className="px-2 pb-1.5 border-b border-surface-700">
               <div className="flex items-center gap-1.5 bg-surface-900 border border-surface-700 rounded-lg px-2 py-1">
                 <Search size={11} className="text-surface-500 flex-shrink-0" />
@@ -110,7 +110,7 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
                         if (e.key === 'Escape') setEditingId(null)
                       }}
                     />
-                    <button onClick={() => { renameProject(p.id, editName); setEditingId(null) }} className="text-green-400"><Check size={12} /></button>
+                    <button onClick={() => { renameProject(p.id, editName); setEditingId(null) }} className="text-green-600 dark:text-green-400"><Check size={12} /></button>
                     <button onClick={() => setEditingId(null)} className="text-surface-500"><X size={12} /></button>
                   </div>
                 ) : (
@@ -136,10 +136,10 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
                           <button onClick={() => { deleteProject(p.id); setConfirmDelete(null); setShowDropdown(false); setFilter('') }}
                             className="px-1.5 py-0.5 bg-red-500/80 rounded text-[9px] text-white">Sí</button>
                           <button onClick={() => setConfirmDelete(null)}
-                            className="px-1.5 py-0.5 bg-white/10 rounded text-[9px] text-white">No</button>
+                            className="px-1.5 py-0.5 bg-ink/10 rounded text-[9px] text-ink">No</button>
                         </div>
                       ) : (
-                        <button onClick={() => setConfirmDelete(p.id)} className="p-1 text-surface-500 hover:text-red-400">
+                        <button onClick={() => setConfirmDelete(p.id)} className="p-1 text-surface-500 hover:text-red-500 dark:hover:text-red-400">
                           <Trash2 size={10} />
                         </button>
                       )}
@@ -163,7 +163,7 @@ function ProjectSelector({ onNewProject }: { onNewProject: () => void }) {
             autoFocus
             onKeyDown={e => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setShowNewInput(false) }}
           />
-          <button onClick={handleCreate} className="p-1.5 bg-accent-600 rounded-lg text-white"><Check size={12} /></button>
+          <button onClick={handleCreate} className="p-1.5 bg-accent-600 rounded-full text-on-accent"><Check size={12} /></button>
           <button onClick={() => setShowNewInput(false)} className="p-1.5 text-surface-500"><X size={12} /></button>
         </div>
       ) : (

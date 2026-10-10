@@ -5,7 +5,10 @@ import { getRawDb } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
+import { redactPayload } from './payload-redact'
+import { persistMediaToAssets, hydratePayloadMedia } from './media-persist'
 import { ReplicateApiClient, REPLICATE_MODELS, getReplicateModel, type Prediction } from './replicate'
+import { registerRecoverableProvider, readApiKey, canAutoResume, RemoteJobFailedError, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_RETRIES = 3
@@ -14,7 +17,7 @@ function logRun(raw: any, taskId: string, step: string, message: string, payload
   try {
     const ws = workspaceId || getTaskWorkspace(taskId)
     raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(payload) : null, ws, Date.now())
+      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(redactPayload(payload)) : null, ws, Date.now())
   } catch {}
 }
 
@@ -23,14 +26,20 @@ function modelVersion(modelId: string): string {
   return entry?.version || ''
 }
 
+/** The owner/name Replicate expects for a catalog id */
+function apiModelId(modelId: string): string {
+  const entry = REPLICATE_MODELS.find(m => m.id === modelId)
+  return entry?.apiModel || modelId
+}
+
 function modelName(modelId: string): string {
   const entry = REPLICATE_MODELS.find(m => m.id === modelId)
   return entry?.name || modelId
 }
 
-export class ReplicateQueue extends EventEmitter {
+export class ReplicateQueue extends EventEmitter implements RecoverableQueue {
   private apiClient: ReplicateApiClient
-  private processing = new Set<string>()
+  readonly processing = new Set<string>()
   private coolingDown = new Set<string>()
   private maxConcurrent = 2
 
@@ -50,11 +59,14 @@ export class ReplicateQueue extends EventEmitter {
     const now = Date.now()
     const wsId = getActiveWorkspaceId()
 
+    // Media is persisted as binary assets on disk; the DB only stores asset IDs.
+    const storedPayload = redactPayload(await persistMediaToAssets(payload))
+
     logRun(raw, taskId, 'enqueue', `Replicate task enqueued: model=${modelName(payload?.model)}`, undefined, 'info', wsId)
 
     raw.prepare(
       'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, \'replicate\', ?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'pending', type, JSON.stringify(payload), wsId, now, now)
+    ).run(taskId, 'pending', type, JSON.stringify(storedPayload), wsId, now, now)
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
@@ -62,11 +74,11 @@ export class ReplicateQueue extends EventEmitter {
     const defaultMime = assetKind === 'image' ? 'image/png' : assetKind === 'audio' ? 'audio/mpeg' : 'video/mp4'
 
     raw.prepare(
-      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, provider, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       assetId, assetKind, '', '', `pending-${taskId}`, defaultMime,
-      payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
+      payload?.model || '', 'replicate', payload?.prompt || '', JSON.stringify(storedPayload),
       0, taskId, wsId, now, now
     )
     raw.save()
@@ -76,7 +88,7 @@ export class ReplicateQueue extends EventEmitter {
     return taskId
   }
 
-  private async processQueue() {
+  async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
     const pending = raw.prepare('SELECT * FROM tasks WHERE provider = \'replicate\' AND status = ? ORDER BY created_at ASC').all('pending')
@@ -101,6 +113,19 @@ export class ReplicateQueue extends EventEmitter {
         input.video = `data:${videoRef.mime || 'video/mp4'};base64,${videoRef.base64}`
       }
       input.scale_factor = payload.scaleFactor ?? 2
+      return input
+    }
+
+    // Nano Banana models take every reference image as a list in image_input
+    if (apiModelId(payload.model || '').startsWith('google/nano-banana')) {
+      const refs = (payload.imageRefs || []).filter((r: any) => r.base64)
+      const uris = refs.length > 0
+        ? refs.map((r: any) => `data:${r.mime || 'image/png'};base64,${r.base64}`)
+        : payload.imageBase64 ? [`data:${payload.imageMime || 'image/png'};base64,${payload.imageBase64}`] : []
+      if (uris.length > 0) input.image_input = uris
+      if (payload.prompt) input.prompt = payload.prompt
+      if (payload.resolution) input.resolution = payload.resolution
+      if (payload.aspectRatio) input.aspect_ratio = payload.aspectRatio
       return input
     }
 
@@ -149,6 +174,9 @@ export class ReplicateQueue extends EventEmitter {
     try {
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
 
+      // Re-hydrate media from binary assets (base64 only lives in memory here)
+      await hydratePayloadMedia(payload)
+
       let predictionId = task.predictionId || task.prediction_id || task.external_id || payload?.predictionId
       let prediction: Prediction | null = null
 
@@ -162,13 +190,13 @@ export class ReplicateQueue extends EventEmitter {
         if (!input.video && payload.model === 'philz1337x/crystal-video-upscaler') throw new Error('Crystal Upscaler requiere un video de referencia.')
 
         logRun(raw, task.taskId, 'api-request', `Creating prediction: model=${modelName(payload.model)}, resolution=${payload.resolution || '720p'}`)
-        prediction = await this.apiClient.createPrediction(version ? { version, input } : { model: payload.model, input })
+        prediction = await this.apiClient.createPrediction(version ? { version, input } : { model: apiModelId(payload.model), input })
         predictionId = prediction.id
         logRun(raw, task.taskId, 'api-response', `Prediction created: ${predictionId}`)
 
         payload.predictionId = predictionId
         raw.prepare('UPDATE tasks SET payload = ?, prediction_id = ?, external_id = ? WHERE task_id = ?')
-          .run(JSON.stringify(payload), predictionId, predictionId, task.taskId)
+          .run(JSON.stringify(redactPayload(payload)), predictionId, predictionId, task.taskId)
       }
 
       raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), task.taskId)
@@ -194,8 +222,8 @@ export class ReplicateQueue extends EventEmitter {
       this.emit('task:progress', { taskId, state: prediction.status })
 
       if (prediction.status === 'succeeded') return prediction
-      if (prediction.status === 'failed') throw new Error(prediction.error || 'Prediction failed')
-      if (prediction.status === 'canceled') throw new Error('Prediction canceled')
+      if (prediction.status === 'failed') throw new RemoteJobFailedError(prediction.error || 'Prediction failed')
+      if (prediction.status === 'canceled') throw new RemoteJobFailedError('Prediction canceled')
 
       raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
@@ -291,7 +319,7 @@ export class ReplicateQueue extends EventEmitter {
           type: assetKind,
           model_used: taskPayload?.model || '',
           prompt: taskPayload?.prompt || '',
-          parameters: JSON.stringify(taskPayload),
+          parameters: JSON.stringify(redactPayload(taskPayload)),
           file_size: fileSize,
         })
       } catch (err: any) {
@@ -304,7 +332,7 @@ export class ReplicateQueue extends EventEmitter {
           type: assetKind,
           model_used: taskPayload?.model || '',
           prompt: taskPayload?.prompt || '',
-          parameters: JSON.stringify(taskPayload),
+          parameters: JSON.stringify(redactPayload(taskPayload)),
         })
       }
     } else {
@@ -339,7 +367,8 @@ export class ReplicateQueue extends EventEmitter {
       error.message.toLowerCase().includes('incorrect') ||
       error.message.toLowerCase().includes('invalid')
 
-    if (retryCount <= MAX_RETRIES && !isNonRetryable) {
+    // Only resume an accepted job; never resubmit (see canAutoResume)
+    if (retryCount <= MAX_RETRIES && !isNonRetryable && canAutoResume(task.taskId || task.task_id, error)) {
       raw.prepare('UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
         .run('pending', retryCount, error.message, Date.now(), taskId)
       this.emit('task:retry', { taskId, attempt: retryCount, error: error.message })
@@ -354,6 +383,20 @@ export class ReplicateQueue extends EventEmitter {
       this.emit('task:failed', { taskId, error: error.message })
     }
     raw.save()
+  }
+
+  // ─── RecoverableQueue (see task-recovery.ts) ─────────────────
+
+  async checkRemote(_task: any, predictionId: string): Promise<RemoteTaskStatus> {
+    const prediction = await this.apiClient.getPrediction(predictionId)
+    if (prediction.status === 'succeeded') return { state: 'completed', result: prediction }
+    if (prediction.status === 'failed') return { state: 'failed', error: prediction.error || 'Prediction failed' }
+    if (prediction.status === 'canceled') return { state: 'failed', error: 'Prediction canceled' }
+    return { state: 'running', detail: prediction.status }
+  }
+
+  async completeRemote(task: any, result: Prediction): Promise<void> {
+    await this.handleSuccess(task, result)
   }
 
   async cancelTask(taskId: string): Promise<boolean> {
@@ -401,3 +444,8 @@ export function initReplicateQueue(apiKey: string): ReplicateQueue {
   queueInstance = new ReplicateQueue(apiKey)
   return queueInstance
 }
+
+registerRecoverableProvider('replicate', () => {
+  const key = readApiKey('replicateApiKey')
+  return key ? getReplicateQueue(key) : null
+})

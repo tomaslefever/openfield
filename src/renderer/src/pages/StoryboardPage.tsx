@@ -147,13 +147,13 @@ function SceneCard({
                 </span>
                 {/* Hover: icon buttons top-right */}
                 <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover/img:opacity-100 transition-opacity">
-                  <button onClick={() => setShowQuickComposer(true)} className="p-1 rounded bg-black/50 hover:bg-black/70 text-white" title="Generate with AI">
+                  <button onClick={() => setShowQuickComposer(true)} className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white" title="Generate with AI">
                     <Wand2 size={10} />
                   </button>
-                  <button onClick={() => fileInputRef.current?.click()} className="p-1 rounded bg-black/50 hover:bg-black/70 text-white" title="Upload image">
+                  <button onClick={() => fileInputRef.current?.click()} className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white" title="Upload image">
                     <Upload size={10} />
                   </button>
-                  <button onClick={handleLibraryOpen} className="p-1 rounded bg-black/50 hover:bg-black/70 text-white" title="Browse library">
+                  <button onClick={handleLibraryOpen} className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white" title="Browse library">
                     <Library size={10} />
                   </button>
                 </div>
@@ -188,7 +188,7 @@ function SceneCard({
                   {scene.imageBase64 ? 'Generate video' : 'Generate image first'}
                 </span>
                 {scene.imageBase64 && (
-                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-mono">
+                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono">
                     {videoCost} cr
                   </span>
                 )}
@@ -200,13 +200,13 @@ function SceneCard({
         {/* Overlay when image exists */}
         {scene.imageBase64 && tab === 'image' && (
           <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={() => setShowQuickComposer(true)} className="p-1 rounded bg-black/50 hover:bg-black/70 text-white" title="Regenerate">
+            <button onClick={() => setShowQuickComposer(true)} className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white" title="Regenerate">
               <Wand2 size={10} />
             </button>
-            <button onClick={() => fileInputRef.current?.click()} className="p-1 rounded bg-black/50 hover:bg-black/70 text-white" title="Replace image">
+            <button onClick={() => fileInputRef.current?.click()} className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white" title="Replace image">
               <Upload size={10} />
             </button>
-            <button onClick={handleLibraryOpen} className="p-1 rounded bg-black/50 hover:bg-black/70 text-white" title="From library">
+            <button onClick={handleLibraryOpen} className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white" title="From library">
               <Library size={10} />
             </button>
           </div>
@@ -243,7 +243,7 @@ function SceneCard({
         {showDetails && (
           <div className="pt-2 border-t border-surface-800 space-y-2">
             <div>
-              <label className="text-[9px] text-surface-500 uppercase tracking-wider mb-0.5 block">Descripción</label>
+              <label className="eyebrow mb-0.5 block">Descripción</label>
               <textarea
                 value={editDesc}
                 onChange={e => setEditDesc(e.target.value)}
@@ -253,7 +253,7 @@ function SceneCard({
               />
             </div>
             <div>
-              <label className="text-[9px] text-surface-500 uppercase tracking-wider mb-0.5 block">Prompt</label>
+              <label className="eyebrow mb-0.5 block">Prompt</label>
               <div className="bg-surface-800/50 rounded-lg border border-surface-700 px-3 py-2">
                 <div className="flex items-start gap-2">
                   <p className="flex-1 text-[10px] text-surface-300 leading-relaxed min-h-[20px] line-clamp-2">
@@ -261,7 +261,7 @@ function SceneCard({
                   </p>
                   <button
                     onClick={() => setShowQuickComposer(true)}
-                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-primary text-primary-foreground text-[10px] font-medium hover:bg-primary/90 transition-colors"
+                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-pill bg-primary text-primary-foreground text-[10px] font-medium hover:bg-primary/90 transition-colors"
                   >
                     <Sparkles size={10} />
                     Generate
@@ -290,8 +290,8 @@ function SceneCard({
                     }}
                     className={`text-[9px] flex items-center gap-1 ${
                       transitions.some(t => t.fromSceneId === scene.id && t.toSceneId === nextSceneId)
-                        ? 'text-amber-400 hover:text-amber-300'
-                        : 'text-surface-500 hover:text-amber-400'
+                        ? 'text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-300'
+                        : 'text-surface-500 hover:text-amber-600 dark:hover:text-amber-400'
                     }`}
                   >
                     <ArrowRight size={10} /> Transition
@@ -299,7 +299,7 @@ function SceneCard({
                 </>
               )}
               <button onClick={() => onRemove(scene.id)}
-                className="text-[9px] text-surface-500 hover:text-red-400 flex items-center gap-1 ml-auto">
+                className="text-[9px] text-surface-500 hover:text-red-500 dark:hover:text-red-400 flex items-center gap-1 ml-auto">
                 <Trash2 size={10} /> Delete
               </button>
             </div>
@@ -321,8 +321,8 @@ function SceneCard({
 
       {/* Library picker modal */}
       {showLibrary && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setShowLibrary(false)}>
-          <div className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col m-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="modal-scrim z-50 flex items-center justify-center" onClick={() => setShowLibrary(false)}>
+          <div className="modal-surface w-full max-w-2xl max-h-[80vh] flex flex-col m-4 overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3 border-b border-surface-800">
               <h3 className="text-sm font-semibold text-surface-100">Image Library</h3>
               <button onClick={() => setShowLibrary(false)} className="text-surface-500 hover:text-surface-200"><X size={14} /></button>
@@ -607,7 +607,7 @@ export function StoryboardPage() {
           <button
             onClick={() => refreshBoardList()}
             title="Reload storyboards"
-            className="p-1.5 rounded-lg text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
+            className="p-1.5 rounded-full text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
           >
             <RefreshCw size={14} />
           </button>
@@ -646,7 +646,7 @@ export function StoryboardPage() {
                           </div>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-surface-950/70 to-transparent" />
-                        <span className="absolute bottom-2 left-2 text-[10px] font-mono text-surface-300 bg-black/50 px-1.5 py-0.5 rounded">
+                        <span className="absolute bottom-2 left-2 text-[10px] font-mono text-white/80 bg-black/50 px-1.5 py-0.5 rounded">
                           {board.sceneCount ?? 0} scenes
                         </span>
                       </div>
@@ -693,7 +693,7 @@ export function StoryboardPage() {
                         </button>
                         <button
                           onClick={() => setConfirmDeleteId(null)}
-                          className="px-1.5 py-0.5 bg-white/10 rounded text-[9px] text-white hover:bg-white/20"
+                          className="px-1.5 py-0.5 bg-ink/10 rounded text-[9px] text-ink hover:bg-ink/20"
                         >
                           No
                         </button>
@@ -701,7 +701,7 @@ export function StoryboardPage() {
                     ) : (
                       <button
                         onClick={() => setConfirmDeleteId(board.id)}
-                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/50 hover:bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                        className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 hover:bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
                         title="Delete storyboard"
                       >
                         <Trash2 size={13} />
@@ -747,14 +747,14 @@ export function StoryboardPage() {
         <button
           onClick={handleBack}
           title="Back to storyboards"
-          className="p-1.5 rounded-lg text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
+          className="p-1.5 rounded-full text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
         >
           <ArrowLeft size={14} />
         </button>
         <button
           onClick={() => store.loadBoard(boardId)}
           title="Recargar storyboard"
-          className="p-1.5 rounded-lg text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
+          className="p-1.5 rounded-full text-surface-500 hover:text-surface-100 hover:bg-surface-800 transition-colors"
         >
           <RefreshCw size={14} />
         </button>
@@ -806,7 +806,7 @@ export function StoryboardPage() {
             {availableVideoModels.find(m => m.t2vId === videoModelId || m.i2vId === videoModelId)?.name || (availableVideoModels.length === 0 ? 'Sin proveedor' : 'Select')}
           </button>
           {showVideoModels && (
-            <div className="absolute top-full mt-1 bg-surface-800 border border-surface-700 rounded-lg py-1 z-50 min-w-[180px] shadow-xl max-h-60 overflow-y-auto"
+            <div className="absolute top-full mt-1 popover-surface rounded-2xl py-1 z-50 min-w-[180px] max-h-60 overflow-y-auto"
               onMouseLeave={() => setShowVideoModels(false)}>
               {availableVideoModels.length === 0 ? (
                 <div className="px-3 py-2 text-xs text-surface-400">Sin proveedores configurados</div>
@@ -816,7 +816,7 @@ export function StoryboardPage() {
                     onClick={() => { store.setVideoModelId(m.t2vId!); store.saveSettings(); setShowVideoModels(false) }}
                     className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${(videoModelId === m.t2vId || videoModelId === m.i2vId) ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
                     <span>{m.name}</span>
-                    <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400">{costCredits(m)} cr</span>
                   </button>
                 ))
               )}
@@ -833,7 +833,7 @@ export function StoryboardPage() {
             {availableVideoModels.find(m => m.fflfId === transitionModelId || m.t2vId === transitionModelId)?.name || (availableVideoModels.filter(m => m.fflfId).length === 0 ? 'Sin proveedor' : 'Select')}
           </button>
           {showTransitionModels && (
-            <div className="absolute top-full mt-1 bg-surface-800 border border-surface-700 rounded-lg py-1 z-50 min-w-[180px] shadow-xl max-h-60 overflow-y-auto"
+            <div className="absolute top-full mt-1 popover-surface rounded-2xl py-1 z-50 min-w-[180px] max-h-60 overflow-y-auto"
               onMouseLeave={() => setShowTransitionModels(false)}>
               {availableVideoModels.filter(m => m.fflfId).length === 0 ? (
                 <div className="px-3 py-2 text-xs text-surface-400">Sin proveedores configurados</div>
@@ -843,7 +843,7 @@ export function StoryboardPage() {
                     onClick={() => { store.setTransitionModelId(m.fflfId!); store.saveSettings(); setShowTransitionModels(false) }}
                     className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between ${transitionModelId === m.fflfId ? 'bg-surface-700 text-surface-100' : 'text-surface-400 hover:bg-surface-700/50 hover:text-surface-200'}`}>
                     <span>{m.name}</span>
-                    <span className="text-[10px] text-amber-400">{costCredits(m)} cr</span>
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400">{costCredits(m)} cr</span>
                   </button>
                 ))
               )}
@@ -860,7 +860,7 @@ export function StoryboardPage() {
               {defaultAspectRatio}
             </button>
             {showAr && (
-              <div className="absolute top-full right-0 mt-1 bg-surface-800 border border-surface-700 rounded-lg py-1 z-50 min-w-[100px] shadow-xl"
+              <div className="absolute top-full right-0 mt-1 popover-surface rounded-2xl py-1 z-50 min-w-[100px]"
                 onMouseLeave={() => setShowAr(false)}>
                 {['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'].map(r => (
                   <button key={r}
@@ -881,7 +881,7 @@ export function StoryboardPage() {
               {defaultResolution}
             </button>
             {showRes && (
-              <div className="absolute top-full right-0 mt-1 bg-surface-800 border border-surface-700 rounded-lg py-1 z-50 min-w-[80px] shadow-xl"
+              <div className="absolute top-full right-0 mt-1 popover-surface rounded-2xl py-1 z-50 min-w-[80px]"
                 onMouseLeave={() => setShowRes(false)}>
                 {['1K', '2K', '4K'].map(r => (
                   <button key={r}
@@ -954,7 +954,7 @@ export function StoryboardPage() {
                     return (
                       <div key={gi} className="panel overflow-hidden">
                         <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-surface-800 bg-surface-900/60">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-accent-500/10 text-accent-400 border border-accent-500/20 flex-shrink-0">
+                          <span className="eyebrow font-semibold px-2 py-0.5 rounded-md bg-accent-500/10 text-accent-400 border border-accent-500/20 flex-shrink-0">
                             Escena {gi + 1}
                           </span>
                           <span className="text-xs font-semibold text-surface-100 truncate">{group.title}</span>

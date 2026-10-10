@@ -162,7 +162,7 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
 
         <button
           onClick={handleExtractElements}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-accent-600 hover:bg-accent-500 text-white transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs font-medium bg-accent-600 hover:bg-accent-500 text-on-accent transition-colors"
         >
           <Wand2 size={12} /> Crear elements
         </button>
@@ -170,9 +170,9 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
         {extractResult && (
           <div className="flex items-center gap-2 text-[11px]">
             {extractResult.total === 0 ? (
-              <span className="text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-2.5 py-1">No se encontraron elementos en el guión</span>
+              <span className="text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-2.5 py-1">No se encontraron elementos en el guión</span>
             ) : (
-              <span className={`rounded-lg px-2.5 py-1 border ${extractResult.created > 0 ? 'text-green-400 bg-green-500/10 border-green-500/30' : 'text-surface-500 bg-surface-800 border-surface-700'}`}>
+              <span className={`rounded-lg px-2.5 py-1 border ${extractResult.created > 0 ? 'text-green-600 dark:text-green-400 bg-green-500/10 border-green-500/30' : 'text-surface-500 bg-surface-800 border-surface-700'}`}>
                 {extractResult.created > 0
                   ? `${extractResult.created} elementos creados de ${extractResult.total} detectados`
                   : `${extractResult.total} detectados (ya existen)`}
@@ -213,7 +213,7 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
           <div className="w-[340px] border-l border-surface-800 flex flex-col min-h-0 flex-shrink-0">
             <div className="px-3 py-2.5 border-b border-surface-800 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-purple-500/20 flex items-center justify-center"><Sparkles size={12} className="text-purple-400" /></div>
+                <div className="w-6 h-6 rounded-lg bg-accent-500/15 flex items-center justify-center"><Sparkles size={12} className="text-accent-400" /></div>
                 <div>
                   <span className="text-xs font-semibold text-surface-200">Asistente de guión</span>
                   <p className="text-[10px] text-surface-500">Escribe escenas y crea elementos</p>
@@ -228,8 +228,8 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
                   <MessageScrollerContent>
                     {agentMessages.map((msg) => {
                       const renderContent = () => {
-                        if (msg.role === 'system') return <div className="text-center"><p className="text-[11px] text-red-400 bg-red-500/5 rounded-lg px-3 py-1 inline-block">{msg.content}</p></div>
-                        if (msg.role === 'tool' && msg.toolResult) return <div className="flex gap-2"><div className="w-5 flex-shrink-0 flex items-center justify-center"><Check size={12} className="text-green-400" /></div><div className="bg-green-500/5 border border-green-500/10 rounded-xl px-3 py-1.5 max-w-[85%]"><p className="text-[11px] text-green-400/80">{msg.toolResult.result}</p></div></div>
+                        if (msg.role === 'system') return <div className="text-center"><p className="text-[11px] text-red-600 dark:text-red-400 bg-red-500/5 rounded-lg px-3 py-1 inline-block">{msg.content}</p></div>
+                        if (msg.role === 'tool' && msg.toolResult) return <div className="flex gap-2"><div className="w-5 flex-shrink-0 flex items-center justify-center"><Check size={12} className="text-green-600 dark:text-green-400" /></div><div className="bg-green-500/5 border border-green-500/10 rounded-xl px-3 py-1.5 max-w-[85%]"><p className="text-[11px] text-green-700/80 dark:text-green-400/80">{msg.toolResult.result}</p></div></div>
                         if (msg.role === 'assistant' && msg.toolCall) {
                           const tc = msg.toolCall
                           const tl: Record<string, string> = { write_script_section: 'Escribir en el guión', create_elements: 'Crear elements' }
@@ -237,14 +237,14 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
                             <div className="space-y-1.5">
                               {msg.content && (
                                 <div className="flex gap-2">
-                                  <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-purple-400" /></div>
+                                  <div className="w-5 h-5 rounded-full bg-accent-500/15 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-accent-400" /></div>
                                   <div className="bg-surface-800 rounded-2xl rounded-tl-md px-3 py-2 max-w-[85%]"><p className="text-xs text-surface-200 whitespace-pre-wrap leading-relaxed">{msg.content}</p></div>
                                 </div>
                               )}
                               <div className="flex gap-2">
-                                <div className="w-5 flex-shrink-0 flex items-center justify-center"><Wrench size={12} className="text-amber-400" /></div>
+                                <div className="w-5 flex-shrink-0 flex items-center justify-center"><Wrench size={12} className="text-amber-600 dark:text-amber-400" /></div>
                                 <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 max-w-[85%]">
-                                  <p className="text-[10px] text-amber-400/80 uppercase tracking-wider mb-1 flex items-center gap-1"><Play size={10} /> {tl[tc.name] || tc.name}</p>
+                                  <p className="eyebrow text-amber-700/80 dark:text-amber-400/80 mb-1 flex items-center gap-1"><Play size={10} /> {tl[tc.name] || tc.name}</p>
                                   {tc.name === 'write_script_section' && <p className="text-xs text-surface-300 line-clamp-3 font-mono">{tc.args.content?.slice(0, 200)}</p>}
                                   {tc.name === 'create_elements' && (
                                     <p className="text-xs text-surface-300">
@@ -255,7 +255,7 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
                                       ].join(', ')}
                                     </p>
                                   )}
-                                  <p className="mt-1 text-[10px] text-green-400/70 flex items-center gap-1"><Check size={10} /> Aplicado</p>
+                                  <p className="mt-1 text-[10px] text-green-700/70 dark:text-green-400/70 flex items-center gap-1"><Check size={10} /> Aplicado</p>
                                 </div>
                               </div>
                             </div>
@@ -265,7 +265,7 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
                           const isUser = msg.role === 'user'
                           return (
                             <div className={`flex gap-2 ${isUser ? 'justify-end' : ''}`}>
-                              {!isUser && <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-purple-400" /></div>}
+                              {!isUser && <div className="w-5 h-5 rounded-full bg-accent-500/15 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-accent-400" /></div>}
                               <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${isUser ? 'bg-accent-600/20 border border-accent-500/30 rounded-tr-md' : 'bg-surface-800 rounded-tl-md'}`}>
                                 <p className="text-xs text-surface-200 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                               </div>
@@ -284,8 +284,8 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
                     {agentRunning && (
                       <MessageScrollerItem>
                         <div className="flex gap-2">
-                          <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-purple-400" /></div>
-                          <div className="bg-surface-800 rounded-2xl rounded-tl-md px-3 py-2"><Loader size={14} className="animate-spin text-purple-400" /></div>
+                          <div className="w-5 h-5 rounded-full bg-accent-500/15 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={10} className="text-accent-400" /></div>
+                          <div className="bg-surface-800 rounded-2xl rounded-tl-md px-3 py-2"><Loader size={14} className="animate-spin text-accent-400" /></div>
                         </div>
                       </MessageScrollerItem>
                     )}
@@ -306,9 +306,9 @@ Reglas: máximo 200 palabras por respuesta. Una tarea a la vez. Escribe el guió
                   disabled={agentRunning}
                 />
                 {agentRunning ? (
-                  <button onClick={handleStopAgent} className="p-2 bg-red-600/20 hover:bg-red-600/30 rounded-lg text-red-400 transition-colors flex-shrink-0"><Square size={14} /></button>
+                  <button onClick={handleStopAgent} className="p-2 bg-red-600/20 hover:bg-red-600/30 rounded-full text-red-500 dark:text-red-400 transition-colors flex-shrink-0"><Square size={14} /></button>
                 ) : (
-                  <button onClick={() => handleAgentSend()} disabled={!agentInput.trim()} className="p-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 rounded-lg text-white transition-colors flex-shrink-0"><Send size={14} /></button>
+                  <button onClick={() => handleAgentSend()} disabled={!agentInput.trim()} className="p-2 bg-accent-600 hover:bg-accent-500 disabled:opacity-40 rounded-full text-on-accent transition-colors flex-shrink-0"><Send size={14} /></button>
                 )}
               </div>
             </div>

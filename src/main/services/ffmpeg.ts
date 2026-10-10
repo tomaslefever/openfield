@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import { spawn, execSync } from 'child_process';
 import { getRawDb } from '../db';
 import { getActiveWorkspaceId, workspaceAssetSubDir } from './workspace-service';
+import { resolveAssetFile } from './asset-file';
 
 export interface MediaInfo {
   format: string;
@@ -430,13 +431,7 @@ constructor(ffmpegPath?: string) {
         const decoded = decodeURIComponent(fileUrl.replace(/^file:\/\/\/?/, '')).replace(/^\/([a-zA-Z]:)/, '$1');
         if (syncFs.existsSync(decoded)) return decoded;
       }
-      if (assetId) {
-        try {
-          const asset = raw.prepare('SELECT local_path FROM assets WHERE id = ?').get(assetId) as any;
-          if (asset?.local_path && syncFs.existsSync(asset.local_path)) return asset.local_path;
-        } catch {}
-      }
-      return undefined;
+      return resolveAssetFile(assetId)?.path;
     };
 
     if (options.shots && Array.isArray(options.shots) && options.shots.length > 0) {

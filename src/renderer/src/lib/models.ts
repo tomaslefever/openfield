@@ -3,6 +3,8 @@ export const CREDITS_PER_DOLLAR = 200
 export interface PriceEntry {
   resolution: string
   cost: number
+  /** Per-second rate billed on input + output seconds when a video ref is attached */
+  costWithVideoInput?: number
 }
 
 import type { ProviderId } from '../stores/providers-store'
@@ -44,10 +46,26 @@ export interface ModelPricing {
   falAspectRatios?: string[]
   pvAspectRatios?: string[]
   aspectRatios?: string[]
+  /** Topaz (MachGen) upscale engines; omitted = the tier's default engine */
+  upscaleEngines?: string[]
+  /** Maximum number of video references the model accepts */
+  maxVideoRefs?: number
+  /** Billed by the length of the input video (video upscalers), not a chosen duration */
+  durationFromInputVideo?: boolean
+  /** Selectable frame rates; the FPS selector only shows with more than one */
+  fpsOptions?: number[]
   /** Music model that picks its own length: no duration control is shown or sent */
   hideDuration?: boolean
   /** Music model with an instrumental (no vocals) switch */
   supportsInstrumental?: boolean
+}
+
+/** Resolution option that runs Seedance 2.5 (MachGen) in draft mode: a 480p sample */
+export const SEEDANCE_DRAFT_RES = 'Draft 480p'
+
+/** Every whole second from min to max, as duration options */
+function secondsRange(min: number, max: number): string[] {
+  return Array.from({ length: max - min + 1 }, (_, i) => String(min + i))
 }
 
 /**
@@ -79,14 +97,16 @@ export const IMAGE_MODELS: ModelPricing[] = [
     refTags: { image: 'Image %d', skipTagValidation: true } },
   { name: 'Nano Banana 2', category: 'Google', unit: 'img', t2iId: 'nano-banana-2',
     prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.06 }, { resolution: '4K', cost: 0.09 }] },
+  { name: 'Nano Banana 2.1', category: 'Google', unit: 'img', t2iId: 'nano-banana-2-1',
+    // kie.ai/nano-banana-2-1 (Oct 2026): 4 / 6 / 9 credits
+    prices: [{ resolution: '1K', cost: 0.02 }, { resolution: '2K', cost: 0.03 }, { resolution: '4K', cost: 0.045 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9', '1:4', '4:1', '1:8', '8:1'] },
   { name: 'Nano Banana 2 Lite', category: 'Google', unit: 'img', t2iId: 'nano-banana-2-lite',
     prices: [{ resolution: '1K', cost: 0.02 }] },
   { name: 'Seedream 5 Pro', category: 'Seedream', unit: 'img', t2iId: 'seedream/5-pro-text-to-image', i2iId: 'seedream/5-pro-image-to-image', editId: 'seedream/5-pro-image-to-image',
     prices: [{ resolution: '1K', cost: 0.06 }, { resolution: '2K', cost: 0.09 }, { resolution: '4K', cost: 0.15 }] },
-  { name: 'Flux 2 Pro', category: 'Flux', unit: 'img', t2iId: 'flux2-pro-text-to-image', i2iId: 'flux2-pro-image-to-image',
-    prices: [{ resolution: '1K', cost: 0.05 }, { resolution: '2K', cost: 0.08 }] },
-  { name: 'Grok Imagine', category: 'Grok', unit: 'img', t2iId: 'grok-imagine/text-to-image', i2iId: 'grok-imagine/image-to-image',
-    prices: [{ resolution: '1K', cost: 0.02 }, { resolution: '2K', cost: 0.03 }] },
+
   { name: 'Imagen 4 Fast', category: 'Google', unit: 'img', t2iId: 'imagen4-fast',
     prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.06 }] },
   { name: 'Remove Background', category: 'Recraft', unit: 'img', t2iId: 'recraft/remove-background',
@@ -96,6 +116,11 @@ export const IMAGE_MODELS: ModelPricing[] = [
     t2iId: 'openai/gpt-image-2', i2iId: 'openai/gpt-image-2/edit',
     prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.10 }, { resolution: '4K', cost: 0.30 }],
     falAspectRatios: ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'] },
+  { name: 'Nano Banana 2.1 (Fal)', category: 'Google', unit: 'img', provider: 'fal',
+    t2iId: 'google/nano-banana-2.1', editId: 'google/nano-banana-2.1/edit',
+    // fal bills per token; representative cost at medium thinking (Oct 2026)
+    prices: [{ resolution: '1K', cost: 0.040 }, { resolution: '2K', cost: 0.059 }, { resolution: '4K', cost: 0.134 }],
+    falAspectRatios: ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16', '4:1', '1:4', '8:1', '1:8'] },
   { name: 'Nano Banana Pro', category: 'Google', unit: 'img', provider: 'fal',
     t2iId: 'fal-ai/nano-banana-pro', editId: 'fal-ai/nano-banana-pro/edit',
     prices: [{ resolution: '1K', cost: 0.15 }, { resolution: '2K', cost: 0.15 }, { resolution: '4K', cost: 0.30 }],
@@ -128,15 +153,11 @@ export const IMAGE_MODELS: ModelPricing[] = [
     t2iId: 'bria/fibo/generate',
     prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.08 }],
     falAspectRatios: ['1:1', '16:9', '4:3', '3:4', '9:16'] },
-  // Missing KIE image models
-  { name: 'Ideogram 2.0', category: 'Ideogram', unit: 'img', provider: 'kie',
-    t2iId: 'ideogram-2-0',
-    prices: [{ resolution: '1K', cost: 0.08 }],
-    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
+
   { name: 'Qwen Image 3', category: 'Qwen', unit: 'img', provider: 'kie',
-    t2iId: 'qwen-image-3',
-    prices: [{ resolution: '1K', cost: 0.03 }],
-    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
+    t2iId: 'qwen-image-3', i2iId: 'qwen-image-3',
+    prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.05 }],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] },
 
   // Missing fal.ai image models
   { name: 'FLUX.1 [dev] (Fal)', category: 'Flux', unit: 'img', provider: 'fal',
@@ -167,96 +188,225 @@ export const IMAGE_MODELS: ModelPricing[] = [
   // Missing Replicate image models
   { name: 'FLUX.1 Dev (Replicate)', category: 'Flux', unit: 'img', provider: 'replicate',
     t2iId: 'black-forest-labs/flux-dev',
-    prices: [{ resolution: '1K', cost: 0.025 }],
+    prices: [{ resolution: '1K', cost: 0.025 }, { resolution: '2K', cost: 0.040 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] },
   { name: 'FLUX.1 Schnell (Replicate)', category: 'Flux', unit: 'img', provider: 'replicate',
     t2iId: 'black-forest-labs/flux-schnell',
-    prices: [{ resolution: '1K', cost: 0.003 }],
+    prices: [{ resolution: '1K', cost: 0.003 }, { resolution: '2K', cost: 0.006 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] },
   { name: 'FLUX 1.1 Pro (Replicate)', category: 'Flux', unit: 'img', provider: 'replicate',
     t2iId: 'black-forest-labs/flux-1.1-pro',
-    prices: [{ resolution: '1K', cost: 0.040 }],
+    prices: [{ resolution: '1K', cost: 0.040 }, { resolution: '2K', cost: 0.060 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] },
   { name: 'Ideogram v2 (Replicate)', category: 'Ideogram', unit: 'img', provider: 'replicate',
     t2iId: 'ideogram-ai/ideogram-v2',
-    prices: [{ resolution: '1K', cost: 0.080 }],
+    prices: [{ resolution: '1K', cost: 0.080 }, { resolution: '2K', cost: 0.120 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
   { name: 'Ideogram v2 Turbo (Replicate)', category: 'Ideogram', unit: 'img', provider: 'replicate',
     t2iId: 'ideogram-ai/ideogram-v2-turbo',
-    prices: [{ resolution: '1K', cost: 0.040 }],
+    prices: [{ resolution: '1K', cost: 0.040 }, { resolution: '2K', cost: 0.060 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
+  { name: 'Nano Banana 2.1 (Replicate)', category: 'Google', unit: 'img', provider: 'replicate',
+    t2iId: 'replicate/google/nano-banana-2.1',
+    // Replicate does not publish the price; Google's list rate as an estimate
+    prices: [{ resolution: '1K', cost: 0.034 }, { resolution: '2K', cost: 0.050 }, { resolution: '4K', cost: 0.090 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'] },
   { name: 'Imagen 3 (Replicate)', category: 'Google', unit: 'img', provider: 'replicate',
     t2iId: 'google/imagen-3',
-    prices: [{ resolution: '1K', cost: 0.030 }],
+    prices: [{ resolution: '1K', cost: 0.030 }, { resolution: '2K', cost: 0.050 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
   { name: 'Recraft V3 (Replicate)', category: 'Recraft', unit: 'img', provider: 'replicate',
     t2iId: 'recraft-ai/recraft-v3',
-    prices: [{ resolution: '1K', cost: 0.040 }],
+    prices: [{ resolution: '1K', cost: 0.040 }, { resolution: '2K', cost: 0.060 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
 
   // MachGen image models (https://www.machgen.ai)
   { name: 'FLUX.2 Dev (MachGen)', category: 'Flux', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/FLUX.2-dev',
-    prices: [{ resolution: '1K', cost: 0.025 }],
+    prices: [{ resolution: '1K', cost: 0.025 }, { resolution: '2K', cost: 0.040 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
   { name: 'HiDream-O1-Image (MachGen)', category: 'HiDream', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/HiDream-O1-Image',
-    prices: [{ resolution: '1K', cost: 0.020 }],
+    prices: [{ resolution: '1K', cost: 0.020 }, { resolution: '2K', cost: 0.035 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'Topaz-Image-Precision (MachGen)', category: 'Topaz', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/Topaz-Image-Precision/upscale',
-    prices: [{ resolution: '4K', cost: 0.020 }],
+    prices: [{ resolution: '2K', cost: 0.015 }, { resolution: '4K', cost: 0.020 }],
+    resolutions: ['2K', '4K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'Topaz-Image-Generative (MachGen)', category: 'Topaz', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/Topaz-Image-Generative/upscale',
-    prices: [{ resolution: '4K', cost: 0.025 }],
+    prices: [{ resolution: '2K', cost: 0.020 }, { resolution: '4K', cost: 0.025 }],
+    resolutions: ['2K', '4K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'Grok-Imagine-Image (MachGen)', category: 'xAI', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/Grok-Imagine-Image',
-    prices: [{ resolution: '1K', cost: 0.015 }],
+    prices: [{ resolution: '1K', cost: 0.015 }, { resolution: '2K', cost: 0.025 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'Grok-Imagine-Image-Quality (MachGen)', category: 'xAI', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/Grok-Imagine-Image-Quality',
-    prices: [{ resolution: '1K', cost: 0.025 }],
+    prices: [{ resolution: '1K', cost: 0.025 }, { resolution: '2K', cost: 0.040 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'Nano-Banana-2 (MachGen)', category: 'Google', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/Nano-Banana-2',
-    prices: [{ resolution: '1K', cost: 0.020 }],
+    // machgen.ai/pricing (Oct 2026): 1024p / 2048p / 4096p
+    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.048 }, { resolution: '4K', cost: 0.089 }],
+    resolutions: ['1K', '2K', '4K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'Nano-Banana-Pro (MachGen)', category: 'Google', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/Nano-Banana-Pro',
-    prices: [{ resolution: '1K', cost: 0.035 }],
+    // machgen.ai/pricing (Oct 2026): 1024p / 2048p / 4096p
+    prices: [{ resolution: '1K', cost: 0.079 }, { resolution: '2K', cost: 0.079 }, { resolution: '4K', cost: 0.142 }],
+    resolutions: ['1K', '2K', '4K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'Seedream-5.0-lite (MachGen)', category: 'ByteDance', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/Seedream-5.0-lite',
-    prices: [{ resolution: '1K', cost: 0.015 }],
+    // machgen.ai/pricing (Oct 2026): flat $0.038 at any resolution
+    prices: [{ resolution: '1K', cost: 0.038 }, { resolution: '2K', cost: 0.038 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'GPT-Image-2 (MachGen)', category: 'OpenAI', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/GPT-Image-2',
-    prices: [{ resolution: '1K', cost: 0.030 }],
+    // machgen.ai/pricing (Oct 2026) prices by exact size; these are the 16:9 sizes (1280×720, 2048×1152,
+    // 3840×2160). Squarer sizes cost more (1280×1280 $0.148, 2048×2048 $0.252)
+    prices: [{ resolution: '1K', cost: 0.068 }, { resolution: '2K', cost: 0.10 }, { resolution: '4K', cost: 0.236 }],
+    resolutions: ['1K', '2K', '4K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'GPT-Image-2.5-Sunburst (MachGen)', category: 'OpenAI', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/GPT-Image-2.5-Sunburst',
-    prices: [{ resolution: '1K', cost: 0.040 }],
+    // machgen.ai/pricing (Oct 2026), 16:9 sizes; 1280×1280 $0.208, 2048×2048 $0.353
+    prices: [{ resolution: '1K', cost: 0.094 }, { resolution: '2K', cost: 0.14 }, { resolution: '4K', cost: 0.33 }],
+    resolutions: ['1K', '2K', '4K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
   { name: 'GPT-Image-2.5-Flare (MachGen)', category: 'OpenAI', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/GPT-Image-2.5-Flare',
-    prices: [{ resolution: '1K', cost: 0.045 }],
+    // machgen.ai/pricing (Oct 2026), 16:9 sizes; 1280×1280 $0.208, 2048×2048 $0.353
+    prices: [{ resolution: '1K', cost: 0.094 }, { resolution: '2K', cost: 0.14 }, { resolution: '4K', cost: 0.33 }],
+    resolutions: ['1K', '2K', '4K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
 
-  // Missing Higgsfield image models
+  // Higgsfield image models
   { name: 'Soul Image 2.0 (Higgsfield)', category: 'Higgsfield', unit: 'img', provider: 'higgsfield',
-    t2iId: 'higgsfield/soul-image-2',
-    prices: [{ resolution: '1K', cost: 0.030 }],
-    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
-  { name: 'FLUX.1 Pro (Higgsfield)', category: 'Flux', unit: 'img', provider: 'higgsfield',
-    t2iId: 'higgsfield/flux-pro',
+    t2iId: 'higgsfield-ai/soul/v2/standard',
+    prices: [{ resolution: '720p', cost: 0.030 }, { resolution: '1080p', cost: 0.050 }],
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
+  { name: 'Soul Cinema (Higgsfield)', category: 'Higgsfield', unit: 'img', provider: 'higgsfield',
+    t2iId: 'higgsfield-ai/soul/standard',
+    prices: [{ resolution: '720p', cost: 0.035 }, { resolution: '1080p', cost: 0.060 }],
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
+  { name: 'Grok Image 2.0 (Higgsfield)', category: 'Grok', unit: 'img', provider: 'higgsfield',
+    t2iId: 'xai/grok-imagine-image-2.0',
+    prices: [{ resolution: '1K', cost: 0.030 }, { resolution: '2K', cost: 0.050 }],
+    resolutions: ['1K', '2K'],
+    aspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2'] },
+  { name: 'Ideogram v4 (Higgsfield)', category: 'Ideogram', unit: 'img', provider: 'higgsfield',
+    t2iId: 'ideogram/v4.0',
     prices: [{ resolution: '1K', cost: 0.040 }],
+    resolutions: ['1K'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
+  { name: 'Recraft v4.1 (Higgsfield)', category: 'Recraft', unit: 'img', provider: 'higgsfield',
+    t2iId: 'recraft/v4.1/text-to-image',
+    prices: [{ resolution: '1K', cost: 0.035 }],
+    resolutions: ['1K'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
+  { name: 'Qwen Image 3 (Higgsfield)', category: 'Alibaba', unit: 'img', provider: 'higgsfield',
+    t2iId: 'alibaba/qwen-image-3/text-to-image',
+    prices: [{ resolution: '1K', cost: 0.025 }, { resolution: '2K', cost: 0.045 }],
+    resolutions: ['1K', '2K'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] },
+  { name: 'Z-Image Turbo (Higgsfield)', category: 'Higgsfield', unit: 'img', provider: 'higgsfield',
+    t2iId: 'z-image/turbo',
+    prices: [{ resolution: '1K', cost: 0.020 }, { resolution: '2K', cost: 0.035 }],
+    resolutions: ['1K', '2K'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] },
+  // Character sheet from a trait catalog: output is fixed at 2K 16:9; the prompt is the "brief".
+  // First attached image = identity photo, the next (max 3) = clothing/item references
+  { name: 'AI Influencer (Higgsfield)', category: 'Higgsfield', unit: 'img', provider: 'higgsfield',
+    t2iId: 'higgsfield/ai-influencer', i2iId: 'higgsfield/ai-influencer',
+    prices: [{ resolution: '2K', cost: 0.05 }],
+    resolutions: ['2K'],
+    aspectRatios: ['16:9'] },
+  { name: 'Graphic Ads', category: 'Marketing', unit: 'img', provider: 'higgsfield',
+    t2iId: 'marketing-studio/image', i2iId: 'marketing-studio/image', editId: 'marketing-studio/image',
+    prices: [{ resolution: '1k', cost: 0.040 }, { resolution: '2k', cost: 0.060 }, { resolution: '4k', cost: 0.090 }],
+    resolutions: ['1k', '2k', '4k'],
+    aspectRatios: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9'] },
+  { name: 'Marketplace Design', category: 'Marketing', unit: 'img', provider: 'higgsfield',
+    t2iId: 'marketing-studio/image/marketplace', i2iId: 'marketing-studio/image/marketplace', editId: 'marketing-studio/image/marketplace',
+    prices: [{ resolution: '1k', cost: 0.040 }, { resolution: '2k', cost: 0.060 }, { resolution: '4k', cost: 0.090 }],
+    resolutions: ['1k', '2k', '4k'],
+    aspectRatios: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9'] },
+
+  // APIMart image models (https://docs.apimart.ai)
+  { name: 'Nano Banana 2 (APIMart)', category: 'Google', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/gemini-3.1-flash-image-preview-official', i2iId: 'apimart/gemini-3.1-flash-image-preview-official',
+    prices: [{ resolution: '0.5K', cost: 0.02 }, { resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.06 }, { resolution: '4K', cost: 0.09 }],
+    resolutions: ['0.5K', '1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9', '1:4', '4:1', '1:8', '8:1'] },
+  { name: 'Nano Banana Pro (APIMart)', category: 'Google', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/gemini-3-pro-image-preview', i2iId: 'apimart/gemini-3-pro-image-preview',
+    prices: [{ resolution: '1K', cost: 0.06 }, { resolution: '2K', cost: 0.09 }, { resolution: '4K', cost: 0.15 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9'] },
+  { name: 'Imagen 4.0 (APIMart)', category: 'Google', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/imagen-4.0-apimart',
+    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.06 }],
+    resolutions: ['1K', '2K'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
+  { name: 'GPT Image 2 (APIMart)', category: 'OpenAI', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/gpt-image-2', i2iId: 'apimart/gpt-image-2',
+    prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.05 }, { resolution: '4K', cost: 0.08 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] },
+  { name: 'GPT Image 2.5 Ext (APIMart)', category: 'OpenAI', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/gpt-image-2.5-ext', i2iId: 'apimart/gpt-image-2.5-ext',
+    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.06 }, { resolution: '4K', cost: 0.09 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] },
+  { name: 'Seedream 4.5 (APIMart)', category: 'ByteDance', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/seedream-4.5', i2iId: 'apimart/seedream-4.5',
+    prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.05 }],
+    resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
-  { name: 'Ideogram 2.0 (Higgsfield)', category: 'Ideogram', unit: 'img', provider: 'higgsfield',
-    t2iId: 'higgsfield/ideogram-2',
-    prices: [{ resolution: '1K', cost: 0.060 }],
+  { name: 'Seedream 5.0 Lite (APIMart)', category: 'ByteDance', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/seedream-5-lite', i2iId: 'apimart/seedream-5-lite',
+    prices: [{ resolution: '2K', cost: 0.02 }, { resolution: '3K', cost: 0.04 }],
+    resolutions: ['2K', '3K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
+  { name: 'Seedream 5.0 Pro (APIMart)', category: 'ByteDance', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/seedream-5-0-pro', i2iId: 'apimart/seedream-5-0-pro',
+    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '1.5K', cost: 0.06 }, { resolution: '2K', cost: 0.08 }],
+    resolutions: ['1K', '1.5K', '2K'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] },
+  { name: 'Seedream 5.0 Flash (APIMart)', category: 'ByteDance', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/seedream-5-0-flash', i2iId: 'apimart/seedream-5-0-flash',
+    prices: [{ resolution: '1K', cost: 0.02 }, { resolution: '1.5K', cost: 0.035 }, { resolution: '2K', cost: 0.05 }],
+    resolutions: ['1K', '1.5K', '2K'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] },
+  { name: 'Qwen Image 3.0 (APIMart)', category: 'Alibaba', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/qwen-image-3.0', i2iId: 'apimart/qwen-image-3.0',
+    prices: [{ resolution: '1K', cost: 0.025 }, { resolution: '2K', cost: 0.045 }],
+    resolutions: ['1K', '2K'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] },
+  { name: 'Grok Imagine 2.0 Ext (APIMart)', category: 'xAI', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/grok-imagine-2.0-ext',
+    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.08 }],
+    resolutions: ['1K', '2K'],
+    aspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2'] },
 ]
 
 // ─── Video models ──────────────────────────────────────────────────────────
@@ -287,22 +437,24 @@ export const VIDEO_MODELS: ModelPricing[] = [
     durationMax: 30, resolutions: ['480p', '720p', '1080p'], supportsVideoRef: true },
   { name: 'Seedance 2', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2', i2vId: 'bytedance/seedance-2', fflfId: 'bytedance/seedance-2',
     prices: [{ resolution: '480p', cost: 0.095 }, { resolution: '720p', cost: 0.205 }, { resolution: '1080p', cost: 0.51 }, { resolution: '4k', cost: 1.04 }], durationMax: 15,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['480p', '720p', '1080p', '4k'], supportsVideoRef: true, supportsAudioRef: true,
+    durationOptions: secondsRange(4, 15), resolutions: ['480p', '720p', '1080p', '4k'], supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Seedance 2.5', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-5', i2vId: 'bytedance/seedance-2-5', fflfId: 'bytedance/seedance-2-5',
     prices: [{ resolution: '480p', cost: 0.14 }, { resolution: '720p', cost: 0.315 }], durationMax: 30,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20', '30'], resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true,
+    durationOptions: secondsRange(4, 30), resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Seedance 2 Fast', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-fast', i2vId: 'bytedance/seedance-2-fast', fflfId: 'bytedance/seedance-2-fast',
     prices: [{ resolution: '480p', cost: 0.059 }, { resolution: '720p', cost: 0.124 }], durationMax: 15,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true,
+    durationOptions: secondsRange(4, 15), resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Seedance 2 Mini', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-mini', i2vId: 'bytedance/seedance-2-mini', fflfId: 'bytedance/seedance-2-mini',
     prices: [{ resolution: '480p', cost: 0.019 }, { resolution: '720p', cost: 0.041 }], durationMax: 15,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true,
+    durationOptions: secondsRange(4, 15), resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Seedance 2.0 (Higgsfield)', category: 'ByteDance', unit: 's', provider: 'higgsfield',
     t2vId: 'bytedance/seedance-2.0/text-to-video',
+    i2vId: 'bytedance/seedance-2.0/image-to-video',
+    refId: 'bytedance/seedance-2.0/reference-to-video',
     prices: [
       { resolution: '480p', cost: 0.135 },
       { resolution: '720p', cost: 0.302 },
@@ -310,21 +462,33 @@ export const VIDEO_MODELS: ModelPricing[] = [
       { resolution: '4k', cost: 1.555 },
     ],
     durationMax: 15,
-    durationOptions: ['4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
+    durationOptions: secondsRange(4, 15),
     resolutions: ['480p', '720p', '1080p', '4k'],
+    supportsVideoRef: true,
+    supportsAudioRef: true,
+    refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' },
     aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] },
   { name: 'Seedance 2.5 (Higgsfield)', category: 'ByteDance', unit: 's', provider: 'higgsfield',
     t2vId: 'bytedance/seedance-2.5/text-to-video',
+    i2vId: 'bytedance/seedance-2.5/image-to-video',
+    refId: 'bytedance/seedance-2.5/reference-to-video',
+    extendId: 'bytedance/seedance-2.5/video-extend',
     prices: [
       { resolution: '480p', cost: 0.206 },
       { resolution: '720p', cost: 0.462 },
+      // Estimate: Higgsfield does not publish it; scaled from 480p→720p (×2.24 ≈ pixel ratio)
+      { resolution: '1080p', cost: 1.040 },
     ],
     durationMax: 30,
-    durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20', '30'],
-    resolutions: ['480p', '720p'],
+    durationOptions: secondsRange(4, 30),
+    resolutions: ['480p', '720p', '1080p'],
+    supportsVideoRef: true,
+    supportsAudioRef: true,
+    refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' },
     aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] },
   { name: 'Kling 3.0 Standard (Higgsfield)', category: 'Kling', unit: 's', provider: 'higgsfield',
     t2vId: 'kling-video/v3.0/std/text-to-video',
+    i2vId: 'kling-video/v3.0/std/image-to-video',
     prices: [{ resolution: 'std', cost: 0.07 }],
     durationMax: 15,
     durationOptions: ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
@@ -384,34 +548,35 @@ export const VIDEO_MODELS: ModelPricing[] = [
   { name: 'MiniMax H3', category: 'MiniMax', unit: 's',
     t2vId: 'minimax-h3/text-to-video', i2vId: 'minimax-h3/image-to-video', fflfId: 'minimax-h3/image-to-video', refId: 'minimax-h3/reference-to-video',
     prices: [{ resolution: '768P', cost: 0.04 }, { resolution: '2K', cost: 0.065 }],
-    durationMax: 15, durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['768P', '2K'],
+    durationMax: 15, durationOptions: secondsRange(4, 15), resolutions: ['768P', '2K'],
     supportsVideoRef: true, supportsAudioRef: true },
   { name: 'MiniMax H3 (Fal)', category: 'MiniMax', unit: 's', provider: 'fal',
     t2vId: 'minimax/h3/reference-to-video', i2vId: 'minimax/h3/reference-to-video',
     prices: [{ resolution: '768P', cost: 0.08 }, { resolution: '2K', cost: 0.13 }, { resolution: '4K', cost: 0.16 }],
-    durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['768P', '2K', '4K'],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['768P', '2K', '4K'],
     supportsVideoRef: true, supportsAudioRef: true,
     falAspectRatios: ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] },
   { name: 'MiniMax H3 Max Turbo (Fal)', category: 'MiniMax', unit: 's', provider: 'fal',
     t2vId: 'minimax/h3-max-turbo/text-to-video',
     prices: [{ resolution: '768P', cost: 0.01 }, { resolution: '480P', cost: 0.00625 }, { resolution: '1080P', cost: 0.02 }],
-    durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['768P', '480P', '1080P'],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['768P', '480P', '1080P'],
     falAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
   { name: 'MiniMax H3 Max (Fal)', category: 'MiniMax', unit: 's', provider: 'fal',
     t2vId: 'minimax/h3-max/text-to-video',
     prices: [{ resolution: '768P', cost: 0.02 }, { resolution: '480P', cost: 0.0125 }, { resolution: '1080P', cost: 0.04 }],
-    durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['768P', '480P', '1080P'],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['768P', '480P', '1080P'],
     falAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
   { name: 'MiniMax H3 Max Ref (Fal)', category: 'MiniMax', unit: 's', provider: 'fal',
     t2vId: 'minimax/h3-max/reference-to-video', i2vId: 'minimax/h3-max/reference-to-video', refId: 'minimax/h3-max/reference-to-video',
     prices: [{ resolution: '768P', cost: 0.08 }, { resolution: '480P', cost: 0.05 }],
-    durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['768P', '480P'],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['768P', '480P'],
     supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: 'Image %d', video: 'Video %d', audio: 'Audio %d' },
     falAspectRatios: ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] },
   // MachGen video models (https://www.machgen.ai)
   { name: 'Wan2.2-A14B (MachGen)', category: 'Wan', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Wan2.2-A14B/t2v', i2vId: 'machgen/Wan2.2-A14B/i2v',
+    fpsOptions: [16, 24],
     prices: [{ resolution: '480p', cost: 0.018 }, { resolution: '720p', cost: 0.036 }],
     durationMax: 10, durationOptions: ['5', '6', '8', '10'], resolutions: ['480p', '720p'],
     aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
@@ -432,38 +597,50 @@ export const VIDEO_MODELS: ModelPricing[] = [
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'MiniMax H3 (MachGen)', category: 'MiniMax', unit: 's', provider: 'machgen',
     t2vId: 'machgen/MiniMax-H3/t2v', i2vId: 'machgen/MiniMax-H3/i2v', fflfId: 'machgen/MiniMax-H3/fflf', refId: 'machgen/MiniMax-H3/ref',
-    prices: [{ resolution: '480p', cost: 0.035 }, { resolution: '768p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
-    durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['480p', '768p', '1080p'],
-    supportsVideoRef: true,
-    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'] },
+    prices: [{ resolution: '480p', cost: 0.035 }, { resolution: '768p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }, { resolution: '2K', cost: 0.10 }],
+    durationMax: 15, durationOptions: secondsRange(4, 15), resolutions: ['480p', '768p', '1080p', '2K'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
   { name: 'MiniMax H3 Turbo (MachGen)', category: 'MiniMax', unit: 's', provider: 'machgen',
     t2vId: 'machgen/MiniMax-H3-Turbo/t2v', i2vId: 'machgen/MiniMax-H3-Turbo/i2v', fflfId: 'machgen/MiniMax-H3-Turbo/fflf', refId: 'machgen/MiniMax-H3-Turbo/ref',
-    prices: [{ resolution: '480p', cost: 0.015 }, { resolution: '768p', cost: 0.020 }, { resolution: '1080p', cost: 0.040 }],
-    durationMax: 15, durationOptions: ['5', '6', '8', '10', '12', '15'], resolutions: ['480p', '768p', '1080p'],
+    // machgen.ai/pricing (Oct 2026): $0.01/s at 480p/768p (discounted); 1080p not listed there
+    prices: [{ resolution: '480p', cost: 0.01 }, { resolution: '768p', cost: 0.01 }, { resolution: '1080p', cost: 0.040 }],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['480p', '768p', '1080p'],
     supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'] },
   { name: 'Seedance 2.5 (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Seedance-2.5/t2v', i2vId: 'machgen/Seedance-2.5/i2v', fflfId: 'machgen/Seedance-2.5/fflf', refId: 'machgen/Seedance-2.5/ref',
-    prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.09 }],
-    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    prices: [
+      { resolution: '480p', cost: 0.10, costWithVideoInput: 0.06 },
+      { resolution: '720p', cost: 0.23, costWithVideoInput: 0.14 },
+      { resolution: '1080p', cost: 0.59, costWithVideoInput: 0.32 },
+    ],
+    // The composer never auto-selects the draft option; drafts are billed at the 480p rate
+    durationMax: 30, durationOptions: secondsRange(4, 30), resolutions: [SEEDANCE_DRAFT_RES, '480p', '720p', '1080p'],
     supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
   { name: 'Seedance 2.0 (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Seedance-2.0/t2v', i2vId: 'machgen/Seedance-2.0/i2v', fflfId: 'machgen/Seedance-2.0/fflf', refId: 'machgen/Seedance-2.0/ref',
-    prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.07 }],
-    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    // machgen.ai/pricing (Oct 2026); with an input video, input + output seconds at the lower rate
+    prices: [
+      { resolution: '480p', cost: 0.07, costWithVideoInput: 0.04 },
+      { resolution: '720p', cost: 0.15, costWithVideoInput: 0.085 },
+      { resolution: '1080p', cost: 0.37, costWithVideoInput: 0.23 },
+      { resolution: '4K', cost: 0.78, costWithVideoInput: 0.465 },
+    ],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['480p', '720p', '1080p', '4K'],
     supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Seedance 2.0 Fast (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Seedance-2.0-Fast/t2v', i2vId: 'machgen/Seedance-2.0-Fast/i2v', fflfId: 'machgen/Seedance-2.0-Fast/fflf', refId: 'machgen/Seedance-2.0-Fast/ref',
-    prices: [{ resolution: '720p', cost: 0.025 }],
-    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    prices: [{ resolution: '480p', cost: 0.05, costWithVideoInput: 0.03 }, { resolution: '720p', cost: 0.12, costWithVideoInput: 0.07 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['480p', '720p'],
     supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Seedance 2.0 Mini (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Seedance-2.0-Mini/t2v', i2vId: 'machgen/Seedance-2.0-Mini/i2v', fflfId: 'machgen/Seedance-2.0-Mini/fflf', refId: 'machgen/Seedance-2.0-Mini/ref',
-    prices: [{ resolution: '720p', cost: 0.02 }],
-    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
+    prices: [{ resolution: '480p', cost: 0.033, costWithVideoInput: 0.02 }, { resolution: '720p', cost: 0.08, costWithVideoInput: 0.045 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['480p', '720p'],
     supportsVideoRef: true,
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Kling-v3 (MachGen)', category: 'Kling', unit: 's', provider: 'machgen',
@@ -533,21 +710,41 @@ export const VIDEO_MODELS: ModelPricing[] = [
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Topaz-Video-Precision (MachGen)', category: 'Topaz', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Topaz-Video-Precision/upscale',
+    upscaleEngines: ['proteus', 'artemis-hq', 'artemis-mq', 'artemis-lq', 'gaia-hq', 'gaia-cg'],
+    // Video upscalers: one source video, billed by its length
+    supportsVideoRef: true,
+    maxVideoRefs: 1,
+    durationFromInputVideo: true,
     prices: [{ resolution: '4K', cost: 0.05 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Topaz-Video-Precision-Animation (MachGen)', category: 'Topaz', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Topaz-Video-Precision-Animation/upscale',
+    upscaleEngines: ['gaia-2'],
+    // Video upscalers: one source video, billed by its length
+    supportsVideoRef: true,
+    maxVideoRefs: 1,
+    durationFromInputVideo: true,
     prices: [{ resolution: '4K', cost: 0.05 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Topaz-Video-Generative (MachGen)', category: 'Topaz', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Topaz-Video-Generative/upscale',
+    upscaleEngines: ['starlight-hq', 'starlight-precise-2-5', 'starlight-mini', 'starlight-sharp'],
+    // Video upscalers: one source video, billed by its length
+    supportsVideoRef: true,
+    maxVideoRefs: 1,
+    durationFromInputVideo: true,
     prices: [{ resolution: '4K', cost: 0.06 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Topaz-Video-Generative-Fast (MachGen)', category: 'Topaz', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Topaz-Video-Generative-Fast/upscale',
+    upscaleEngines: ['starlight-fast-2'],
+    // Video upscalers: one source video, billed by its length
+    supportsVideoRef: true,
+    maxVideoRefs: 1,
+    durationFromInputVideo: true,
     prices: [{ resolution: '4K', cost: 0.04 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
@@ -634,8 +831,13 @@ export const VIDEO_MODELS: ModelPricing[] = [
     falAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
   { name: 'Seedance 2.5 (Fal)', category: 'ByteDance', unit: 's', provider: 'fal',
     t2vId: 'fal-ai/bytedance/seedance-2-5', i2vId: 'fal-ai/bytedance/seedance-2-5',
-    prices: [{ resolution: '720p', cost: 0.18 }],
-    durationMax: 20, durationOptions: ['5', '10', '15', '20'], resolutions: ['720p'],
+    // fal's per-second figures for its token pricing; with video inputs × 0.6 on input + output seconds
+    prices: [
+      { resolution: '480p', cost: 0.2205, costWithVideoInput: 0.1323 },
+      { resolution: '720p', cost: 0.473, costWithVideoInput: 0.2838 },
+      { resolution: '1080p', cost: 1.164, costWithVideoInput: 0.6984 },
+    ],
+    durationMax: 20, durationOptions: ['5', '10', '15', '20'], resolutions: ['480p', '720p', '1080p'],
     falAspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'HunyuanVideo (Fal)', category: 'Tencent', unit: 's', provider: 'fal',
     t2vId: 'fal-ai/hunyuan-video', i2vId: 'fal-ai/hunyuan-video',
@@ -654,21 +856,166 @@ export const VIDEO_MODELS: ModelPricing[] = [
     falAspectRatios: ['16:9', '9:16', '1:1'] },
 
 
-  // Missing Higgsfield video models
+  // Higgsfield video models
   { name: 'Wan 3.0 (Higgsfield)', category: 'Wan', unit: 's', provider: 'higgsfield',
-    t2vId: 'higgsfield/wan-3-0/text-to-video', i2vId: 'higgsfield/wan-3-0/image-to-video',
-    prices: [{ resolution: '720p', cost: 0.04 }],
-    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
+    t2vId: 'alibaba/wan-3.0/text-to-video', i2vId: 'alibaba/wan-3.0/image-to-video', refId: 'alibaba/wan-3.0/reference-to-video',
+    prices: [{ resolution: '480p', cost: 0.03 }, { resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 30, durationOptions: ['3', '4', '5', '6', '8', '10', '12', '15', '20', '30'], resolutions: ['480p', '720p', '1080p'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    refTags: { image: 'Image%d', video: 'Video%d', audio: 'Audio%d' },
     aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Wan 3.0 Prime (Higgsfield)', category: 'Wan', unit: 's', provider: 'higgsfield',
+    t2vId: 'alibaba/wan-3.0-prime/text-to-video', i2vId: 'alibaba/wan-3.0-prime/image-to-video', refId: 'alibaba/wan-3.0-prime/reference-to-video',
+    prices: [{ resolution: '480p', cost: 0.03 }, { resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 30, durationOptions: ['2', '3', '4', '5', '6', '8', '10', '12', '15', '20', '30'], resolutions: ['480p', '720p', '1080p'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    refTags: { image: 'Image%d', video: 'Video%d', audio: 'Audio%d' },
+    aspectRatios: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16'] },
   { name: 'Soul 2.0 Cinema (Higgsfield)', category: 'Higgsfield', unit: 's', provider: 'higgsfield',
-    t2vId: 'higgsfield/soul-2-0/text-to-video', i2vId: 'higgsfield/soul-2-0/image-to-video',
+    t2vId: 'higgsfield-ai/soul/cinema', i2vId: 'higgsfield-ai/soul/cinema',
     prices: [{ resolution: '720p', cost: 0.12 }],
     durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
+  // Re-skins a source video (motion, camera and timing kept) with 1–8 image references.
+  // Billed per second of the source video (min 4 s, trimmed to 30 s), playground rates Oct 2026
+  { name: 'Genjutsu Motion Transfer (Higgsfield)', category: 'Higgsfield', unit: 's', provider: 'higgsfield',
+    t2vId: 'higgsfield/genjutsu/motion-transfer/v1.0', refId: 'higgsfield/genjutsu/motion-transfer/v1.0',
+    supportsVideoRef: true,
+    maxVideoRefs: 1,
+    durationFromInputVideo: true,
+    prices: [{ resolution: '480p', cost: 0.318 }, { resolution: '720p', cost: 0.681 }, { resolution: '1080p', cost: 1.632 }],
+    durationMax: 30, resolutions: ['480p', '720p', '1080p'] },
   { name: 'MiniMax H3 (Higgsfield)', category: 'MiniMax', unit: 's', provider: 'higgsfield',
-    t2vId: 'higgsfield/minimax-h3/text-to-video', i2vId: 'higgsfield/minimax-h3/image-to-video',
-    prices: [{ resolution: '720p', cost: 0.05 }],
-    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
+    t2vId: 'minimax/h3/text-to-video', i2vId: 'minimax/h3/image-to-video', refId: 'minimax/h3/reference-to-video',
+    prices: [{ resolution: '2K', cost: 0.13 }],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['2K'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    aspectRatios: ['auto', 'adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] },
+
+  // APIMart video models (https://docs.apimart.ai)
+  { name: 'Seedance 2.0 (APIMart)', category: 'ByteDance', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/seedance-2-0', i2vId: 'apimart/seedance-2-0', fflfId: 'apimart/seedance-2-0', refId: 'apimart/seedance-2-0',
+    prices: [{ resolution: '480p', cost: 0.08 }, { resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.35 }, { resolution: '4k', cost: 0.80 }],
+    durationMax: 15, durationOptions: secondsRange(4, 15), resolutions: ['480p', '720p', '1080p', '4k'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
+  { name: 'Seedance 2.5 (APIMart)', category: 'ByteDance', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/seedance-2-5', i2vId: 'apimart/seedance-2-5', fflfId: 'apimart/seedance-2-5', refId: 'apimart/seedance-2-5', extendId: 'apimart/seedance-2-5',
+    prices: [{ resolution: '480p', cost: 0.12 }, { resolution: '720p', cost: 0.25 }, { resolution: '1080p', cost: 0.45 }],
+    durationMax: 30, durationOptions: secondsRange(4, 30), resolutions: ['480p', '720p', '1080p'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
+  { name: 'Sora 2 (APIMart)', category: 'OpenAI', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/sora-2', i2vId: 'apimart/sora-2',
+    prices: [{ resolution: '720p', cost: 0.20 }, { resolution: '1080p', cost: 0.35 }],
+    durationMax: 20, durationOptions: ['5', '10', '15', '20'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'VEO 3 (APIMart)', category: 'Google', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/veo3', i2vId: 'apimart/veo3', fflfId: 'apimart/veo3', extendId: 'apimart/veo3',
+    prices: [{ resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.25 }, { resolution: '4k', cost: 0.50 }],
+    durationMax: 15, durationOptions: ['4', '6', '8', '10', '15'], resolutions: ['720p', '1080p', '4k'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'MiniMax-Hailuo-2.3 (APIMart)', category: 'MiniMax', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/minimax-hailuo-2.3', i2vId: 'apimart/minimax-hailuo-2.3',
+    prices: [{ resolution: '768p', cost: 0.05 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 10, durationOptions: ['6', '10'], resolutions: ['768p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'MiniMax H3 (APIMart)', category: 'MiniMax', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/minimax-h3', i2vId: 'apimart/minimax-h3', fflfId: 'apimart/minimax-h3', refId: 'apimart/minimax-h3',
+    prices: [{ resolution: '768p', cost: 0.04 }, { resolution: '2K', cost: 0.07 }],
+    durationMax: 15, durationOptions: secondsRange(4, 15), resolutions: ['768p', '2K'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'] },
+  { name: 'FLUX 3 Video (APIMart)', category: 'Flux', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/flux-3-video', i2vId: 'apimart/flux-3-video', extendId: 'apimart/flux-3-video',
+    prices: [{ resolution: 'hd', cost: 0.06 }, { resolution: 'fhd', cost: 0.10 }],
+    durationMax: 20, durationOptions: ['5', '8', '10', '15', '20'], resolutions: ['hd', 'fhd'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
+  { name: 'SkyReels V4 (APIMart)', category: 'SkyReels', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/skyreels-v4', i2vId: 'apimart/skyreels-v4', refId: 'apimart/skyreels-v4',
+    prices: [{ resolution: '480p', cost: 0.03 }, { resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.09 }],
+    durationMax: 15, durationOptions: ['3', '5', '8', '10', '15'], resolutions: ['480p', '720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'HappyHorse (APIMart)', category: 'Alibaba', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/happyhorse-1.0', i2vId: 'apimart/happyhorse-1.0', refId: 'apimart/happyhorse-1.0',
+    prices: [{ resolution: '720p', cost: 0.03 }, { resolution: '1080p', cost: 0.06 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Wan 3.0 (APIMart)', category: 'Wan', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/wan3.0', i2vId: 'apimart/wan3.0', fflfId: 'apimart/wan3.0', refId: 'apimart/wan3.0',
+    prices: [{ resolution: '480p', cost: 0.04 }, { resolution: '720p', cost: 0.08 }, { resolution: '1080p', cost: 0.16 }],
+    durationMax: 30, durationOptions: ['3', '5', '8', '10', '12', '15', '20', '30'], resolutions: ['480p', '720p', '1080p'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
+  { name: 'Wan 2.7 (APIMart)', category: 'Wan', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/wan2.7', i2vId: 'apimart/wan2.7', fflfId: 'apimart/wan2.7', refId: 'apimart/wan2.7',
+    prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 15, durationOptions: ['2', '5', '8', '10', '15'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling 2.6 (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/kling-v2-6', i2vId: 'apimart/kling-v2-6', fflfId: 'apimart/kling-v2-6',
+    prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.09 }],
+    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling v3 (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/kling-v3', i2vId: 'apimart/kling-v3', fflfId: 'apimart/kling-v3',
+    prices: [{ resolution: 'std', cost: 0.07 }, { resolution: 'pro', cost: 0.10 }, { resolution: '4k', cost: 0.25 }],
+    durationMax: 15, durationOptions: ['3', '5', '8', '10', '12', '15'], resolutions: ['std', 'pro', '4k'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling 3.0 Turbo (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/kling-3.0-turbo', i2vId: 'apimart/kling-3.0-turbo',
+    prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 15, durationOptions: ['3', '5', '8', '10', '15'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling v3 Omni (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/kling-v3-omni', i2vId: 'apimart/kling-v3-omni', refId: 'apimart/kling-v3-omni',
+    prices: [{ resolution: 'std', cost: 0.08 }, { resolution: 'pro', cost: 0.12 }, { resolution: '4k', cost: 0.28 }],
+    durationMax: 15, durationOptions: ['3', '5', '8', '10', '15'], resolutions: ['std', 'pro', '4k'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling Video O1 (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/kling-video-o1', i2vId: 'apimart/kling-video-o1', refId: 'apimart/kling-video-o1',
+    prices: [{ resolution: '720p', cost: 0.10 }, { resolution: '1080p', cost: 0.18 }],
+    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Vidu Q3 Pro (APIMart)', category: 'Vidu', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/vidu-q3-pro', i2vId: 'apimart/vidu-q3-pro', fflfId: 'apimart/vidu-q3-pro',
+    prices: [{ resolution: '540p', cost: 0.03 }, { resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 16, durationOptions: ['4', '8', '12', '16'], resolutions: ['540p', '720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Vidu Q3 Turbo (APIMart)', category: 'Vidu', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/vidu-q3-turbo', i2vId: 'apimart/vidu-q3-turbo', fflfId: 'apimart/vidu-q3-turbo',
+    prices: [{ resolution: '540p', cost: 0.02 }, { resolution: '720p', cost: 0.03 }, { resolution: '1080p', cost: 0.06 }],
+    durationMax: 16, durationOptions: ['4', '8', '12', '16'], resolutions: ['540p', '720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Vidu Q3 Mix (APIMart)', category: 'Vidu', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/vidu-q3', i2vId: 'apimart/vidu-q3', refId: 'apimart/vidu-q3',
+    prices: [{ resolution: '540p', cost: 0.025 }, { resolution: '720p', cost: 0.035 }, { resolution: '1080p', cost: 0.07 }],
+    durationMax: 16, durationOptions: ['4', '8', '12', '16'], resolutions: ['540p', '720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Grok Imagine Video (APIMart)', category: 'xAI', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/grok-imagine-video', i2vId: 'apimart/grok-imagine-video',
+    prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.09 }],
+    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Pixverse v6 (APIMart)', category: 'Pixverse', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/pixverse-v6', i2vId: 'apimart/pixverse-v6', fflfId: 'apimart/pixverse-v6', refId: 'apimart/pixverse-v6', extendId: 'apimart/pixverse-v6',
+    prices: [{ resolution: '360p', cost: 0.02 }, { resolution: '540p', cost: 0.03 }, { resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 15, durationOptions: ['3', '5', '8', '10', '15'], resolutions: ['360p', '540p', '720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Gemini Omni 1.1 Flash Ext (APIMart)', category: 'Google', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/gemini-omni-1.1-flash-ext', i2vId: 'apimart/gemini-omni-1.1-flash-ext', refId: 'apimart/gemini-omni-1.1-flash-ext',
+    prices: [{ resolution: '720p', cost: 0.12 }, { resolution: '1080p', cost: 0.20 }, { resolution: '4k', cost: 0.40 }],
+    durationMax: 10, durationOptions: ['4', '6', '8', '10'], resolutions: ['720p', '1080p', '4k'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Gemini Omni 1.1 Flash (APIMart)', category: 'Google', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/gemini-omni-1.1-flash', i2vId: 'apimart/gemini-omni-1.1-flash', fflfId: 'apimart/gemini-omni-1.1-flash', refId: 'apimart/gemini-omni-1.1-flash', extendId: 'apimart/gemini-omni-1.1-flash',
+    prices: [{ resolution: '360p', cost: 0.10 }, { resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.25 }, { resolution: '4k', cost: 0.50 }],
+    durationMax: 10, durationOptions: ['3', '5', '8', '10'], resolutions: ['360p', '720p', '1080p', '4k'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Gemini Omni Flash (APIMart)', category: 'Google', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/gemini-omni-flash-preview', i2vId: 'apimart/gemini-omni-flash-preview', refId: 'apimart/gemini-omni-flash-preview',
+    prices: [{ resolution: '720p', cost: 0.10 }],
+    durationMax: 10, durationOptions: ['3', '5', '8', '10'], resolutions: ['720p'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
 ]
 
@@ -758,10 +1105,61 @@ export const AUDIO_MODELS: ModelPricing[] = [
 
 // ─── Cost calculation (single source of truth) ─────────────────────────────
 
+const MODEL_ID_KEYS = ['t2iId', 'i2iId', 'editId', 't2vId', 'i2vId', 'fflfId', 'refId', 'extendId', 't2aId', 'modelId'] as const
+
+/**
+ * Catalog entry for a stored model id (or display name). Several providers share ids — e.g.
+ * 'minimax/h3/reference-to-video' is the Higgsfield ref endpoint and also the fal entry's t2vId —
+ * so a plain first-match `find` silently switches providers. Ties are broken by the provider
+ * (persisted on assets), then by the currently selected model, then by catalog order.
+ */
+export function findModelById(
+  models: ModelPricing[],
+  id: string | null | undefined,
+  opts: { provider?: string | null; preferName?: string | null } = {},
+): ModelPricing | undefined {
+  if (!id) return undefined
+  const lower = id.toLowerCase()
+  const matches = models.filter(m =>
+    MODEL_ID_KEYS.some(k => m[k] === id) || m.voiceId === id || m.name.toLowerCase() === lower)
+  if (matches.length <= 1) return matches[0]
+  const providerOf = (m: ModelPricing) => (m.local ? 'local' : (m.provider || 'kie'))
+  if (opts.provider) {
+    const byProvider = matches.find(m => providerOf(m) === opts.provider)
+    if (byProvider) return byProvider
+  }
+  if (opts.preferName) {
+    const current = matches.find(m => m.name === opts.preferName)
+    if (current) return current
+  }
+  return matches[0]
+}
+
+/**
+ * Provider that generated an asset: the persisted `provider` column first, then the stored
+ * payload, then a catalog lookup — only when the model id belongs to a single provider
+ * (e.g. 'minimax/h3/reference-to-video' exists on both fal and Higgsfield, so it is not guessed).
+ */
+export function getAssetProvider(asset: any): ProviderId | null {
+  if (!asset) return null
+  if (asset.provider) return asset.provider as ProviderId
+  try {
+    const p = typeof asset.parameters === 'string' ? JSON.parse(asset.parameters || '{}') : (asset.parameters || {})
+    if (p?.provider) return p.provider as ProviderId
+  } catch {}
+  const model = asset.modelUsed
+  if (!model || model === 'import' || model === 'upload' || model === 'ref') return null
+  const providers = new Set<ProviderId>()
+  for (const m of [...IMAGE_MODELS, ...VIDEO_MODELS, ...AUDIO_MODELS]) {
+    if (MODEL_ID_KEYS.some(k => m[k] === model)) providers.add(m.local ? 'local' : (m.provider || 'kie'))
+  }
+  return providers.size === 1 ? [...providers][0] : null
+}
+
 export function unitPrice(model: ModelPricing, resolution?: string): number {
   let perUnit = model.prices[0]?.cost || 0
   if (resolution) {
-    const entry = model.prices.find(p => p.resolution === resolution)
+    const entry = model.prices.find(p => p.resolution.toLowerCase() === resolution.toLowerCase())
     if (entry) perUnit = entry.cost
   }
   return perUnit
@@ -850,6 +1248,12 @@ export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {})
     }
     return ctx.requestedSeconds || 0
   }
+  // Video upscalers process (and bill) the whole source video, rounded up to the second
+  // (Motion Transfer trims sources longer than 30 s, so durationMax caps it there)
+  if (model.durationFromInputVideo) {
+    const secs = Math.ceil(ctx.inputVideoSeconds || 0)
+    return model.t2vId?.includes('motion-transfer') && model.durationMax ? Math.min(secs, model.durationMax) : secs
+  }
   if ((model.t2vId?.startsWith('kling-3') || model.t2vId?.startsWith('kling-video/v3')) && ctx.multiSceneSeconds && ctx.multiSceneSeconds.length > 0) {
     return ctx.multiSceneSeconds.reduce((s, x) => s + x, 0)
   }
@@ -870,7 +1274,26 @@ export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {})
 // - Seedance 2.0 (Higgsfield): Token-metered pricing.
 //   Billable video tokens = ceil(generated video seconds × output width × output height × 24 fps / 1024).
 //   Per 1,000 video tokens: 480p/720p/1080p $0.014, 4K $0.008.
+// - Seedance 2.5 (MachGen): flat rate per output second; with an input video the
+//   `costWithVideoInput` rate applies to input + output seconds. Draft = 480p.
 export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
+  if (ctx.resolution === SEEDANCE_DRAFT_RES) ctx = { ...ctx, resolution: '480p' }
+
+  const inputVideoSecs = ctx.inputVideoSeconds || 0
+  const videoInputEntry = inputVideoSecs > 0 && ctx.resolution
+    ? model.prices.find(p => p.resolution.toLowerCase() === ctx.resolution!.toLowerCase() && p.costWithVideoInput != null)
+    : undefined
+  if (videoInputEntry) {
+    const baseDollars = videoInputEntry.costWithVideoInput! * (resolveVideoDuration(model, ctx) + inputVideoSecs)
+    const totalDollars = baseDollars * (ctx.batchSize || 1)
+    return {
+      perUnitCredits: Math.round(baseDollars * CREDITS_PER_DOLLAR),
+      totalCredits: Math.round(totalDollars * CREDITS_PER_DOLLAR),
+      perUnitDollars: baseDollars,
+      totalDollars,
+    }
+  }
+
   if (model.t2vId === 'bytedance/seedance-2.5/text-to-video') {
     const dur = ctx.requestedSeconds || 5
     const totalSeconds = dur + (ctx.inputVideoSeconds || 0)
@@ -935,6 +1358,10 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
       surcharge += Math.max(0, imageCount - 5) * 0.02
     }
     surcharge += (ctx.inputVideoSeconds || 0) * base.perUnitDollars
+  }
+  if (model.provider === 'higgsfield' && model.t2vId?.startsWith('minimax/h3/')) {
+    // MiniMax H3 (Higgsfield) reference-to-video: first 5 reference images free, +$0.08 per extra image
+    surcharge += Math.max(0, imageCount - 5) * 0.08
   }
   const totalDollars = base.totalDollars + surcharge
   return {

@@ -1,5 +1,6 @@
 import type { OpenfieldApiClient } from '../client'
 import type { KieTaskDetailResponse } from '../types'
+import { RemoteJobFailedError } from '../../task-recovery'
 
 /**
  * GET /api/v1/jobs/recordInfo?taskId=...
@@ -26,7 +27,7 @@ export async function waitForCompletion(
     onProgress?.(detail.state, detail.progress)
 
     if (detail.state === 'success') return detail
-    if (detail.state === 'fail') throw new Error(detail.failMsg || 'Generation failed')
+    if (detail.state === 'fail') throw new RemoteJobFailedError(detail.failMsg || 'Generation failed')
 
     await new Promise(r => setTimeout(r, 3000))
   }

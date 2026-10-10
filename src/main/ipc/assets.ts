@@ -20,6 +20,8 @@ function createZipArchive(options: any) {
 import type { IpcContext } from './context'
 import { getAssetManager } from '../services/asset-manager'
 import { getActiveWorkspaceId } from '../services/workspace-service'
+import { makePlayableAudio } from '../services/asset-file'
+import { readExportSettings, exportExtension, exportDialogFilter, imageFormatFromName, prepareExportFile, downloadToTemp, removeTemp } from '../services/asset-export'
 
 // Notifies all renderer windows that the asset set changed (imports, moves,
 // orphans adopted) so open grids refresh.
@@ -120,28 +122,39 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
       (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
     if (!rawPath) return { ok: false, error: 'No file available for this asset' }
 
-    let defaultName = asset.file_name || asset.fileName || path.basename(rawPath)
-    if (!path.extname(defaultName)) defaultName += path.extname(rawPath) || '.bin'
+    // Extension = what the exported file will contain: images in the Settings format,
+    // videos as MP4, audio as its real binary (the stored file_name may not match either)
+    const settings = readExportSettings()
+    const mime = asset.mimeType || asset.mime_type
+    const isRemote = rawPath.startsWith('http://') || rawPath.startsWith('https://')
+    const sourceHint = isRemote ? new URL(rawPath).pathname : cleanFilePath(rawPath)
+    const ext = exportExtension(sourceHint, mime, asset.type, settings)
+    const baseName = path.parse(asset.file_name || asset.fileName || path.basename(sourceHint)).name || `asset_${id}`
 
     const win = event.sender ? BrowserWindow.fromWebContents(event.sender) : undefined
     const result = await dialog.showSaveDialog(win!, {
       title: 'Save asset as',
-      defaultPath: defaultName,
+      defaultPath: baseName + ext,
+      filters: [exportDialogFilter(ext), { name: 'All Files', extensions: ['*'] }],
     })
     if (result.canceled || !result.filePath) return { ok: false, canceled: true }
 
+    let dest = result.filePath
+    if (!path.extname(dest)) dest += ext
+
+    let downloaded: string | null = null
+    let prepared: { path: string; temp: boolean } | null = null
     try {
-      if (rawPath.startsWith('http://') || rawPath.startsWith('https://')) {
-        const resp = await fetch(rawPath)
-        if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` }
-        await fs.promises.writeFile(result.filePath, Buffer.from(await resp.arrayBuffer()))
-      } else {
-        const cleanPath = cleanFilePath(rawPath)
-        await fs.promises.copyFile(cleanPath, result.filePath)
-      }
-      return { ok: true, path: result.filePath }
+      const source = isRemote ? (downloaded = await downloadToTemp(rawPath, mime)) : cleanFilePath(rawPath)
+      // An image extension typed in the dialog wins over the Settings format
+      prepared = await prepareExportFile(source, mime, asset.type, settings, imageFormatFromName(dest))
+      await fs.promises.copyFile(prepared.path, dest)
+      return { ok: true, path: dest }
     } catch (err: any) {
       return { ok: false, error: err?.message || 'Failed to save file' }
+    } finally {
+      if (prepared?.temp) await removeTemp(prepared.path)
+      if (downloaded) await removeTemp(downloaded)
     }
   })
 
@@ -208,6 +221,8 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
       archive.pipe(outputStream)
 
       let entriesCount = 0
+      const exportSettings = readExportSettings()
+      const temps: string[] = []
 
       for (const id of ids) {
         const asset = manager.getAsset(id) as any
@@ -237,73 +252,48 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
           }
         }
 
-        // Determine base filename and extension
-        let baseName = fileName || (resolvedLocalFile ? path.basename(resolvedLocalFile) : `asset_${id}`)
-        let ext = path.extname(baseName)
-        if (!ext && mimeType) {
-          const mimeExtMap: Record<string, string> = {
-            'image/png': '.png',
-            'image/jpeg': '.jpg',
-            'image/webp': '.webp',
-            'image/gif': '.gif',
-            'video/mp4': '.mp4',
-            'video/webm': '.webm',
-            'video/quicktime': '.mov',
-            'audio/mpeg': '.mp3',
-            'audio/wav': '.wav',
-            'audio/ogg': '.ogg',
-            'audio/flac': '.flac',
-          }
-          ext = mimeExtMap[mimeType] || ''
-          if (ext && !baseName.toLowerCase().endsWith(ext)) {
-            baseName += ext
+        // Source file: local copy, or the remote URL downloaded to a temp file
+        let source = resolvedLocalFile
+        if (!source) {
+          const remoteUrl = candidates.find(c => typeof c === 'string' && (c.startsWith('http://') || c.startsWith('https://')))
+          if (remoteUrl) {
+            try {
+              source = await downloadToTemp(remoteUrl, mimeType)
+              temps.push(source)
+            } catch (fetchErr) {
+              console.error(`[AssetManager] Failed to fetch remote asset ${id}:`, fetchErr)
+            }
           }
         }
+        if (!source) continue
+
+        // Converted to the export format (images) / MP4 (videos); extension matches the content
+        let prepared: { path: string; ext: string; temp: boolean }
+        try {
+          prepared = await prepareExportFile(source, mimeType, asset.type, exportSettings)
+          if (prepared.temp) temps.push(prepared.path)
+        } catch (convErr) {
+          console.error(`[AssetManager] Failed to prepare asset ${id} for export:`, convErr)
+          continue
+        }
+        const ext = prepared.ext
+        const baseName = path.parse(fileName || path.basename(source)).name || `asset_${id}`
 
         // Sanitize filename for ZIP entries (remove characters invalid in zip / Windows filesystems)
-        let sanitized = baseName.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim()
-        if (!sanitized) sanitized = `asset_${id}${ext || '.bin'}`
+        let sanitized = (baseName.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim() || `asset_${id}`) + ext
 
         // Deduplicate entry name inside the zip
         let finalName = sanitized
         let counter = 1
         const parsed = path.parse(sanitized)
         while (usedNames.has(finalName.toLowerCase())) {
-          finalName = `${parsed.name}_${counter}${parsed.ext || ext}`
+          finalName = `${parsed.name}_${counter}${ext}`
           counter++
         }
         usedNames.add(finalName.toLowerCase())
 
-        if (resolvedLocalFile) {
-          // Stream directly from disk (low RAM usage, maximum performance)
-          archive.file(resolvedLocalFile, { name: finalName })
-          entriesCount++
-        } else {
-          // Check for remote URL
-          const remoteUrl = candidates.find(c => typeof c === 'string' && (c.startsWith('http://') || c.startsWith('https://')))
-          if (remoteUrl) {
-            try {
-              const resp = await fetch(remoteUrl)
-              if (resp.ok) {
-                const buf = Buffer.from(await resp.arrayBuffer())
-                archive.append(buf, { name: finalName })
-                entriesCount++
-              }
-            } catch (fetchErr) {
-              console.error(`[AssetManager] Failed to fetch remote asset ${id}:`, fetchErr)
-            }
-          } else {
-            // Fallback: try reading base64 via manager
-            try {
-              const b64List = await manager.readAssetsBase64([id])
-              if (b64List?.[0]?.base64) {
-                const buf = Buffer.from(b64List[0].base64, 'base64')
-                archive.append(buf, { name: finalName })
-                entriesCount++
-              }
-            } catch {}
-          }
-        }
+        archive.file(prepared.path, { name: finalName })
+        entriesCount++
       }
 
       if (entriesCount === 0) {
@@ -315,6 +305,7 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
 
       await archive.finalize()
       await archivePromise
+      for (const t of temps) await removeTemp(t)
 
       // Verify final file on disk
       try {
@@ -397,6 +388,11 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
     })
     notifyAssetsChanged()
     return result
+  })
+
+  // Playable copy of an audio Chromium cannot decode (e.g. 32-bit float WAV), for previews
+  handle('assets:playableAudio', async (_e, src: { path?: string; base64?: string; mime?: string }) => {
+    try { return await makePlayableAudio(src || {}) } catch { return null }
   })
 
   handle('assets:saveRef', async (_e, base64: string, mime: string, name: string) => {

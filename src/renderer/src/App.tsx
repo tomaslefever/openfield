@@ -27,6 +27,9 @@ import { ShortDramaApp } from './components/apps/short-drama/ShortDramaApp'
 import { WorkspaceHubPage } from './pages/WorkspaceHubPage'
 import { PanicButton } from './components/PanicButton'
 import { Toaster } from 'sonner'
+import { useResolvedTheme } from './lib/theme'
+
+const TOAST_STYLE = { background: 'rgb(var(--canvas))', color: 'rgb(var(--ink))', border: '1px solid rgb(var(--hairline))' }
 
 const pages: Record<Page, React.FC> = {
   contentStudio: ShortDramaApp,
@@ -53,6 +56,7 @@ function App() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
   const inWorkspace = useWorkspaceStore((s) => s.inWorkspace)
+  const theme = useResolvedTheme()
 
   useEffect(() => {
     useWorkspaceStore.getState().load()
@@ -77,7 +81,7 @@ function App() {
       <div className="relative h-screen w-screen overflow-y-auto bg-surface-950">
         <WorkspaceHubPage />
         <PanicButton />
-        <Toaster theme="dark" position="bottom-right" richColors toastOptions={{ style: { background: '#17171a', border: '1px solid #2a2a30' } }} />
+        <Toaster theme={theme} position="bottom-right" richColors toastOptions={{ style: TOAST_STYLE }} />
       </div>
     )
   }
@@ -107,7 +111,7 @@ function App() {
         <PageComponent />
       </SidebarInset>
       <PanicButton />
-      <Toaster theme="dark" position="bottom-right" richColors toastOptions={{ style: { background: '#17171a', border: '1px solid #2a2a30' } }} />
+      <Toaster theme={theme} position="bottom-right" richColors toastOptions={{ style: TOAST_STYLE }} />
     </SidebarProvider>
   )
 }

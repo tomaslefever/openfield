@@ -313,8 +313,10 @@ export function registerDramaIpcHandlers() {
               video_asset_id, video_local_path, video_url, video_task_id,
               video_status, video_progress,
               audio_asset_id, audio_local_path, audio_url, audio_task_id,
-              audio_status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              audio_status, video_input_mode, video_prompt, last_frame_url, last_frame_asset_id,
+              video_ref_url, video_ref_local_path, video_ref_asset_id, video_ref_name,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             shotId,
             projectId,
             sh.order || idx + 1,
@@ -343,6 +345,14 @@ export function registerDramaIpcHandlers() {
             sh.audioUrl || null,
             sh.audioTaskId || null,
             sh.audioStatus || 'idle',
+            sh.videoInputMode || 'ff',
+            sh.videoPrompt || null,
+            sh.lastFrameUrl || null,
+            sh.lastFrameAssetId || null,
+            sh.videoRefUrl || null,
+            sh.videoRefLocalPath || null,
+            sh.videoRefAssetId || null,
+            sh.videoRefName || null,
             sh.createdAt || now,
             now
           )
@@ -489,8 +499,9 @@ export function registerDramaIpcHandlers() {
             video_asset_id, video_local_path, video_url, video_task_id,
             video_status, video_progress,
             audio_asset_id, audio_local_path, audio_url, audio_task_id,
-            audio_status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            audio_status, video_input_mode, video_prompt, last_frame_url, last_frame_asset_id,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           crypto.randomUUID(),
           newId,
           sh.orderIndex || sh.order_index,
@@ -519,6 +530,10 @@ export function registerDramaIpcHandlers() {
           sh.audioUrl || sh.audio_url,
           null,
           sh.audioStatus || sh.audio_status,
+          sh.videoInputMode || sh.video_input_mode || 'ff',
+          sh.videoPrompt || sh.video_prompt || null,
+          sh.lastFrameUrl || sh.last_frame_url || null,
+          sh.lastFrameAssetId || sh.last_frame_asset_id || null,
           now,
           now
         )

@@ -3,6 +3,7 @@ import * as path from 'path'
 import * as crypto from 'crypto'
 import { getRawDb, getAssetsDir } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, workspaceAssetsDir, ensureWorkspaceDirs, listWorkspaces } from './workspace-service'
+import { redactPayload } from './payload-redact'
 
 function stripForStorage(payload: any): any {
   if (!payload || typeof payload !== 'object') return payload
@@ -43,6 +44,8 @@ export interface AssetQuery {
   limit?: number
   offset?: number
   excludeUploads?: boolean
+  /** Only generations: excludes uploads, refs and imported files */
+  generatedOnly?: boolean
   workspaceId?: string
 }
 
@@ -98,6 +101,7 @@ export class AssetManager {
     }
     if (query.modelUsed) { parts.push('model_used = ?'); params.push(query.modelUsed) }
     if (query.excludeUploads) { parts.push("model_used != 'upload' AND model_used != 'ref'") }
+    if (query.generatedOnly) { parts.push("model_used NOT IN ('upload', 'ref', 'import')") }
     if (query.search) {
       parts.push('(prompt LIKE ? OR file_name LIKE ? OR model_used LIKE ? OR tags LIKE ?)')
       const s = `%${query.search}%`
@@ -594,7 +598,7 @@ export class AssetManager {
       }
 
       // Backfill assetIds saved at enqueue time (keep disk-backed refs for recreate)
-      let storedParams = stripForStorage(taskPayload)
+      let storedParams = redactPayload(stripForStorage(taskPayload))
       try {
         if (asset.parameters) {
           const existing = JSON.parse(asset.parameters)

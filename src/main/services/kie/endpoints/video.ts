@@ -7,17 +7,16 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 import { getFFmpeg } from '../../ffmpeg'
+import { resolveAssetFileForUpload } from '../../asset-file'
 
 const KIE_AUDIO_MIMES = new Set(['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav'])
 
 async function getAssetBase64(assetId: string): Promise<{ base64: string; mime: string } | null> {
   try {
-    const raw = getRawDb()
-    const asset = raw.prepare('SELECT local_path, file_path, mime_type FROM assets WHERE id = ?').get(assetId) as any
-    const filePath = asset?.local_path || asset?.file_path
-    if (filePath) {
-      const buffer = await fs.readFile(filePath)
-      return { base64: buffer.toString('base64'), mime: asset?.mime_type || 'image/png' }
+    const file = await resolveAssetFileForUpload(assetId)
+    if (file) {
+      const buffer = await fs.readFile(file.path)
+      return { base64: buffer.toString('base64'), mime: file.mime || 'image/png' }
     }
   } catch (err) {
     console.warn('[OF] Could not read asset from disk:', assetId, err)

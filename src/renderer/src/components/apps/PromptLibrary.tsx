@@ -196,21 +196,21 @@ function PromptCard({
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center gap-2">
             <button
               onClick={e => { e.stopPropagation(); handleGenerate() }}
-              className="opacity-0 group-hover:opacity-100 px-2.5 py-2 rounded-lg bg-accent-500 hover:bg-accent-400 text-white transition-all"
+              className="opacity-0 group-hover:opacity-100 px-2.5 py-2 rounded-full bg-accent-500 hover:bg-accent-400 text-on-accent transition-all"
               title={entry.kind === 'video' ? 'Generar video' : 'Generar imagen'}
             >
               <Sparkles size={14} />
             </button>
             <button
               onClick={e => { e.stopPropagation(); fileRef.current?.click() }}
-              className="opacity-0 group-hover:opacity-100 p-2 rounded-lg bg-surface-800/80 hover:bg-surface-700 text-surface-200 transition-all"
+              className="opacity-0 group-hover:opacity-100 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white transition-all"
               title="Upload reference"
             >
               <Upload size={14} />
             </button>
             <button
               onClick={e => { e.stopPropagation(); if (firstRef) onRemoveRef(entry.id, firstRef.id) }}
-              className="opacity-0 group-hover:opacity-100 p-2 rounded-lg bg-red-500/70 hover:bg-red-500 text-white transition-all"
+              className="opacity-0 group-hover:opacity-100 p-2 rounded-full bg-red-500/70 hover:bg-red-500 text-white transition-all"
               title="Remove reference"
             >
               <Trash2 size={14} />
@@ -227,7 +227,7 @@ function PromptCard({
           {/* Drop overlay */}
           {dragOver && (
             <div className="absolute inset-0 z-10 bg-accent-500/20 border-2 border-dashed border-accent-400 flex items-center justify-center pointer-events-none">
-              <span className="text-xs font-semibold text-accent-300 bg-black/70 px-3 py-1.5 rounded-lg">Drop reference</span>
+              <span className="text-xs font-semibold text-white bg-black/70 px-3 py-1.5 rounded-lg">Drop reference</span>
             </div>
           )}
 
@@ -239,7 +239,7 @@ function PromptCard({
           </div>
 
           {entry.references.length > 1 && (
-            <div className="absolute bottom-2 right-2 bg-black/60 rounded-md px-1.5 py-0.5 text-[10px] text-surface-300">
+            <div className="absolute bottom-2 right-2 bg-black/60 rounded-md px-1.5 py-0.5 text-[10px] text-white">
               +{entry.references.length - 1}
             </div>
           )}
@@ -259,18 +259,18 @@ function PromptCard({
 
       {/* Modal */}
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setModal(false)}>
+        <div className="modal-scrim z-50 flex items-center justify-center" onClick={() => setModal(false)}>
           <div
-            className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col m-4 overflow-hidden"
+            className="modal-surface w-full max-w-2xl max-h-[90vh] flex flex-col m-4 overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
             {/* Header - always editable */}
             <div className="flex items-center justify-between px-6 py-3 border-b border-surface-800 flex-shrink-0 gap-2">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {draftKind === 'video' ? (
-                  <Video size={16} className="text-blue-400 flex-shrink-0" />
+                  <Video size={16} className="text-blue-600 dark:text-blue-400 flex-shrink-0" />
                 ) : (
-                  <Image size={16} className="text-emerald-400 flex-shrink-0" />
+                  <Image size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                 )}
                 <input
                   value={draftName}
@@ -285,15 +285,15 @@ function PromptCard({
                     <button
                       key={k}
                       onClick={() => setDraftKind(k)}
-                      className={`text-[10px] px-2 py-1 rounded-lg transition-all flex items-center gap-1 capitalize ${draftKind === k
-                        ? (k === 'video' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30')
+                      className={`text-[10px] px-2 py-1 rounded-pill transition-all flex items-center gap-1 capitalize ${draftKind === k
+                        ? (k === 'video' ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30' : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30')
                         : 'bg-surface-800 text-surface-500 border border-surface-700 hover:text-surface-300'}`}
                     >
                       {k === 'image' ? <Image size={12} /> : <Video size={12} />}{k}
                     </button>
                   ))}
                 </div>
-                <button onClick={() => { onDelete(entry.id); setModal(false) }} className="btn-ghost text-xs flex items-center gap-1 text-red-400" title="Delete entry">
+                <button onClick={() => { onDelete(entry.id); setModal(false) }} className="btn-ghost text-xs flex items-center gap-1 text-red-600 dark:text-red-400" title="Delete entry">
                   <Trash2 size={12} />
                 </button>
                 <button onClick={() => setModal(false)} className="btn-ghost p-1">
@@ -340,20 +340,20 @@ function PromptCard({
               {draftFirstRef && (
                 <button
                   onClick={() => setDraftRefs(prev => prev.slice(1))}
-                  className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 hover:bg-red-500/80 text-surface-200 hover:text-white transition-all"
+                  className="absolute top-2 right-2 z-10 p-1.5 rounded-full bg-black/60 hover:bg-red-500/80 text-white/80 hover:text-white transition-all"
                   title="Remove reference"
                 >
                   <Trash2 size={12} />
                 </button>
               )}
               {draftRefs.length > 1 && (
-                <div className="absolute bottom-2 right-2 bg-black/60 rounded-md px-1.5 py-0.5 text-[10px] text-surface-300">
+                <div className="absolute bottom-2 right-2 bg-black/60 rounded-md px-1.5 py-0.5 text-[10px] text-white">
                   +{draftRefs.length - 1}
                 </div>
               )}
               {dragOver && (
                 <div className="absolute inset-0 z-10 bg-accent-500/20 border-2 border-dashed border-accent-400 flex items-center justify-center pointer-events-none">
-                  <span className="text-xs font-semibold text-accent-300 bg-black/70 px-3 py-1.5 rounded-lg">Drop reference</span>
+                  <span className="text-xs font-semibold text-white bg-black/70 px-3 py-1.5 rounded-lg">Drop reference</span>
                 </div>
               )}
             </div>
@@ -362,13 +362,13 @@ function PromptCard({
             <div className="flex items-center gap-1 px-4 py-2 bg-surface-900/40 border-b border-surface-800/60 flex-shrink-0">
               <button
                 onClick={() => fileRef.current?.click()}
-                className="text-[10px] px-2 py-1 rounded-lg bg-surface-800 text-surface-400 hover:text-surface-200 hover:bg-surface-700 transition-all flex items-center gap-1"
+                className="text-[10px] px-2 py-1 rounded-pill bg-surface-800 text-surface-400 hover:text-surface-200 hover:bg-surface-700 transition-all flex items-center gap-1"
               >
                 <Upload size={10} /> Agregar referencia
               </button>
               <button
                 onClick={() => setShowPicker(true)}
-                className="text-[10px] px-2 py-1 rounded-lg bg-surface-800 text-surface-400 hover:text-surface-200 hover:bg-surface-700 transition-all flex items-center gap-1"
+                className="text-[10px] px-2 py-1 rounded-pill bg-surface-800 text-surface-400 hover:text-surface-200 hover:bg-surface-700 transition-all flex items-center gap-1"
               >
                 <Library size={10} /> Agregar desde library
               </button>
@@ -378,12 +378,12 @@ function PromptCard({
             {/* Prompt - scrollable */}
             <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider">Prompt</p>
+                <p className="eyebrow">Prompt</p>
                 <button
                   onClick={() => { navigator.clipboard.writeText(draftPrompt); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
                   className="text-[10px] text-accent-400 hover:text-accent-300 flex items-center gap-1"
                 >
-                  {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+                  {copied ? <Check size={10} className="text-green-600 dark:text-green-400" /> : <Copy size={10} />}
                   Copy
                 </button>
               </div>
@@ -396,7 +396,7 @@ function PromptCard({
 
               {/* Tags */}
               <div className="mt-4">
-                <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-2">Tags</p>
+                <p className="eyebrow mb-2">Tags</p>
                 <input
                   value={draftTags}
                   onChange={e => setDraftTags(e.target.value)}
@@ -408,7 +408,7 @@ function PromptCard({
               {/* More references */}
               {draftRefs.length > 1 && (
                 <div className="mt-4">
-                  <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-2">More references ({draftRefs.length - 1})</p>
+                  <p className="eyebrow mb-2">More references ({draftRefs.length - 1})</p>
                   <div className="grid grid-cols-3 gap-2">
                     {draftRefs.slice(1).map(ref => (
                       <div key={ref.id} className="group relative">
@@ -435,7 +435,7 @@ function PromptCard({
               <button
                 onClick={handleSave}
                 disabled={!dirty}
-                className={`text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${dirty ? 'bg-accent-500 hover:bg-accent-400 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
+                className={`text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-pill transition-all ${dirty ? 'bg-accent-500 hover:bg-accent-400 text-on-accent' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
               >
                 <Save size={12} /> Guardar
               </button>
@@ -537,7 +537,7 @@ export function PromptLibrary() {
         <div className="flex items-center gap-1 ml-4">
           {(['all', 'image', 'video'] as const).map(k => (
             <button key={k} onClick={() => setKindFilter(k)}
-              className={`text-[10px] px-2 py-1 rounded-lg transition-all capitalize ${kindFilter === k ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30' : 'bg-surface-800 text-surface-500 border border-surface-700 hover:text-surface-300'}`}>
+              className={`text-[10px] px-2 py-1 rounded-pill transition-all capitalize ${kindFilter === k ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30' : 'bg-surface-800 text-surface-500 border border-surface-700 hover:text-surface-300'}`}>
               {k === 'all' ? 'All' : k}
             </button>
           ))}
@@ -566,7 +566,7 @@ export function PromptLibrary() {
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1">
                 {(['image', 'video'] as const).map(k => (
-                  <button key={k} onClick={() => setNewKind(k)} className={`text-[10px] px-2 py-1 rounded-lg transition-all flex items-center gap-1 capitalize ${newKind === k ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30' : 'bg-surface-800 text-surface-500 border border-surface-700'}`}>
+                  <button key={k} onClick={() => setNewKind(k)} className={`text-[10px] px-2 py-1 rounded-pill transition-all flex items-center gap-1 capitalize ${newKind === k ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30' : 'bg-surface-800 text-surface-500 border border-surface-700'}`}>
                     {k === 'image' ? <Image size={12} /> : <Video size={12} />}{k}
                   </button>
                 ))}

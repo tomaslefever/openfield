@@ -36,7 +36,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Microserie vertical cinematográfica estructurada en arcos dramáticos con revelaciones y cliffhangers en cada episodio.',
     defaultAspectRatio: '9:16',
     defaultShotsCount: 4,
-    badgeColor: 'text-amber-400',
+    badgeColor: 'text-amber-600 dark:text-amber-400',
     badgeBg: 'bg-amber-500/10',
     badgeBorder: 'border-amber-500/30',
     genres: [
@@ -73,7 +73,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Contenido estilo creador en primera persona con tono espontáneo, reacciones genuinas, demostración cercana y recomendación creíble.',
     defaultAspectRatio: '9:16',
     defaultShotsCount: 4,
-    badgeColor: 'text-emerald-400',
+    badgeColor: 'text-emerald-600 dark:text-emerald-400',
     badgeBg: 'bg-emerald-500/10',
     badgeBorder: 'border-emerald-500/30',
     genres: [
@@ -108,7 +108,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Comercial con fotografía y dirección de arte premium, narrativa emocional de marca, iluminación de estudio y locución en off memorable.',
     defaultAspectRatio: '16:9',
     defaultShotsCount: 4,
-    badgeColor: 'text-sky-400',
+    badgeColor: 'text-sky-600 dark:text-sky-400',
     badgeBg: 'bg-sky-500/10',
     badgeBorder: 'border-sky-500/30',
     genres: [
@@ -144,7 +144,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Video publicitario digital optimizado para performance: detiene el scroll en 2 segundos, agita el problema, demuestra la solución y remata con un CTA contundente.',
     defaultAspectRatio: '9:16',
     defaultShotsCount: 4,
-    badgeColor: 'text-rose-400',
+    badgeColor: 'text-rose-600 dark:text-rose-400',
     badgeBg: 'bg-rose-500/10',
     badgeBorder: 'border-rose-500/30',
     genres: [
@@ -178,7 +178,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Contenido dinámico para TikTok, Instagram Reels y YouTube Shorts diseñado con ganchos de interrupción de patrón y ritmo acelerado.',
     defaultAspectRatio: '9:16',
     defaultShotsCount: 4,
-    badgeColor: 'text-purple-400',
+    badgeColor: 'text-purple-600 dark:text-purple-400',
     badgeBg: 'bg-purple-500/10',
     badgeBorder: 'border-purple-500/30',
     genres: [
@@ -212,7 +212,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Showcase editorial de moda y calzado enfocado en el calce de prendas, movimiento de telas, siluetas, textura textil y estilismo de catálogo.',
     defaultAspectRatio: '9:16',
     defaultShotsCount: 4,
-    badgeColor: 'text-pink-400',
+    badgeColor: 'text-pink-600 dark:text-pink-400',
     badgeBg: 'bg-pink-500/10',
     badgeBorder: 'border-pink-500/30',
     genres: [
@@ -247,7 +247,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Experiencia visual y táctil de desempaquetado: apertura de sellos, revelación del producto, planos macro de texturas y primeras impresiones.',
     defaultAspectRatio: '9:16',
     defaultShotsCount: 4,
-    badgeColor: 'text-teal-400',
+    badgeColor: 'text-teal-600 dark:text-teal-400',
     badgeBg: 'bg-teal-500/10',
     badgeBorder: 'border-teal-500/30',
     genres: [
@@ -282,7 +282,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Define tus propias instrucciones para estructurar la extracción del contenido, personajes, escenas y la redacción de los prompts.',
     defaultAspectRatio: '16:9',
     defaultShotsCount: 4,
-    badgeColor: 'text-cyan-400',
+    badgeColor: 'text-cyan-600 dark:text-cyan-400',
     badgeBg: 'bg-cyan-500/10',
     badgeBorder: 'border-cyan-500/30',
     genres: [
@@ -319,7 +319,7 @@ export const CONTENT_TYPES_CONFIG: Record<DramaContentType, ContentTypeInfo> = {
     description: 'Contenido dinámico basado en b-roll cinematográfico, gráficos, planos macro de objetos, entornos atmosféricos y narración en off (V.O.), sin mostrar caras de personas.',
     defaultAspectRatio: '9:16',
     defaultShotsCount: 4,
-    badgeColor: 'text-violet-400',
+    badgeColor: 'text-violet-600 dark:text-violet-400',
     badgeBg: 'bg-violet-500/10',
     badgeBorder: 'border-violet-500/30',
     genres: [

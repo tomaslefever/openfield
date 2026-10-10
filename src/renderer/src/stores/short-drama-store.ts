@@ -18,6 +18,7 @@ import {
 } from '../lib/content-type-prompts'
 import { useWorkspaceStore } from './workspace-store'
 import { useProvidersStore, isModelConfigured } from './providers-store'
+import { toast } from 'sonner'
 
 export interface GenerationHistoryItem {
   id: string
@@ -94,7 +95,10 @@ export interface DramaShot {
   videoStatus?: 'idle' | 'queued' | 'generating' | 'completed' | 'failed'
   videoProgress?: number
   videoHistory?: GenerationHistoryItem[]
+  /** How the clip is driven: first frame (default), first+last frame, or ingredients (reference images) */
   videoInputMode?: 'ff' | 'fflf' | 'ref' | 't2v'
+  /** Motion/action prompt for the clip; falls back to camera movement + action */
+  videoPrompt?: string
   videoRefUrl?: string
   videoRefLocalPath?: string
   videoRefAssetId?: string
@@ -231,13 +235,31 @@ export function extractDurationFromText(text?: string): number | undefined {
   return undefined
 }
 
+/** Storyboard and video share stage 3; projects saved on the old video stage (4) land there */
+function normalizeStage(stage?: number): number {
+  if (!stage || stage < 1) return 1
+  return stage === 4 ? 3 : Math.min(stage, 5)
+}
+
 async function dispatchGeneration(api: any, type: 'video' | 'image' | 'audio', payload: any) {
   const provider = payload?.provider || (
+    payload?.model?.startsWith('apimart/') ? 'apimart' :
     payload?.model?.startsWith('machgen/') ? 'machgen' :
+    payload?.model?.startsWith('higgsfield/') ||
+    payload?.model?.startsWith('bytedance/seedance-2.0') ||
+    payload?.model?.startsWith('bytedance/seedance-2.5') ||
+    payload?.model?.startsWith('kling-video/') ||
+    payload?.model?.startsWith('minimax/h3/') ||
+    payload?.model?.startsWith('alibaba/wan-3.0') ||
+    payload?.model?.startsWith('higgsfield-ai/') ||
+    payload?.model?.startsWith('flux-pro/') ||
+    payload?.model?.startsWith('xai/grok-imagine') ? 'higgsfield' :
     payload?.model?.startsWith('fal-ai/') || payload?.model?.startsWith('minimax/') ? 'fal' :
-    payload?.model?.startsWith('higgsfield/') ? 'higgsfield' :
     payload?.model?.startsWith('prunaai/') ? 'replicate' : 'kie'
   )
+  if (provider === 'apimart' && api?.apimart?.generate) {
+    return api.apimart.generate(payload)
+  }
   if (provider === 'machgen' && api?.machgen?.generate) {
     return api.machgen.generate(payload)
   }
@@ -412,15 +434,15 @@ interface ShortDramaState {
   generateScriptBreakdown: (promptOverride?: string) => Promise<void>
   parseScriptToShots: (scriptText?: string) => void
   generateCharacterImage: (characterId: string) => Promise<void>
-  generateAllCharacterImages: () => Promise<void>
+  generateAllCharacterImages: (onlyMissing?: boolean) => Promise<void>
   regenerateCharacterVisualPrompt: (characterId: string) => Promise<void>
   regenerateAllCharacterVisualPrompts: () => Promise<void>
   generateScenarioImage: (scenarioId: string) => Promise<void>
-  generateAllScenarioImages: () => Promise<void>
+  generateAllScenarioImages: (onlyMissing?: boolean) => Promise<void>
   regenerateScenarioVisualPrompt: (scenarioId: string) => Promise<void>
   regenerateAllScenarioVisualPrompts: () => Promise<void>
   generatePropImage: (propId: string) => Promise<void>
-  generateAllPropImages: () => Promise<void>
+  generateAllPropImages: (onlyMissing?: boolean) => Promise<void>
   regeneratePropVisualPrompt: (propId: string) => Promise<void>
   regenerateAllPropVisualPrompts: () => Promise<void>
   regenerateAllStage2Prompts: () => Promise<void>
@@ -436,7 +458,7 @@ interface ShortDramaState {
       imageRefs?: any[]
     }
   ) => Promise<void>
-  generateAllKeyframes: () => Promise<void>
+  generateAllKeyframes: (onlyMissing?: boolean) => Promise<void>
   regenerateShotKeyframePrompt: (shotId: string) => Promise<void>
   regenerateAllKeyframePrompts: () => Promise<void>
   generateShotVideo: (
@@ -465,10 +487,12 @@ interface ShortDramaState {
   ) => Promise<void>
   generateAllVideos: () => Promise<void>
   generateShotVoice: (shotId: string, customDialogueText?: string) => Promise<void>
-  generateAllVoices: () => Promise<void>
+  generateAllVoices: (onlyMissing?: boolean) => Promise<void>
   assembleFinalEpisode: (options?: { includeSubtitles?: boolean; bgMusic?: boolean }) => Promise<void>
   runFullAutoPipeline: () => Promise<void>
   syncPendingTasks: () => Promise<void>
+  /** Follows a task started outside the store (e.g. QuickPromptComposer) */
+  trackImageTask: (kind: 'character' | 'scenario' | 'prop' | 'keyframe', id: string, taskId: string) => void
   restoreCharacterImage: (charId: string, historyItemId: string) => void
   restoreScenarioImage: (scnId: string, historyItemId: string) => void
   restorePropImage: (propId: string, historyItemId: string) => void
@@ -486,6 +510,121 @@ interface ShortDramaState {
 
 let autoSaveTimer: any = null
 const activePolling = new Map<string, any>()
+// Element/shot keys whose generation request is being dispatched right now
+const inFlight = new Set<string>()
+
+const FAILED_STATUSES = new Set(['failed', 'error', 'cancelled', 'canceled'])
+// A task the DB no longer knows about is given up after this many checks
+const MAX_MISSING_CHECKS = 20
+
+/** Polls a task until it completes or fails; one watcher per task id */
+function watchTask(
+  taskId: string,
+  intervalMs: number,
+  handlers: {
+    done: (status: any) => void | Promise<void>
+    fail: (error?: string) => void
+    progress?: (status: any) => void
+  },
+) {
+  const api = (window as any).electronAPI
+  if (!api?.openfield?.taskStatus || activePolling.has(taskId)) return
+  let missing = 0
+  const stop = () => {
+    clearInterval(activePolling.get(taskId))
+    activePolling.delete(taskId)
+  }
+  const check = async () => {
+    try {
+      const status = await api.openfield.taskStatus(taskId)
+      if (!activePolling.has(taskId)) return
+      if (!status) {
+        if (++missing >= MAX_MISSING_CHECKS) {
+          stop()
+          handlers.fail('La tarea ya no existe')
+        }
+        return
+      }
+      missing = 0
+      if (status.status === 'completed') {
+        stop()
+        await handlers.done(status)
+      } else if (FAILED_STATUSES.has(status.status)) {
+        stop()
+        handlers.fail(status.status === 'cancelled' || status.status === 'canceled' ? 'Cancelada' : status.errorMessage || status.error)
+      } else {
+        handlers.progress?.(status)
+      }
+    } catch (err) {
+      console.warn('[DramaStore] Task poll error:', taskId, err)
+    }
+  }
+  activePolling.set(taskId, setInterval(check, intervalMs))
+  check()
+}
+
+function taskResult(status: any): { assetId?: string; url?: string; localPath?: string } {
+  let url = status.outputUrl || status.localPath || status.resultUrl
+  if (!url && status.resultJson) {
+    try {
+      const p = typeof status.resultJson === 'string' ? JSON.parse(status.resultJson) : status.resultJson
+      url = p.url || p.resultUrls?.[0] || p.imageUrl || p.videoUrl || p.audioUrl
+    } catch { /* malformed result */ }
+  }
+  return { assetId: status.assetId, url, localPath: status.localPath }
+}
+
+async function taskResultWithPath(status: any) {
+  const result = taskResult(status)
+  if (!result.localPath && result.assetId) {
+    try {
+      const asset = await (window as any).electronAPI?.assets?.get(result.assetId)
+      result.localPath = asset?.localPath || asset?.local_path || undefined
+    } catch { /* keep the url */ }
+  }
+  return result
+}
+
+/** Prepends a version, dropping older entries for the same file */
+function withHistory(
+  history: GenerationHistoryItem[] | undefined,
+  item: Omit<GenerationHistoryItem, 'id' | 'timestamp' | 'url'> & { url?: string },
+): GenerationHistoryItem[] {
+  const entry: GenerationHistoryItem = { id: uid(), timestamp: Date.now(), ...item, url: item.url || '' }
+  return [entry, ...(history || []).filter((h) => h.url !== entry.url && (!entry.assetId || h.assetId !== entry.assetId))]
+}
+
+function notifyFailure(what: string, error?: string) {
+  if (error === 'Cancelada') return
+  toast.error(`No se pudo generar ${what}`, { description: error })
+}
+
+/** Resolves once `done()` holds (false on timeout) */
+function waitUntil(done: () => boolean, timeoutMs = 20 * 60 * 1000, intervalMs = 1500): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (done()) return resolve(true)
+    const start = Date.now()
+    const timer = setInterval(() => {
+      if (done()) {
+        clearInterval(timer)
+        resolve(true)
+      } else if (Date.now() - start > timeoutMs) {
+        clearInterval(timer)
+        resolve(false)
+      }
+    }, intervalMs)
+  })
+}
+
+/** Marks `key` as dispatching so syncPendingTasks leaves its flags alone */
+async function dispatchTracked<T>(key: string, run: () => Promise<T>): Promise<T> {
+  inFlight.add(key)
+  try {
+    return await run()
+  } finally {
+    inFlight.delete(key)
+  }
+}
 
 function waitForShotVideo(shotId: string, maxWaitMs = 900000): Promise<DramaShot | null> {
   return new Promise((resolve) => {
@@ -611,8 +750,8 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
         const proj = await api.drama.getProject(id)
         if (proj) {
           const llm = LLM_MODELS.find((m) => m.modelId === proj.llmModel || m.name === proj.llmModel) || DEFAULT_LLM_MODEL
-          const imgM = IMAGE_MODELS.find((m) => m.t2iId === proj.imageModel || (proj.imageModel === 'seedream-5-pro-text-to-image' && m.t2iId === 'seedream/5-pro-text-to-image') || m.name === proj.imageModel) || DEFAULT_IMAGE_MODEL
-          const vidM = VIDEO_MODELS.find((m) => m.t2vId === proj.videoModel || m.name === proj.videoModel) || DEFAULT_VIDEO_MODEL
+          const imgM = IMAGE_MODELS.find((m) => m.name === proj.imageModel) || IMAGE_MODELS.find((m) => m.t2iId === proj.imageModel || (proj.imageModel === 'seedream-5-pro-text-to-image' && m.t2iId === 'seedream/5-pro-text-to-image')) || DEFAULT_IMAGE_MODEL
+          const vidM = VIDEO_MODELS.find((m) => m.name === proj.videoModel) || VIDEO_MODELS.find((m) => m.t2vId === proj.videoModel) || DEFAULT_VIDEO_MODEL
           const audM = AUDIO_MODELS.find((m) => m.t2aId === proj.voiceModel || m.name === proj.voiceModel) || DEFAULT_VOICE_MODEL
 
           const cType: DramaContentType = proj.contentType || proj.content_type || 'microdrama'
@@ -630,7 +769,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
             visualStyle: proj.visualStyle || '',
             aspectRatio: proj.aspectRatio || '9:16',
             shotsCount: typeof proj.shotsCount === 'number' ? proj.shotsCount : (typeof proj.shots_count === 'number' ? proj.shots_count : (proj.shots?.length || 4)),
-            currentStage: proj.currentStage || 1,
+            currentStage: normalizeStage(proj.currentStage),
             llmModel: llm,
             imageModel: imgM,
             imageResolution: proj.imageResolution || '1K',
@@ -733,9 +872,10 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
           shotsCount: state.shotsCount,
           currentStage: state.currentStage,
           llmModel: state.llmModel.modelId || state.llmModel.name,
-          imageModel: state.imageModel.t2iId || state.imageModel.name,
+          // Names are unique; ids are shared across providers (loading still accepts old ids)
+          imageModel: state.imageModel.name || state.imageModel.t2iId,
           imageResolution: state.imageResolution,
-          videoModel: state.videoModel.t2vId || state.videoModel.name,
+          videoModel: state.videoModel.name || state.videoModel.t2vId,
           videoResolution: state.videoResolution,
           videoDuration: state.videoDuration,
           voiceModel: state.voiceModel.t2aId || state.voiceModel.name,
@@ -799,7 +939,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
 
   // ─── Editor Actions ───────────────────────────────────────────────
   setStage: (stage) => {
-    set({ currentStage: stage })
+    set({ currentStage: normalizeStage(stage) })
     get().saveCurrentProject()
   },
 
@@ -1282,325 +1422,139 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
   // ─── Task Polling and Auto-Reconnection ─────────────────────────────
   pollCharacterTask: (charId: string, taskId: string) => {
     if (!taskId) return
-    const api = (window as any).electronAPI
-    if (!api?.openfield?.taskStatus) return
-
     get().updateCharacter(charId, { taskId, generating: true })
-
-    if (activePolling.has(taskId)) return
-
-    const check = async () => {
-      try {
-        const status = await api.openfield.taskStatus(taskId)
-        if (status?.status === 'completed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-
-          let assetId = status.assetId
-          let imageUrl = status.outputUrl || status.localPath || status.resultUrl
-          if (!imageUrl && status.resultJson) {
-            try {
-              const p = typeof status.resultJson === 'string' ? JSON.parse(status.resultJson) : status.resultJson
-              imageUrl = p.url || p.resultUrls?.[0] || p.imageUrl
-            } catch {}
-          }
-
-          const currentChar = get().characters.find((c) => c.id === charId)
-          const newHistoryItem: GenerationHistoryItem = {
-            id: uid(),
-            url: imageUrl,
-            assetId,
-            prompt: currentChar?.visualPrompt,
-            timestamp: Date.now(),
-            model: get().imageModel.name,
-          }
-          const existingHistory = currentChar?.imageHistory || []
-          const updatedHistory = [newHistoryItem, ...existingHistory.filter((h) => h.url !== imageUrl && h.assetId !== assetId)]
-
-          get().updateCharacter(charId, {
-            generating: false,
-            imageAssetId: assetId,
-            imageUrl,
-            imageHistory: updatedHistory,
-            taskId,
-          })
-          get().saveCurrentProject()
-        } else if (status?.status === 'failed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-          get().updateCharacter(charId, { generating: false })
-        }
-      } catch (err) {
-        console.warn('[DramaStore] Character poll error:', err)
-      }
-    }
-
-    check()
-    const timer = setInterval(check, 1500)
-    activePolling.set(taskId, timer)
+    watchTask(taskId, 1500, {
+      done: (status) => {
+        const { assetId, url } = taskResult(status)
+        const current = get().characters.find((c) => c.id === charId)
+        get().updateCharacter(charId, {
+          generating: false,
+          imageAssetId: assetId,
+          imageUrl: url,
+          imageHistory: withHistory(current?.imageHistory, { url, assetId, prompt: current?.visualPrompt, model: get().imageModel.name }),
+          taskId,
+        })
+        get().saveCurrentProject()
+      },
+      fail: (error) => {
+        get().updateCharacter(charId, { generating: false })
+        notifyFailure(`el retrato de ${get().characters.find((c) => c.id === charId)?.name || 'personaje'}`, error)
+      },
+    })
   },
 
   pollScenarioTask: (scenarioId: string, taskId: string) => {
     if (!taskId) return
-    const api = (window as any).electronAPI
-    if (!api?.openfield?.taskStatus) return
-
     get().updateScenario(scenarioId, { taskId, generating: true })
-
-    if (activePolling.has(taskId)) return
-
-    const check = async () => {
-      try {
-        const status = await api.openfield.taskStatus(taskId)
-        if (status?.status === 'completed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-
-          let assetId = status.assetId
-          let imageUrl = status.outputUrl || status.localPath || status.resultUrl
-          if (!imageUrl && status.resultJson) {
-            try {
-              const p = typeof status.resultJson === 'string' ? JSON.parse(status.resultJson) : status.resultJson
-              imageUrl = p.url || p.resultUrls?.[0] || p.imageUrl
-            } catch {}
-          }
-
-          const currentScn = get().scenarios.find((s) => s.id === scenarioId)
-          const newHistoryItem: GenerationHistoryItem = {
-            id: uid(),
-            url: imageUrl,
-            assetId,
-            prompt: currentScn?.visualPrompt,
-            timestamp: Date.now(),
-            model: get().imageModel.name,
-          }
-          const existingHistory = currentScn?.imageHistory || []
-          const updatedHistory = [newHistoryItem, ...existingHistory.filter((h) => h.url !== imageUrl && h.assetId !== assetId)]
-
-          get().updateScenario(scenarioId, {
-            generating: false,
-            imageAssetId: assetId,
-            imageUrl,
-            imageHistory: updatedHistory,
-            taskId,
-          })
-          get().saveCurrentProject()
-        } else if (status?.status === 'failed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-          get().updateScenario(scenarioId, { generating: false })
-        }
-      } catch (err) {
-        console.warn('[DramaStore] Scenario poll error:', err)
-      }
-    }
-
-    check()
-    const timer = setInterval(check, 1500)
-    activePolling.set(taskId, timer)
+    watchTask(taskId, 1500, {
+      done: (status) => {
+        const { assetId, url } = taskResult(status)
+        const current = get().scenarios.find((s) => s.id === scenarioId)
+        get().updateScenario(scenarioId, {
+          generating: false,
+          imageAssetId: assetId,
+          imageUrl: url,
+          imageHistory: withHistory(current?.imageHistory, { url, assetId, prompt: current?.visualPrompt, model: get().imageModel.name }),
+          taskId,
+        })
+        get().saveCurrentProject()
+      },
+      fail: (error) => {
+        get().updateScenario(scenarioId, { generating: false })
+        notifyFailure(`la locación ${get().scenarios.find((s) => s.id === scenarioId)?.name || ''}`.trim(), error)
+      },
+    })
   },
 
   pollPropTask: (propId: string, taskId: string) => {
     if (!taskId) return
-    const api = (window as any).electronAPI
-    if (!api?.openfield?.taskStatus) return
-
     get().updateProp(propId, { taskId, generating: true })
-
-    if (activePolling.has(taskId)) return
-
-    const check = async () => {
-      try {
-        const status = await api.openfield.taskStatus(taskId)
-        if (status?.status === 'completed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-
-          let assetId = status.assetId
-          let imageUrl = status.outputUrl || status.localPath || status.resultUrl
-          if (!imageUrl && status.resultJson) {
-            try {
-              const p = typeof status.resultJson === 'string' ? JSON.parse(status.resultJson) : status.resultJson
-              imageUrl = p.url || p.resultUrls?.[0] || p.imageUrl
-            } catch {}
-          }
-
-          const currentProp = get().props.find((p) => p.id === propId)
-          const newHistoryItem: GenerationHistoryItem = {
-            id: uid(),
-            url: imageUrl,
-            assetId,
-            prompt: currentProp?.visualPrompt,
-            timestamp: Date.now(),
-            model: get().imageModel.name,
-          }
-          const existingHistory = currentProp?.imageHistory || []
-          const updatedHistory = [newHistoryItem, ...existingHistory.filter((h) => h.url !== imageUrl && h.assetId !== assetId)]
-
-          get().updateProp(propId, {
-            generating: false,
-            imageAssetId: assetId,
-            imageUrl,
-            imageHistory: updatedHistory,
-            taskId,
-          })
-          get().saveCurrentProject()
-        } else if (status?.status === 'failed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-          get().updateProp(propId, { generating: false })
-        }
-      } catch (err) {
-        console.warn('[DramaStore] Prop poll error:', err)
-      }
-    }
-
-    check()
-    const timer = setInterval(check, 1500)
-    activePolling.set(taskId, timer)
+    watchTask(taskId, 1500, {
+      done: (status) => {
+        const { assetId, url } = taskResult(status)
+        const current = get().props.find((p) => p.id === propId)
+        get().updateProp(propId, {
+          generating: false,
+          imageAssetId: assetId,
+          imageUrl: url,
+          imageHistory: withHistory(current?.imageHistory, { url, assetId, prompt: current?.visualPrompt, model: get().imageModel.name }),
+          taskId,
+        })
+        get().saveCurrentProject()
+      },
+      fail: (error) => {
+        get().updateProp(propId, { generating: false })
+        notifyFailure(`el objeto ${get().props.find((p) => p.id === propId)?.name || ''}`.trim(), error)
+      },
+    })
   },
 
   pollKeyframeTask: (shotId: string, taskId: string) => {
     if (!taskId) return
-    const api = (window as any).electronAPI
-    if (!api?.openfield?.taskStatus) return
-
     get().updateShot(shotId, { keyframeTaskId: taskId, keyframeGenerating: true })
-
-    if (activePolling.has(taskId)) return
-
-    const check = async () => {
-      try {
-        const status = await api.openfield.taskStatus(taskId)
-        if (status?.status === 'completed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-
-          let assetId = status.assetId
-          let imageUrl = status.outputUrl || status.localPath || status.resultUrl
-          if (!imageUrl && status.resultJson) {
-            try {
-              const p = typeof status.resultJson === 'string' ? JSON.parse(status.resultJson) : status.resultJson
-              imageUrl = p.url || p.resultUrls?.[0] || p.imageUrl
-            } catch {}
-          }
-
-          const currentShot = get().shots.find((s) => s.id === shotId)
-          const newHistoryItem: GenerationHistoryItem = {
-            id: uid(),
-            url: imageUrl,
+    watchTask(taskId, 1500, {
+      done: (status) => {
+        const { assetId, url } = taskResult(status)
+        const current = get().shots.find((s) => s.id === shotId)
+        get().updateShot(shotId, {
+          keyframeGenerating: false,
+          keyframeAssetId: assetId,
+          keyframeUrl: url,
+          keyframeHistory: withHistory(current?.keyframeHistory, {
+            url,
             assetId,
-            prompt: currentShot?.keyframePrompt || currentShot?.actionPrompt,
-            timestamp: Date.now(),
+            prompt: current?.keyframePrompt || current?.actionPrompt,
             model: get().imageModel.name,
-          }
-          const existingHistory = currentShot?.keyframeHistory || []
-          const updatedHistory = [newHistoryItem, ...existingHistory.filter((h) => h.url !== imageUrl && h.assetId !== assetId)]
-
-          get().updateShot(shotId, {
-            keyframeGenerating: false,
-            keyframeAssetId: assetId,
-            keyframeUrl: imageUrl,
-            keyframeHistory: updatedHistory,
-            keyframeTaskId: taskId,
-          })
-          get().saveCurrentProject()
-        } else if (status?.status === 'failed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-          get().updateShot(shotId, { keyframeGenerating: false })
-        }
-      } catch (err) {
-        console.warn('[DramaStore] Keyframe poll error:', err)
-      }
-    }
-
-    check()
-    const timer = setInterval(check, 1500)
-    activePolling.set(taskId, timer)
+          }),
+          keyframeTaskId: taskId,
+        })
+        get().saveCurrentProject()
+      },
+      fail: (error) => {
+        get().updateShot(shotId, { keyframeGenerating: false })
+        notifyFailure(`el frame de la toma ${get().shots.find((s) => s.id === shotId)?.order ?? ''}`.trim(), error)
+      },
+    })
   },
 
   pollVideoTask: (shotId: string, taskId: string) => {
     if (!taskId) return
-    const api = (window as any).electronAPI
-    if (!api?.openfield?.taskStatus) return
-
     get().updateShot(shotId, { videoTaskId: taskId, videoStatus: 'generating' })
-
-    if (activePolling.has(taskId)) return
-
-    const check = async () => {
-      try {
-        const status = await api.openfield.taskStatus(taskId)
-        if (status?.status === 'completed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-
-          let assetId = status.assetId
-          let videoUrl = status.outputUrl || status.localPath || status.resultUrl
-          let localPath = status.localPath
-          if (!videoUrl && status.resultJson) {
-            try {
-              const p = typeof status.resultJson === 'string' ? JSON.parse(status.resultJson) : status.resultJson
-              videoUrl = p.url || p.resultUrls?.[0] || p.videoUrl
-            } catch {}
-          }
-          if (!localPath && assetId && api?.assets?.get) {
-            const asset = await api.assets.get(assetId)
-            if (asset?.local_path) localPath = asset.local_path
-          }
-
-          const currentShot = get().shots.find((s) => s.id === shotId)
-          const newHistoryItem: GenerationHistoryItem = {
-            id: uid(),
-            url: videoUrl,
+    watchTask(taskId, 2000, {
+      done: async (status) => {
+        const { assetId, url, localPath } = await taskResultWithPath(status)
+        const current = get().shots.find((s) => s.id === shotId)
+        get().updateShot(shotId, {
+          videoStatus: 'completed',
+          videoProgress: 100,
+          videoAssetId: assetId,
+          videoUrl: url,
+          videoLocalPath: localPath,
+          videoHistory: withHistory(current?.videoHistory, {
+            url,
             localPath,
             assetId,
-            prompt: currentShot?.actionPrompt,
-            timestamp: Date.now(),
+            prompt: current?.actionPrompt,
             model: get().videoModel.name,
-            duration: currentShot?.estimatedDuration || 5,
-            inputMode: currentShot?.videoInputMode || 'ff',
-          }
-          const existingHistory = currentShot?.videoHistory || []
-          const updatedHistory = [newHistoryItem, ...existingHistory.filter((h) => h.url !== videoUrl && h.assetId !== assetId)]
-
-          get().updateShot(shotId, {
-            videoStatus: 'completed',
-            videoProgress: 100,
-            videoAssetId: assetId,
-            videoUrl,
-            videoLocalPath: localPath,
-            videoHistory: updatedHistory,
-            videoTaskId: taskId,
-          })
-          get().saveCurrentProject()
-        } else if (status?.status === 'failed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-          get().updateShot(shotId, { videoStatus: 'failed' })
-        } else {
-          get().updateShot(shotId, {
-            videoStatus: 'generating',
-            videoProgress: status?.progress || 50,
-          })
+            duration: current?.estimatedDuration || 5,
+            inputMode: current?.videoInputMode || 'ff',
+          }),
+          videoTaskId: taskId,
+        })
+        get().saveCurrentProject()
+      },
+      fail: (error) => {
+        get().updateShot(shotId, { videoStatus: 'failed' })
+        notifyFailure(`el video de la toma ${get().shots.find((s) => s.id === shotId)?.order ?? ''}`.trim(), error)
+      },
+      progress: (status) => {
+        const progress = typeof status?.progress === 'number' && status.progress > 0 ? status.progress : undefined
+        const shot = get().shots.find((s) => s.id === shotId)
+        if (shot && (shot.videoStatus !== 'generating' || (progress && progress !== shot.videoProgress))) {
+          get().updateShot(shotId, { videoStatus: 'generating', videoProgress: progress ?? shot.videoProgress })
         }
-      } catch {}
-    }
-
-    check()
-    const timer = setInterval(check, 2000)
-    activePolling.set(taskId, timer)
+      },
+    })
   },
 
   restoreCharacterImage: (charId: string, historyItemId: string) => {
@@ -1673,86 +1627,66 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
 
   pollAudioTask: (shotId: string, taskId: string) => {
     if (!taskId) return
-    const api = (window as any).electronAPI
-    if (!api?.openfield?.taskStatus) return
-
     get().updateShot(shotId, { audioTaskId: taskId, audioStatus: 'generating' })
+    watchTask(taskId, 2000, {
+      done: async (status) => {
+        const { assetId, url, localPath } = await taskResultWithPath(status)
+        get().updateShot(shotId, {
+          audioStatus: 'completed',
+          audioAssetId: assetId,
+          audioUrl: url,
+          audioLocalPath: localPath,
+          audioTaskId: taskId,
+        })
+        get().saveCurrentProject()
+      },
+      fail: (error) => {
+        get().updateShot(shotId, { audioStatus: 'failed' })
+        notifyFailure(`el audio de la toma ${get().shots.find((s) => s.id === shotId)?.order ?? ''}`.trim(), error)
+      },
+    })
+  },
 
-    if (activePolling.has(taskId)) return
-
-    const check = async () => {
-      try {
-        const status = await api.openfield.taskStatus(taskId)
-        if (status?.status === 'completed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-
-          let assetId = status.assetId
-          let audioUrl = status.outputUrl || status.localPath || status.resultUrl
-          let localPath = status.localPath
-
-          if (!localPath && assetId && api?.assets?.get) {
-            const asset = await api.assets.get(assetId)
-            if (asset?.local_path) localPath = asset.local_path
-          }
-
-          get().updateShot(shotId, {
-            audioStatus: 'completed',
-            audioAssetId: assetId,
-            audioUrl,
-            audioLocalPath: localPath,
-            audioTaskId: taskId,
-          })
-          get().saveCurrentProject()
-        } else if (status?.status === 'failed') {
-          const t = activePolling.get(taskId)
-          if (t) clearInterval(t)
-          activePolling.delete(taskId)
-          get().updateShot(shotId, { audioStatus: 'failed' })
-        }
-      } catch {}
-    }
-
-    check()
-    const timer = setInterval(check, 2000)
-    activePolling.set(taskId, timer)
+  trackImageTask: (kind, id, taskId) => {
+    if (kind === 'character') get().pollCharacterTask(id, taskId)
+    else if (kind === 'scenario') get().pollScenarioTask(id, taskId)
+    else if (kind === 'prop') get().pollPropTask(id, taskId)
+    else get().pollKeyframeTask(id, taskId)
+    get().saveCurrentProject()
   },
 
   syncPendingTasks: async () => {
     const state = get()
 
-    // 1. Sync characters with pending task
+    // Resume whatever was in flight when the project was saved; clear flags whose
+    // task never got an id (the app closed mid-dispatch) so nothing spins forever.
     for (const char of state.characters) {
-      if (char.taskId && !char.imageUrl) {
-        get().pollCharacterTask(char.id, char.taskId)
-      }
+      if (!char.generating || inFlight.has(char.id)) continue
+      if (char.taskId) get().pollCharacterTask(char.id, char.taskId)
+      else get().updateCharacter(char.id, { generating: false })
     }
-
-    // 2. Sync scenarios
     for (const scn of state.scenarios) {
-      if (scn.taskId && !scn.imageUrl) {
-        get().pollScenarioTask(scn.id, scn.taskId)
-      }
+      if (!scn.generating || inFlight.has(scn.id)) continue
+      if (scn.taskId) get().pollScenarioTask(scn.id, scn.taskId)
+      else get().updateScenario(scn.id, { generating: false })
     }
-
-    // 3. Sync props
     for (const prop of state.props) {
-      if (prop.taskId && !prop.imageUrl) {
-        get().pollPropTask(prop.id, prop.taskId)
-      }
+      if (!prop.generating || inFlight.has(prop.id)) continue
+      if (prop.taskId) get().pollPropTask(prop.id, prop.taskId)
+      else get().updateProp(prop.id, { generating: false })
     }
-
-    // 4. Sync shots
     for (const shot of state.shots) {
-      if (shot.keyframeTaskId && !shot.keyframeUrl) {
-        get().pollKeyframeTask(shot.id, shot.keyframeTaskId)
+      if (shot.keyframeGenerating && !inFlight.has(`kf:${shot.id}`)) {
+        if (shot.keyframeTaskId) get().pollKeyframeTask(shot.id, shot.keyframeTaskId)
+        else get().updateShot(shot.id, { keyframeGenerating: false })
       }
-      if (shot.videoTaskId && shot.videoStatus !== 'completed') {
-        get().pollVideoTask(shot.id, shot.videoTaskId)
+      if ((shot.videoStatus === 'generating' || shot.videoStatus === 'queued') && !inFlight.has(`vid:${shot.id}`)) {
+        if (shot.videoTaskId) get().pollVideoTask(shot.id, shot.videoTaskId)
+        else get().updateShot(shot.id, { videoStatus: shot.videoUrl || shot.videoLocalPath ? 'completed' : 'idle' })
       }
-      if (shot.audioTaskId && shot.audioStatus !== 'completed') {
-        get().pollAudioTask(shot.id, shot.audioTaskId)
+      if (shot.audioStatus === 'generating' && !inFlight.has(`aud:${shot.id}`)) {
+        if (shot.audioTaskId) get().pollAudioTask(shot.id, shot.audioTaskId)
+        else get().updateShot(shot.id, { audioStatus: shot.audioUrl || shot.audioLocalPath ? 'completed' : 'idle' })
       }
     }
   },
@@ -1781,7 +1715,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
         resolution: state.imageResolution,
       })
 
-      const task = await dispatchGeneration(api, 'image', payload)
+      const task = await dispatchTracked(charId, () => dispatchGeneration(api, 'image', payload))
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -1790,15 +1724,17 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
         get().pollCharacterTask(charId, taskId)
       } else {
         get().updateCharacter(charId, { generating: false })
+        notifyFailure(`el retrato de ${char.name}`, 'El proveedor no devolvió una tarea')
       }
     } catch (err) {
       console.error('[DramaStore] Character image gen failed:', err)
       get().updateCharacter(charId, { generating: false })
+      notifyFailure(`el retrato de ${char.name}`, (err as any)?.message)
     }
   },
 
-  generateAllCharacterImages: async () => {
-    const chars = get().characters
+  generateAllCharacterImages: async (onlyMissing = false) => {
+    const chars = get().characters.filter((c) => !onlyMissing || !c.imageUrl)
     for (const char of chars) {
       await get().generateCharacterImage(char.id)
     }
@@ -1875,7 +1811,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         resolution: state.imageResolution,
       })
 
-      const task = await dispatchGeneration(api, 'image', payload)
+      const task = await dispatchTracked(scenarioId, () => dispatchGeneration(api, 'image', payload))
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -1884,15 +1820,17 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         get().pollScenarioTask(scenarioId, taskId)
       } else {
         get().updateScenario(scenarioId, { generating: false })
+        notifyFailure(`la locación ${scn.name}`, 'El proveedor no devolvió una tarea')
       }
     } catch (err) {
       console.error('[DramaStore] Scenario image gen failed:', err)
       get().updateScenario(scenarioId, { generating: false })
+      notifyFailure(`la locación ${scn.name}`, (err as any)?.message)
     }
   },
 
-  generateAllScenarioImages: async () => {
-    const scns = get().scenarios
+  generateAllScenarioImages: async (onlyMissing = false) => {
+    const scns = get().scenarios.filter((scn) => !onlyMissing || !scn.imageUrl)
     for (const scn of scns) {
       await get().generateScenarioImage(scn.id)
     }
@@ -1946,8 +1884,8 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
     }
   },
 
-  generateAllPropImages: async () => {
-    const props = get().props
+  generateAllPropImages: async (onlyMissing = false) => {
+    const props = get().props.filter((pr) => !onlyMissing || !pr.imageUrl)
     for (const pr of props) {
       await get().generatePropImage(pr.id)
     }
@@ -1975,7 +1913,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         resolution: state.imageResolution,
       })
 
-      const task = await dispatchGeneration(api, 'image', payload)
+      const task = await dispatchTracked(propId, () => dispatchGeneration(api, 'image', payload))
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -1984,10 +1922,12 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         get().pollPropTask(propId, taskId)
       } else {
         get().updateProp(propId, { generating: false })
+        notifyFailure(`el objeto ${pr.name}`, 'El proveedor no devolvió una tarea')
       }
     } catch (err) {
       console.error('[DramaStore] Prop image gen failed:', err)
       get().updateProp(propId, { generating: false })
+      notifyFailure(`el objeto ${pr.name}`, (err as any)?.message)
     }
   },
 
@@ -2202,7 +2142,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         imageUrl: customParams?.imageUrl || imageRefs[0]?.imageUrl,
       })
 
-      const task = await dispatchGeneration(api, 'image', payload)
+      const task = await dispatchTracked(`kf:${shotId}`, () => dispatchGeneration(api, 'image', payload))
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -2211,15 +2151,17 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         get().pollKeyframeTask(shotId, taskId)
       } else {
         get().updateShot(shotId, { keyframeGenerating: false })
+        notifyFailure(`el frame de la toma ${shot.order}`, 'El proveedor no devolvió una tarea')
       }
     } catch (err) {
       console.error('[DramaStore] Keyframe gen failed:', err)
       get().updateShot(shotId, { keyframeGenerating: false })
+      notifyFailure(`el frame de la toma ${shot.order}`, (err as any)?.message)
     }
   },
 
-  generateAllKeyframes: async () => {
-    const shots = get().shots
+  generateAllKeyframes: async (onlyMissing = false) => {
+    const shots = get().shots.filter((sh) => !onlyMissing || !sh.keyframeUrl)
     for (const shot of shots) {
       await get().generateShotKeyframe(shot.id)
     }
@@ -2294,6 +2236,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
       get().updateShot(shotId, { audioStatus: 'generating', audioTaskId: undefined })
     }
 
+    inFlight.add(`aud:${shotId}`)
     try {
       const api = (window as any).electronAPI
       const speakerRaw = (shot.dialogueSpeaker || '').trim()
@@ -2353,7 +2296,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
           }
 
           if (asset) {
-            const localPath = asset.local_path || asset.filePath
+            const localPath = asset.localPath || asset.local_path || asset.filePath
             const audioUrl = localPath ? `file://${localPath}` : (asset.url || asset.path)
             get().updateShot(shotId, {
               audioStatus: 'completed',
@@ -2385,16 +2328,21 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         get().pollAudioTask(shotId, taskId)
       } else {
         get().updateShot(shotId, { audioStatus: 'failed' })
+        notifyFailure(`el audio de la toma ${shot.order}`, 'El proveedor no devolvió una tarea')
       }
     } catch (err) {
       console.error('[DramaStore] Audio gen failed:', err)
       get().updateShot(shotId, { audioStatus: 'failed' })
+      notifyFailure(`el audio de la toma ${shot.order}`, (err as any)?.message)
+    } finally {
+      inFlight.delete(`aud:${shotId}`)
     }
   },
 
-  generateAllVoices: async () => {
+  generateAllVoices: async (onlyMissing = false) => {
     const shots = get().shots
     for (const shot of shots) {
+      if (onlyMissing && shot.audioStatus === 'completed' && (shot.audioUrl || shot.audioLocalPath)) continue
       if (shot.dialogueText && shot.dialogueText.trim()) {
         await get().generateShotVoice(shot.id)
       }
@@ -2427,6 +2375,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
     const shot = state.shots.find((s) => s.id === shotId)
     if (!shot || shot.videoStatus === 'generating' || shot.videoStatus === 'queued') return
 
+    inFlight.add(`vid:${shotId}`)
     get().updateShot(shotId, { videoStatus: 'queued', videoProgress: 10, videoTaskId: undefined })
 
     try {
@@ -2447,19 +2396,23 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
       let prompt = customParams?.prompt
       if (!prompt) {
         const promptParts: string[] = []
-        const cameraMov = customParams?.cameraMovement || shot.cameraMovement
-        if (cameraMov && cameraMov.trim()) {
-          promptParts.push(cameraMov.trim())
+        if (shot.videoPrompt?.trim()) {
+          // The user's motion prompt replaces camera movement + action
+          promptParts.push(shot.videoPrompt.trim())
+        } else {
+          const cameraMov = customParams?.cameraMovement || shot.cameraMovement
+          if (cameraMov && cameraMov.trim()) {
+            promptParts.push(cameraMov.trim())
+          }
+          if (shot.actionPrompt && shot.actionPrompt.trim()) {
+            promptParts.push(shot.actionPrompt.trim())
+          }
         }
         if (customParams?.cameraShot) promptParts.push(customParams.cameraShot)
         if (customParams?.cameraLens) promptParts.push(customParams.cameraLens)
         if (customParams?.cameraLevel) promptParts.push(customParams.cameraLevel)
         if (customParams?.lighting) promptParts.push(customParams.lighting)
         if (customParams?.filmLook) promptParts.push(customParams.filmLook)
-
-        if (shot.actionPrompt && shot.actionPrompt.trim()) {
-          promptParts.push(shot.actionPrompt.trim())
-        }
 
         if (shot.dialogueText && shot.dialogueText.trim()) {
           const speaker = shot.dialogueSpeaker ? shot.dialogueSpeaker.trim() : 'Narrator (V.O.)'
@@ -2487,8 +2440,10 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
 
       // First Frame Handling
       let firstFrameBase64 = customParams?.firstFrameBase64
-      let firstFrameAssetId = customParams?.firstFrameAssetId || (inputMode !== 't2v' ? shot.keyframeAssetId : undefined)
-      let firstFrameUrl = customParams?.firstFrameUrl || (inputMode !== 't2v' ? shot.keyframeUrl : undefined)
+      // Ingredients mode never pins a first frame: the keyframe travels as one more reference
+      const usesFirstFrame = inputMode === 'ff' || inputMode === 'fflf'
+      let firstFrameAssetId = customParams?.firstFrameAssetId || (usesFirstFrame ? shot.keyframeAssetId : undefined)
+      let firstFrameUrl = customParams?.firstFrameUrl || (usesFirstFrame ? shot.keyframeUrl : undefined)
 
       if (!firstFrameBase64 && firstFrameAssetId && api?.assets?.readBase64) {
         try {
@@ -2529,7 +2484,16 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
       // Image References Handling for Reference Mode
       let imageRefs = customParams?.imageRefs || []
       if (inputMode === 'ref' && imageRefs.length === 0) {
-        // Collect linked character portraits and prop images as references
+        // Ingredients: the shot's frame, then linked characters, location and props
+        if (shot.keyframeAssetId || shot.keyframeUrl) {
+          imageRefs.push({
+            assetId: shot.keyframeAssetId,
+            url: shot.keyframeUrl,
+            name: `Toma ${shot.order}`,
+            mime: 'image/png',
+            refType: 'image',
+          })
+        }
         for (const char of charsInShot) {
           if (char.imageAssetId || char.imageUrl) {
             imageRefs.push({
@@ -2541,6 +2505,16 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
             })
           }
         }
+        const scenario = state.scenarios.find((sc) => sc.name === shot.scenarioName)
+        if (scenario && (scenario.imageAssetId || scenario.imageUrl)) {
+          imageRefs.push({
+            assetId: scenario.imageAssetId,
+            url: scenario.imageUrl,
+            name: scenario.name,
+            mime: 'image/png',
+            refType: 'scenario',
+          })
+        }
         for (const prop of propsInShot) {
           if (prop.imageAssetId || prop.imageUrl) {
             imageRefs.push({
@@ -2550,6 +2524,20 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
               mime: 'image/png',
               refType: 'prop',
             })
+          }
+        }
+        // Not every provider resolves asset ids: send the bytes along
+        const ids = imageRefs.map((r: any) => r.assetId).filter(Boolean)
+        if (ids.length > 0 && api?.assets?.readBase64) {
+          try {
+            const b64List = await api.assets.readBase64(ids)
+            const byId = new Map<string, any>((b64List || []).map((r: any) => [r.id, r]))
+            imageRefs = imageRefs.map((r: any) => {
+              const hit = r.assetId ? byId.get(r.assetId) : undefined
+              return hit?.base64 ? { ...r, base64: hit.base64, mime: hit.mime || r.mime } : r
+            })
+          } catch (b64Err) {
+            console.warn('[DramaStore] Failed reading base64 for ingredients:', b64Err)
           }
         }
       }
@@ -2593,11 +2581,12 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         aspectRatio: state.aspectRatio,
         resolution: customParams?.resolution || state.videoResolution,
         duration: customParams?.duration || shot.estimatedDuration || state.videoDuration || 5,
-        firstFrameAssetId: inputMode !== 't2v' ? firstFrameAssetId : undefined,
-        firstFrameBase64: inputMode !== 't2v' ? firstFrameBase64 : undefined,
-        firstFrameUrl: inputMode !== 't2v' ? firstFrameUrl : undefined,
+        firstFrameAssetId: usesFirstFrame ? firstFrameAssetId : undefined,
+        firstFrameBase64: usesFirstFrame ? firstFrameBase64 : undefined,
+        firstFrameUrl: usesFirstFrame ? firstFrameUrl : undefined,
         lastFrameAssetId: inputMode === 'fflf' ? lastFrameAssetId : undefined,
         lastFrameBase64: inputMode === 'fflf' ? lastFrameBase64 : undefined,
+        imageRefs: inputMode === 'ref' && imageRefs.length > 0 ? imageRefs : undefined,
         videoRefs: videoRefs.length > 0 ? videoRefs : undefined,
         audioAssetId: shot.audioAssetId,
         audioUrl: shot.audioUrl,
@@ -2614,7 +2603,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         payload.videoRefs = videoRefs
       }
 
-      const task = await dispatchGeneration(api, 'video', payload)
+      const task = await dispatchTracked(`vid:${shotId}`, () => dispatchGeneration(api, 'video', payload))
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -2628,10 +2617,14 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         get().pollVideoTask(shotId, taskId)
       } else {
         get().updateShot(shotId, { videoStatus: 'failed' })
+        notifyFailure(`el video de la toma ${shot.order}`, 'El proveedor no devolvió una tarea')
       }
     } catch (err) {
       console.error('[DramaStore] Video gen failed:', err)
       get().updateShot(shotId, { videoStatus: 'failed' })
+      notifyFailure(`el video de la toma ${shot.order}`, (err as any)?.message)
+    } finally {
+      inFlight.delete(`vid:${shotId}`)
     }
   },
 
@@ -2772,52 +2765,61 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
   },
 
   runFullAutoPipeline: async () => {
-    const state = get()
-    if (state.isAutoRunning) return
-    set({ isAutoRunning: true, autoRunStatus: 'Iniciando Pipeline...' })
+    if (get().isAutoRunning) return
+    set({ isAutoRunning: true, autoRunStatus: 'Iniciando…' })
+
+    // Each phase uses the previous one's results (portraits → frames → videos),
+    // so it waits for the dispatched tasks to land before moving on.
+    const imagesPending = () => {
+      const s = get()
+      return s.characters.some((c) => c.generating) || s.scenarios.some((x) => x.generating) || s.props.some((p) => p.generating)
+    }
+    const framesPending = () => get().shots.some((sh) => sh.keyframeGenerating || sh.audioStatus === 'generating')
 
     try {
-      // 1. Script breakdown if empty
-      if (state.shots.length === 0) {
-        set({ autoRunStatus: '1/5 Generando Guión & Tomas...' })
+      if (get().shots.length === 0) {
+        set({ autoRunStatus: '1/5 · Guión y tomas' })
         await get().generateScriptBreakdown()
+        const { scriptError, shots } = get()
+        if (scriptError) throw new Error(scriptError)
+        if (shots.length === 0) throw new Error('El guión no produjo tomas')
       }
 
-      // 2. Character & Scenario & Prop portraits
-      set({ autoRunStatus: '2/5 Generando Retratos, Locaciones y Props...' })
-      await get().generateAllCharacterImages()
-      await get().generateAllScenarioImages()
-      await get().generateAllPropImages()
+      set({ autoRunStatus: '2/5 · Personajes, locaciones y objetos' })
+      await get().generateAllCharacterImages(true)
+      await get().generateAllScenarioImages(true)
+      await get().generateAllPropImages(true)
+      await waitUntil(() => !imagesPending())
 
-      // 3. Storyboard Frames & Audio Synthesis
-      set({ autoRunStatus: '3/5 Generando Storyboard (Frames & Diálogos)...' })
-      await get().generateAllKeyframes()
-      await get().generateAllVoices()
+      set({ autoRunStatus: '3/5 · Frames y diálogos' })
+      await get().generateAllKeyframes(true)
+      await get().generateAllVoices(true)
+      await waitUntil(() => !framesPending())
 
-      // 4. Video Generation & LipSync Animation
-      set({ autoRunStatus: '4/5 Animando Tomas a Video con LipSync (I2V)...' })
+      set({ autoRunStatus: '4/5 · Videos' })
       await get().generateAllVideos()
 
-      // 5. Assembly
-      set({ autoRunStatus: '5/5 Ensamblando Pieza con FFmpeg...' })
+      set({ autoRunStatus: '5/5 · Ensamblaje' })
       await get().assembleFinalEpisode()
+      const { finalVideo } = get()
+      if (finalVideo.error) throw new Error(finalVideo.error)
 
-      set({ isAutoRunning: false, autoRunStatus: '¡Pieza Audiovisual Completada con Éxito!' })
+      set({ isAutoRunning: false, autoRunStatus: '' })
+      toast.success('Pieza completada', { description: 'El video final está listo en Ensamblaje.' })
     } catch (err: any) {
-      set({ isAutoRunning: false, autoRunStatus: `Detenido por error: ${err?.message}` })
+      set({ isAutoRunning: false, autoRunStatus: '' })
+      toast.error('El pipeline automático se detuvo', { description: err?.message })
     }
   },
 
-  reset: () =>
+  reset: () => {
+    const config = CONTENT_TYPES_CONFIG[get().contentType] || CONTENT_TYPES_CONFIG.microdrama
     set({
-      id: uid(),
-      title: 'Microserie AI',
       ideaPrompt: '',
-      genre: 'Drama de Suspenso',
-      tone: 'Cinematográfico y Misterioso',
-      visualStyle: 'Fotorealismo cinematográfico, iluminación dramática de claroscuro, 8K',
-      aspectRatio: '9:16',
-      shotsCount: 4,
+      genre: config.genres[0] || 'Drama de Suspenso',
+      tone: config.tones[0] || 'Cinematográfico y Misterioso',
+      visualStyle: config.defaultVisualStyle,
+      shotsCount: config.defaultShotsCount,
       currentStage: 1,
       isGeneratingScript: false,
       scriptError: undefined,
@@ -2830,5 +2832,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
       props: [],
       shots: [],
       finalVideo: {},
-    }),
+    })
+    get().saveCurrentProject()
+  },
 }))

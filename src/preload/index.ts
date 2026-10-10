@@ -31,6 +31,7 @@ const electronAPI = {
     showInFolder: (id: string) => ipcRenderer.invoke('assets:showInFolder', id),
     importBase64: (base64: string, mime: string, fileName: string, workspaceId?: string, modelUsed?: string) => ipcRenderer.invoke('assets:importBase64', base64, mime, fileName, workspaceId, modelUsed),
     saveRef: (base64: string, mime: string, name: string) => ipcRenderer.invoke('assets:saveRef', base64, mime, name),
+    playableAudio: (src: { path?: string; base64?: string; mime?: string }) => ipcRenderer.invoke('assets:playableAudio', src),
   },
   openfield: {
     generateImage: (params: any) => ipcRenderer.invoke('openfield:generate:image', params),
@@ -63,6 +64,7 @@ const electronAPI = {
     generate: (params: any) => ipcRenderer.invoke('machgen:generate', params),
     taskStatus: (taskId: string) => ipcRenderer.invoke('machgen:task:status', taskId),
     cancelTask: (taskId: string) => ipcRenderer.invoke('machgen:task:cancel', taskId),
+    finalizeDraft: (assetId: string) => ipcRenderer.invoke('machgen:finalizeDraft', assetId),
     models: () => ipcRenderer.invoke('machgen:models:list'),
     account: () => ipcRenderer.invoke('machgen:account'),
   },
@@ -70,6 +72,15 @@ const electronAPI = {
     generate: (params: any) => ipcRenderer.invoke('higgsfield:generate', params),
     taskStatus: (taskId: string) => ipcRenderer.invoke('higgsfield:task:status', taskId),
     cancelTask: (taskId: string) => ipcRenderer.invoke('higgsfield:task:cancel', taskId),
+    presets: (cursor?: string) => ipcRenderer.invoke('higgsfield:presets', cursor),
+    influencerOptions: () => ipcRenderer.invoke('higgsfield:influencer-options'),
+  },
+  apimart: {
+    generate: (params: any) => ipcRenderer.invoke('apimart:generate', params),
+    taskStatus: (taskId: string) => ipcRenderer.invoke('apimart:task:status', taskId),
+    cancelTask: (taskId: string) => ipcRenderer.invoke('apimart:task:cancel', taskId),
+    models: () => ipcRenderer.invoke('apimart:models:list'),
+    account: () => ipcRenderer.invoke('apimart:account'),
   },
   balances: {
     list: () => ipcRenderer.invoke('balances:list'),
@@ -124,6 +135,8 @@ const electronAPI = {
   },
   tasks: {
     list: (filters?: any) => ipcRenderer.invoke('tasks:list', filters),
+    reconcile: () => ipcRenderer.invoke('tasks:reconcile'),
+    retry: (assetId: string) => ipcRenderer.invoke('tasks:retry', assetId),
   },
   workflows: {
     list: () => ipcRenderer.invoke('workflows:list'),
@@ -153,6 +166,8 @@ const electronAPI = {
       'replicate:task:progress', 'replicate:task:completed', 'replicate:task:failed',
       'fal:task:progress', 'fal:task:completed', 'fal:task:failed',
       'machgen:task:progress', 'machgen:task:completed', 'machgen:task:failed',
+      'higgsfield:task:progress', 'higgsfield:task:completed', 'higgsfield:task:failed',
+      'apimart:task:progress', 'apimart:task:completed', 'apimart:task:failed',
       'assets:changed', 'assets:updated',
       'export:progress', 'export:complete', 'export:error',
       'error', 'notification',

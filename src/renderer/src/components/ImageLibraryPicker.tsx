@@ -12,7 +12,7 @@ interface ImageLibraryPickerProps {
   multiple?: boolean
 }
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 24
 
 // Isolated component so the library fetch/render never re-renders the parent composer.
 // Loads on mount and excludes internal ref/upload assets to avoid duplicate entries.
@@ -38,6 +38,7 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
   const [typeFilter, setTypeFilter] = useState<'all' | 'image' | 'video' | 'audio'>('all')
   const [onlyFavorites, setOnlyFavorites] = useState(false)
 
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const busyRef = useRef(false)
   const pageRef = useRef(0)
@@ -58,18 +59,9 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
     else setLoading(true)
     try {
       const api = (window as any).electronAPI
-      const types: string[] = []
-      if (typeFilter === 'all') {
-        types.push('image')
-        if (allowVideo) types.push('video')
-        if (allowAudio) types.push('audio')
-      } else if (typeFilter === 'image') {
-        types.push('image')
-      } else if (typeFilter === 'video') {
-        types.push('video')
-      } else if (typeFilter === 'audio') {
-        types.push('audio')
-      }
+      const allowed = ['image', ...(allowVideo ? ['video'] : []), ...(allowAudio ? ['audio'] : [])]
+      // Fall back to every allowed type if the active filter was disabled (e.g. model switched)
+      const types = typeFilter !== 'all' && allowed.includes(typeFilter) ? [typeFilter] : allowed
 
       const list = await api?.assets.list({
         types,
@@ -107,20 +99,20 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
   }, [fetchPage])
 
   const loadMore = useCallback(() => {
-    if (busyRef.current) return
+    if (busyRef.current || !hasMore) return
     const next = pageRef.current + 1
     pageRef.current = next
     fetchPage(next, true)
-  }, [fetchPage])
+  }, [fetchPage, hasMore])
 
   useEffect(() => {
     const el = sentinelRef.current
-    if (!el) return
+    if (!el || !hasMore) return
     const obs = new IntersectionObserver(
       (entries) => {
         if (entries.some(e => e.isIntersecting)) loadMore()
       },
-      { rootMargin: '600px 0px' }
+      { root: scrollContainerRef.current, rootMargin: '400px 0px' }
     )
     obs.observe(el)
     return () => obs.disconnect()
@@ -163,8 +155,8 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
   const selectedCount = selectedMap.size
 
   const modalContent = (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden relative shadow-2xl" onClick={e => e.stopPropagation()}>
+    <div className="modal-scrim z-[9999] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="modal-surface w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden relative" onClick={e => e.stopPropagation()}>
         {/* Top Header Row */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-800 gap-3">
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -172,7 +164,7 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
             {multiple && selectedCount > 0 && (
               <button
                 onClick={() => setSelectedMap(new Map())}
-                className="text-[11px] text-surface-400 hover:text-surface-200 ml-1 px-1.5 py-0.5 rounded bg-surface-800 hover:bg-surface-700 transition-colors"
+                className="text-[11px] text-surface-400 hover:text-surface-200 ml-1 px-1.5 py-0.5 rounded-pill bg-surface-800 hover:bg-surface-700 transition-colors"
               >
                 Limpiar ({selectedCount})
               </button>
@@ -191,7 +183,7 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
               ))}
             </select>
           </div>
-          <button onClick={onClose} className="text-surface-500 hover:text-surface-200 flex-shrink-0 p-1 rounded-lg hover:bg-surface-800 transition-colors">
+          <button onClick={onClose} className="text-surface-500 hover:text-surface-200 flex-shrink-0 p-1 rounded-full hover:bg-surface-800 transition-colors">
             <X size={15} />
           </button>
         </div>
@@ -223,22 +215,22 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
             type="button"
             onClick={() => setOnlyFavorites(prev => !prev)}
             title={onlyFavorites ? 'Mostrar todos los assets' : 'Filtrar solo favoritos'}
-            className={`p-1.5 rounded-lg border transition-all flex-shrink-0 flex items-center justify-center ${
+            className={`p-1.5 rounded-full border transition-all flex-shrink-0 flex items-center justify-center ${
               onlyFavorites
-                ? 'bg-amber-500/15 border-amber-500/40 text-amber-400 shadow-sm'
-                : 'border-surface-700/60 bg-surface-800/80 text-surface-400 hover:text-amber-400 hover:border-amber-500/30'
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-sm'
+                : 'border-surface-700/60 bg-surface-800/80 text-surface-400 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-500/30'
             }`}
           >
             <Star size={14} fill={onlyFavorites ? 'currentColor' : 'none'} />
           </button>
 
-          {/* Type toggles (Image / Video / All) */}
-          {allowVideo && (
-            <div className="flex items-center gap-0.5 bg-surface-800/80 p-0.5 rounded-lg border border-surface-700/60 flex-shrink-0">
+          {/* Type toggles (All / Image / Video / Audio) — shown when more than one type is allowed */}
+          {isMedia && (
+            <div className="flex items-center gap-0.5 bg-surface-800/80 p-0.5 rounded-pill border border-surface-700/60 flex-shrink-0">
               <button
                 type="button"
                 onClick={() => setTypeFilter('all')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                className={`px-2.5 py-1 rounded-pill text-[11px] font-medium transition-all ${
                   typeFilter === 'all'
                     ? 'bg-surface-700 text-surface-100 shadow-sm'
                     : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/40'
@@ -249,7 +241,7 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
               <button
                 type="button"
                 onClick={() => setTypeFilter('image')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-[11px] font-medium transition-all ${
                   typeFilter === 'image'
                     ? 'bg-surface-700 text-surface-100 shadow-sm'
                     : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/40'
@@ -258,23 +250,25 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
                 <ImageIcon size={12} />
                 <span>Imágenes</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setTypeFilter('video')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                  typeFilter === 'video'
-                    ? 'bg-surface-700 text-surface-100 shadow-sm'
-                    : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/40'
-                }`}
-              >
-                <Video size={12} />
-                <span>Videos</span>
-              </button>
+              {allowVideo && (
+                <button
+                  type="button"
+                  onClick={() => setTypeFilter('video')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-[11px] font-medium transition-all ${
+                    typeFilter === 'video'
+                      ? 'bg-surface-700 text-surface-100 shadow-sm'
+                      : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/40'
+                  }`}
+                >
+                  <Video size={12} />
+                  <span>Videos</span>
+                </button>
+              )}
               {allowAudio && (
                 <button
                   type="button"
                   onClick={() => setTypeFilter('audio')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-[11px] font-medium transition-all ${
                     typeFilter === 'audio'
                       ? 'bg-surface-700 text-surface-100 shadow-sm'
                       : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700/40'
@@ -289,7 +283,7 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
         </div>
 
         {/* Assets Grid */}
-        <div className={`flex-1 overflow-y-auto p-4 ${multiple && selectedCount > 0 ? 'pb-20' : ''}`}>
+        <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto p-4 ${multiple && selectedCount > 0 ? 'pb-20' : ''}`}>
           {loading && assets.length === 0 ? (
             <div className="flex items-center justify-center py-12 text-xs text-surface-500">Loading...</div>
           ) : (
@@ -301,12 +295,13 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
                   const rawPath = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : '')
                   const src = isVideo || isAudio ? srcUrl(rawPath) : thumbUrl(rawPath)
                   const isSelected = selectedMap.has(asset.id)
+                  const label = asset.prompt?.trim() || asset.fileName || asset.file_name || ''
 
                   return (
                     <button
                       key={asset.id}
                       type="button"
-                      title={asset.prompt || asset.fileName || asset.file_name || ''}
+                      title={label}
                       onClick={() => handleItemClick(asset)}
                       onDoubleClick={() => handleItemDoubleClick(asset)}
                       className={`aspect-square bg-surface-800 rounded-lg overflow-hidden transition-all relative group cursor-pointer ${
@@ -323,8 +318,13 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
                           </span>
                         </>
                       ) : isAudio ? (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Music size={20} className="text-surface-500" />
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
+                          <Music size={20} className="text-surface-500 flex-shrink-0" />
+                          {label && (
+                            <span className="text-[10px] leading-tight text-surface-300 text-center line-clamp-3 break-words w-full">
+                              {label}
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <img
@@ -341,7 +341,7 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
                         <div
                           className={`absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded-full flex items-center justify-center transition-all ${
                             isSelected
-                              ? 'bg-accent-500 text-white shadow-md scale-100'
+                              ? 'bg-accent-500 text-on-accent shadow-md scale-100'
                               : 'bg-black/60 text-transparent border border-white/40 opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100'
                           }`}
                         >
@@ -380,7 +380,7 @@ export const ImageLibraryPicker = memo(function ImageLibraryPicker({
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200">
             <button
               onClick={handleConfirmInsert}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-accent-600 hover:bg-accent-500 text-white font-medium text-xs shadow-2xl shadow-accent-950/60 border border-accent-400/30 transition-all transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-accent-600 hover:bg-accent-500 text-on-accent font-medium text-xs shadow-float border border-accent-400/30 transition-all transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
             >
               <Check size={14} className="stroke-[2.5]" />
               <span>

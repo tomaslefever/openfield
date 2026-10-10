@@ -1,1184 +1,1121 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
-  Search, Plus, Edit3, Trash2, X, User, Box, Mountain, UserCircle,
-  ChevronLeft, Wand2, RefreshCw, Library, Maximize2,
+  Search, Plus, Trash2, X, ChevronLeft, Wand2, Library, Upload, ImagePlus, Loader2, Pencil,
 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import {
   useElementsStore,
   type ElementKind,
+  type ElementSlot,
+  type MediaRef,
   type StudioElement,
   KIND_CONFIG,
+  MAX_REFERENCES,
+  b64Mime,
+  b64Src,
 } from '../stores/elements-store'
-import { useWorkspaceStore } from '../stores/workspace-store'
 import { TagEditor } from '../components/ui/TagEditor'
-import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
-import { fileUrl, thumbUrl } from '../services/file-url'
+import { ToolButton } from '../components/ui/tool-button'
 import { QuickPromptComposer } from '../components/QuickPromptComposer'
 import { ImagePreviewModal } from '../components/ui/ImagePreviewModal'
-import { ElementWizard } from '../components/ElementWizard'
+import { ImageLibraryPicker } from '../components/ImageLibraryPicker'
+import { ElementWizard, PropertySelector } from '../components/ElementWizard'
+import { ELEMENT_PROPERTIES, KIND_ICONS, KIND_ORDER, withProperty } from '../lib/element-config'
 
-const KIND_FILTERS: { key: ElementKind | 'all'; label: string }[] = [
-  { key: 'all', label: 'Todos' },
-  { key: 'avatar', label: 'Avatares' },
-  { key: 'character', label: 'Personajes' },
-  { key: 'environment', label: 'Entornos' },
-  { key: 'object', label: 'Objetos' },
-]
+// ───────────────────── Generation prompts ─────────────────────
 
-const KIND_ICONS: Record<ElementKind, typeof User> = {
-  avatar: UserCircle,
-  character: User,
-  environment: Mountain,
-  object: Box,
+const CHARACTER_PRIMARY_PROMPT = 'high quality character portrait, front facing, centered composition, clean lighting, detailed features, professional rendering'
+
+const PRIMARY_BASE_PROMPTS: Record<ElementKind, string> = {
+  avatar: CHARACTER_PRIMARY_PROMPT,
+  character: CHARACTER_PRIMARY_PROMPT,
+  environment: 'establishing shot of a location, wide composition, cinematic lighting, rich environmental detail, no people',
+  object: 'single object product shot, centered composition, clean neutral background, soft studio lighting, detailed materials',
 }
-
-const PRIMARY_BASE_PROMPT = 'high quality character portrait, front facing, centered composition, clean lighting, detailed features, professional rendering'
 
 const POSE_BASE_PROMPT = 'character turnaround sheet, front view, side view, back view, full body standing pose, orthographic reference, white background, consistent lighting, same character design'
 
-const MOODBOARD_BASE_PROMPT = 'concept art reference, detailed illustration, same character, cohesive style, professional quality'
+const MOODBOARD_BASE_PROMPT = 'concept art reference, detailed illustration, same subject, cohesive style, professional quality'
 
-function UploadIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
-    </svg>
-  )
+/** Aspect ratio of the primary render per kind (composer value + CSS value) */
+const PRIMARY_ASPECT: Record<ElementKind, { ar: string; css: string }> = {
+  avatar: { ar: '3:4', css: '3 / 4' },
+  character: { ar: '3:4', css: '3 / 4' },
+  environment: { ar: '16:9', css: '16 / 9' },
+  object: { ar: '1:1', css: '1 / 1' },
 }
 
-function b64FromFile(file: File): Promise<string> {
-  return new Promise((resolve) => {
+const FIELD_PLACEHOLDERS: Record<ElementKind, { description: string; prompt: string }> = {
+  avatar: { description: 'Rasgos físicos, personalidad e identificadores visuales…', prompt: 'Ej. pelo corto platino, sudadera oversize, sonrisa amplia' },
+  character: { description: 'Rasgos físicos, origen e identificadores visuales…', prompt: 'Ej. pelo rizado castaño, chaqueta de cuero gastada, cicatriz en la ceja izquierda' },
+  environment: { description: 'Ubicación, época, atmósfera y elementos característicos…', prompt: 'Ej. calles mojadas, letreros de neón, niebla baja' },
+  object: { description: 'Forma, materiales, tamaño y detalles distintivos…', prompt: 'Ej. latón envejecido, grabado floral, cristal rayado' },
+}
+
+interface BasePrompts {
+  primary: string | null
+  pose: string
+  moodboard: string
+}
+
+/** What the element looks like, built from its description, prompt and attributes */
+function subjectPrompt(el: StudioElement): string {
+  const labels = new Map(ELEMENT_PROPERTIES[el.kind].map((p) => [p.key, p.label.toLowerCase()]))
+  const attrs = Object.entries(el.properties || {})
+    .filter(([k, v]) => k !== 'style' && v)
+    .map(([k, v]) => `${labels.get(k) || k}: ${v}`)
+    .join(', ')
+  const parts = [el.description.trim(), el.prompt.trim(), attrs].filter(Boolean)
+  return parts.length ? parts.join('. ') : el.name
+}
+
+function styleOf(el: StudioElement): string {
+  return el.style || el.properties?.style || ''
+}
+
+// ───────────────────── Media input helpers ─────────────────────
+
+type MediaKind = 'image' | 'video'
+
+interface PickedRef extends MediaRef {
+  prompt?: string
+}
+
+const MAX_BYTES: Record<MediaKind, number> = {
+  image: 20 * 1024 * 1024,
+  video: 50 * 1024 * 1024,
+}
+
+function readFileB64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      resolve(result.split(',')[1] || result)
-    }
+    reader.onload = () => resolve((reader.result as string).split(',')[1] || '')
+    reader.onerror = reject
     reader.readAsDataURL(file)
   })
 }
 
-// ───────────────────── Library Picker Modal ─────────────────────
-function LibraryPickerModal({
-  onSelect,
-  onClose,
-}: {
-  onSelect: (asset: { base64: string; prompt: string; assetId: string }) => void
-  onClose: () => void
-}) {
-  const [assets, setAssets] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+async function filesToRefs(files: File[], accept: MediaKind): Promise<PickedRef[]> {
+  const out: PickedRef[] = []
+  for (const file of files) {
+    if (!file.type.startsWith(`${accept}/`)) continue
+    if (file.size > MAX_BYTES[accept]) {
+      toast.error(`${file.name} supera ${MAX_BYTES[accept] / 1024 / 1024} MB`)
+      continue
+    }
+    try { out.push({ base64: await readFileB64(file), assetId: '' }) } catch { /* unreadable file */ }
+  }
+  return out
+}
 
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const result = await (window as any).electronAPI?.assets.list({ type: 'image', limit: 60, excludeUploads: true })
-        setAssets(result?.assets || [])
-      } catch { /* ignore */ }
-      setLoading(false)
-    })()
-  }, [])
+async function assetsToRefs(assets: any[], accept: MediaKind): Promise<PickedRef[]> {
+  const list = assets
+    .map((a) => (typeof a === 'string' ? { id: a } : a))
+    .filter((a) => a?.id && (!a.type || a.type === accept))
+  if (list.length === 0) return []
+  try {
+    const results = await (window as any).electronAPI?.assets.readBase64(list.map((a) => a.id))
+    const byId = new Map<string, string>((results || []).map((r: any) => [r.id, r.base64]))
+    return list
+      .map((a) => ({ base64: byId.get(a.id) || '', assetId: a.id, prompt: a.prompt }))
+      .filter((r) => r.base64)
+  } catch (err) {
+    console.error('[ElementsPage] Failed to read library assets:', err)
+    return []
+  }
+}
 
-  const filtered = search
-    ? assets.filter(
-        (a) =>
-          (a.prompt || '').toLowerCase().includes(search.toLowerCase()) ||
-          (a.fileName || '').toLowerCase().includes(search.toLowerCase()),
-      )
-    : assets
-
-  const handleSelect = async (asset: any) => {
+/** Library drags carry asset JSON; desktop drags carry files */
+async function refsFromDrop(dt: DataTransfer, accept: MediaKind): Promise<PickedRef[]> {
+  const json = dt.getData('application/x-openfield-assets') || dt.getData('application/x-openfield-asset')
+  if (json) {
     try {
-      const api = (window as any).electronAPI
-      const results = await api?.assets.readBase64([asset.id])
-      const b64 = results?.[0]?.base64 || ''
-      onSelect({ base64: b64, prompt: asset.prompt || '', assetId: asset.id })
-      onClose()
-    } catch {
-      onClose()
-    }
+      const parsed = JSON.parse(json)
+      return assetsToRefs(Array.isArray(parsed) ? parsed : [parsed], accept)
+    } catch { /* fall through to files */ }
   }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-3xl mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b border-surface-800">
-          <h3 className="text-sm font-semibold text-surface-100">Seleccionar de la biblioteca</h3>
-          <button onClick={onClose} className="text-surface-500 hover:text-surface-100">
-            <X size={16} />
-          </button>
-        </div>
-        <div className="p-3 border-b border-surface-800">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por prompt o nombre..."
-            className="input-field text-xs"
-          />
-        </div>
-        <div className="flex-1 overflow-y-auto p-3">
-          {loading ? (
-            <div className="flex items-center justify-center py-20 text-surface-500 text-sm">Cargando...</div>
-          ) : filtered.length === 0 ? (
-            <div className="flex items-center justify-center py-20 text-surface-500 text-sm">No se encontraron imágenes</div>
-          ) : (
-            <div className="grid grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
-              {filtered.map((asset) => {
-                const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
-                const resolvedSrc = src ? (src.startsWith('http') ? src : thumbUrl(src)) : null
-                return (
-                  <button
-                    key={asset.id}
-                    onClick={() => handleSelect(asset)}
-                    className="aspect-square bg-surface-800 rounded-lg overflow-hidden hover:ring-2 ring-accent-500 transition-all cursor-pointer border border-surface-800 hover:border-accent-500/50"
-                  >
-                    {resolvedSrc ? (
-                      <img src={resolvedSrc} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-surface-600 text-[10px]">—</div>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
+  return filesToRefs(Array.from(dt.files || []), accept)
 }
 
-// ───────────────────── Create / Edit Modal ─────────────────────
-function CreateEditModal({
-  element,
-  onClose,
+function useDropZone(onDrop: (dt: DataTransfer) => void, enabled = true) {
+  const [over, setOver] = useState(false)
+  const depth = useRef(0)
+  const handlers = enabled ? {
+    onDragEnter: (e: React.DragEvent) => { e.preventDefault(); depth.current++; setOver(true) },
+    onDragOver: (e: React.DragEvent) => { e.preventDefault() },
+    onDragLeave: (e: React.DragEvent) => {
+      e.preventDefault()
+      depth.current = Math.max(0, depth.current - 1)
+      if (depth.current === 0) setOver(false)
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      depth.current = 0
+      setOver(false)
+      onDrop(e.dataTransfer)
+    },
+  } : {}
+  return { over, handlers }
+}
+
+// ───────────────────── Small building blocks ─────────────────────
+
+function Section({
+  title,
+  meta,
+  action,
+  children,
 }: {
-  element?: StudioElement
-  onClose: () => void
+  title: string
+  meta?: string
+  action?: React.ReactNode
+  children: React.ReactNode
 }) {
-  const addElement = useElementsStore((s) => s.addElement)
-  const updateElement = useElementsStore((s) => s.updateElement)
-  const [kind, setKind] = useState<ElementKind>(element?.kind || 'character')
-  const [name, setName] = useState(element?.name || '')
-  const [description, setDescription] = useState(element?.description || '')
-  const [imageBase64, setImageBase64] = useState(element?.imageBase64 || '')
-  const [prompt, setPrompt] = useState(element?.prompt || '')
-  const [voiceId, setVoiceId] = useState(element?.voiceId || '')
-  const [tags, setTags] = useState<string[]>(element?.tags || [])
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setImageBase64(await b64FromFile(file))
-  }
-
-  const handleSave = () => {
-    if (!name.trim()) return
-    const data: Omit<StudioElement, 'id' | 'createdAt' | 'updatedAt'> = {
-      name: name.trim(),
-      kind,
-      description,
-      tags,
-      imageBase64,
-      imageAssetId: element?.imageAssetId || '',
-      prompt,
-      voiceId: kind === 'avatar' || kind === 'character' ? voiceId : '',
-      referenceImages: element?.referenceImages || [],
-      referenceAssetIds: element?.referenceAssetIds || [],
-      poseRef: element?.poseRef || '',
-      poseAssetId: element?.poseAssetId || '',
-      poseTaskId: element?.poseTaskId || '',
-      moodboardTaskId: element?.moodboardTaskId || '',
-      videoRef: element?.videoRef || '',
-      videoAssetId: element?.videoAssetId || '',
-      hdriRef: element?.hdriRef || '',
-      hdriAssetId: element?.hdriAssetId || '',
-      style: element?.style || '',
-      properties: element?.properties || {},
-    }
-    if (element) {
-      updateElement(element.id, data)
-    } else {
-      addElement(data)
-    }
-    onClose()
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b border-surface-800">
-          <h3 className="text-sm font-semibold text-surface-100">
-            {element ? 'Editar elemento' : 'Nuevo elemento'}
-          </h3>
-          <button onClick={onClose} className="text-surface-500 hover:text-surface-100">
-            <X size={16} />
-          </button>
+    <section>
+      <div className="flex items-center justify-between gap-3 mb-3 min-h-7">
+        <div className="flex items-baseline gap-2">
+          <h3 className="eyebrow">{title}</h3>
+          {meta && <span className="font-mono text-eyebrow text-ink-subtle">{meta}</span>}
         </div>
-
-        <div className="p-4 space-y-4">
-          <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Tipo</label>
-            <div className="flex gap-2 flex-wrap">
-              {KIND_FILTERS.filter((f) => f.key !== 'all').map(({ key, label }) => {
-                const Icon = KIND_ICONS[key as ElementKind]
-                const cfg = KIND_CONFIG[key as ElementKind]
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setKind(key as ElementKind)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                      kind === key
-                        ? 'bg-surface-700 text-surface-100 border border-surface-600'
-                        : 'bg-surface-800 text-surface-500 hover:text-surface-300'
-                    }`}
-                  >
-                    <Icon size={12} className={cfg.color} />
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Nombre</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del elemento" className="input-field" />
-          </div>
-
-          <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Descripción</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe el elemento en detalle..." className="input-field min-h-[80px] resize-none" rows={3} />
-          </div>
-
-          <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Tags</label>
-            <TagEditor tags={tags} onChange={setTags} />
-          </div>
-
-          <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Prompt</label>
-            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Prompt que describe al elemento..." className="input-field min-h-[60px] resize-none text-xs" rows={2} />
-          </div>
-
-          {(kind === 'avatar' || kind === 'character') && (
-            <div>
-              <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Voice ID (ElevenLabs)</label>
-              <input value={voiceId} onChange={(e) => setVoiceId(e.target.value)} placeholder="ID de voz..." className="input-field text-xs font-mono" />
-            </div>
-          )}
-
-          <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Imagen de referencia</label>
-            <div className="flex items-center gap-2">
-              {imageBase64 && (
-                <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-surface-800 flex-shrink-0">
-                  <img               src={imageBase64 ? `data:image/png;base64,${imageBase64}` : undefined} alt="" className="w-full h-full object-cover" />
-                  <button onClick={() => setImageBase64('')} className="absolute top-1 right-1 w-4 h-4 bg-black/60 rounded-full flex items-center justify-center">
-                    <X size={10} className="text-white" />
-                  </button>
-                </div>
-              )}
-              <label className="btn-ghost text-xs cursor-pointer">
-                <UploadIcon />
-                {imageBase64 ? 'Cambiar' : 'Subir imagen'}
-                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 p-4 border-t border-surface-800">
-          <button onClick={handleSave} disabled={!name.trim()} className="btn-primary flex-1 text-xs text-center justify-center">
-            {element ? 'Guardar cambios' : 'Crear elemento'}
-          </button>
-          <button onClick={onClose} className="btn-ghost text-xs">Cancelar</button>
-        </div>
+        {action && <div className="flex items-center gap-1">{action}</div>}
       </div>
+      {children}
+    </section>
+  )
+}
+
+function PendingOverlay({ label = 'Generando…', onDiscard }: { label?: string; onDiscard?: () => void }) {
+  return (
+    <div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm flex flex-col items-center justify-center gap-2">
+      <Loader2 size={18} className="animate-spin text-ink" />
+      <span className="text-meta text-ink-muted">{label}</span>
+      {onDiscard && (
+        <button onClick={onDiscard} className="text-meta text-ink-subtle hover:text-ink underline underline-offset-2">
+          Dejar de esperar
+        </button>
+      )}
     </div>
   )
 }
 
-// ───────────────────── Moodboard Card ─────────────────────
-function MoodboardCard({
-  refs,
-  count,
-  max,
+interface MediaSlotProps {
+  src?: string
+  isVideo?: boolean
+  aspect: string
+  fit?: 'cover' | 'contain'
+  accept: MediaKind
+  emptyLabel: string
+  emptyHint?: string
+  pending?: boolean
+  onDiscardPending?: () => void
+  onRefs: (refs: PickedRef[]) => void
+  onPreview?: () => void
+  onLibrary: () => void
+  onGenerate?: () => void
+  /** Why generating is unavailable (disables the button) */
+  generateBlocked?: string
+  onRemove?: () => void
+  /** Reports pointer hover so a Ctrl+V lands in this slot */
+  onHoverChange?: (over: boolean) => void
+}
+
+function MediaSlot({
+  src, isVideo, aspect, fit = 'cover', accept, emptyLabel, emptyHint, pending, onDiscardPending,
+  onRefs, onPreview, onLibrary, onGenerate, generateBlocked, onRemove, onHoverChange,
+}: MediaSlotProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const { over, handlers } = useDropZone(async (dt) => {
+    const refs = await refsFromDrop(dt, accept)
+    if (refs.length) onRefs(refs.slice(0, 1))
+  }, !pending)
+
+  return (
+    <div onMouseEnter={() => onHoverChange?.(true)} onMouseLeave={() => onHoverChange?.(false)}>
+      <div
+        {...handlers}
+        style={{ aspectRatio: aspect }}
+        className={`relative rounded-2xl overflow-hidden bg-surface-soft border transition-colors ${
+          over ? 'border-ink' : src ? 'border-hairline' : 'border-dashed border-surface-700'
+        }`}
+      >
+        {src ? (
+          isVideo ? (
+            <video src={src} className="w-full h-full object-cover" controls />
+          ) : (
+            <button type="button" onClick={onPreview} className="block w-full h-full cursor-zoom-in" aria-label="Ver en grande">
+              <img src={src} alt="" className={`w-full h-full ${fit === 'cover' ? 'object-cover' : 'object-contain'}`} />
+            </button>
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-6 text-center text-ink-subtle hover:text-ink transition-colors"
+          >
+            <ImagePlus size={20} strokeWidth={1.5} />
+            <span className="text-body font-emphasis text-ink mt-1">{emptyLabel}</span>
+            <span className="text-meta">{emptyHint || 'Arrastra un archivo, súbelo o elígelo de la biblioteca'}</span>
+            <span className="font-mono text-eyebrow uppercase text-ink-subtle mt-1">Ctrl+V para pegar</span>
+          </button>
+        )}
+        {pending && <PendingOverlay onDiscard={onDiscardPending} />}
+        {over && (
+          <div className="absolute inset-0 bg-canvas/60 flex items-center justify-center pointer-events-none">
+            <span className="px-3 py-1 rounded-pill bg-accent-600 text-on-accent text-meta font-emphasis">Soltar para usar</span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-0.5 mt-2 -ml-1">
+        <ToolButton icon={Upload} onClick={() => inputRef.current?.click()} disabled={pending}>
+          {src ? 'Reemplazar' : 'Subir'}
+        </ToolButton>
+        <ToolButton icon={Library} onClick={onLibrary} disabled={pending}>Biblioteca</ToolButton>
+        {onGenerate && (
+          <ToolButton icon={Wand2} onClick={onGenerate} disabled={pending || !!generateBlocked} title={generateBlocked}>
+            {src ? 'Regenerar' : 'Generar'}
+          </ToolButton>
+        )}
+        <div className="flex-1" />
+        {src && onRemove && !pending && (
+          <button type="button" onClick={onRemove} className="btn-icon size-7 bg-transparent" title="Quitar">
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept={`${accept}/*`}
+        className="hidden"
+        onChange={async (e) => {
+          const refs = await filesToRefs(Array.from(e.target.files || []), accept)
+          e.target.value = ''
+          if (refs.length) onRefs(refs.slice(0, 1))
+        }}
+      />
+    </div>
+  )
+}
+
+// ───────────────────── Moodboard ─────────────────────
+
+function Moodboard({
+  element,
+  pendingCount,
   onAdd,
   onRemove,
   onPreview,
-  onGenerate,
   onLibrary,
-}: {
-  refs: string[]
-  count: number
-  max: number
-  onAdd: (b64: string) => void
-  onRemove: (i: number) => void
-  onPreview: (i: number) => void
-  onGenerate: () => void
-  onLibrary: () => void
-}) {
-  const [dragActive, setDragActive] = useState(false)
-  const dragCounter = useRef(0)
-
-  const readFile = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve((reader.result as string).split(',')[1])
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current = 0
-    setDragActive(false)
-    const files = e.dataTransfer?.files
-    if (!files) return
-    for (let i = 0; i < files.length; i++) {
-      if (!files[i].type.startsWith('image/')) continue
-      if (count + i >= max) break
-      try { onAdd(await readFile(files[i])) } catch {}
-    }
-  }
-
-  return (
-    <div
-      className={`col-span-4 card p-5 flex flex-col transition-colors ${dragActive ? 'border-accent-500/60' : ''}`}
-      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); dragCounter.current++; setDragActive(true) }}
-      onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
-      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); dragCounter.current--; if (dragCounter.current <= 0) { dragCounter.current = 0; setDragActive(false) } }}
-      onDrop={handleDrop}
-    >
-      <div className="flex items-center justify-between mb-3 border-b border-surface-800 pb-2">
-        <h3 className="text-[10px] text-accent-400 uppercase tracking-wider font-semibold">Moodboard / Refs</h3>
-        <span className="text-[10px] text-surface-500 bg-surface-800/50 px-2 py-0.5 rounded">{count}/{max}</span>
-      </div>
-      <div className="flex-1">
-        {refs.length === 0 ? (
-          <div className="h-full min-h-[120px] border-2 border-dashed border-surface-700/50 rounded-lg flex flex-col items-center justify-center gap-2 text-surface-500">
-            <UploadIcon />
-            <p className="text-[10px]">Drop images here</p>
-            <p className="text-[9px] text-surface-600">or use buttons below</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-1.5 content-start">
-            {refs.map((img, i) => (
-              <div key={i} className="aspect-square relative bg-surface-800/50 border border-surface-800 rounded hover:border-accent-500/50 transition-colors flex items-center justify-center overflow-hidden group/item">
-                <img               src={img ? `data:image/png;base64,${img}` : undefined} alt="" className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/0 group-hover/item:bg-black/40 transition-colors flex items-center justify-center gap-1 opacity-0 group-hover/item:opacity-100">
-                  <button
-                    onClick={() => onPreview(i)}
-                    className="bg-white/90 hover:bg-white text-black p-1 rounded"
-                  >
-                    <Maximize2 size={10} />
-                  </button>
-                  <button
-                    onClick={() => onRemove(i)}
-                    className="bg-red-500/90 hover:bg-red-500 text-white p-1 rounded"
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="mt-2 flex gap-2 pt-2 border-t border-surface-800">
-        <button
-          onClick={onGenerate}
-          className="flex-1 bg-accent-500/20 hover:bg-accent-500/40 text-accent-400 hover:text-accent-300 text-[10px] px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 transition-colors"
-        >
-          <Wand2 size={11} /> Generate
-        </button>
-        <button
-          onClick={onLibrary}
-          className="flex-1 bg-surface-800/60 hover:bg-surface-700/60 text-surface-400 hover:text-surface-200 text-[10px] px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 transition-colors"
-        >
-          <Library size={11} /> Biblioteca
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ───────────────────── Element Dashboard ─────────────────────
-function ElementDashboard({
-  element,
-  onUpdate,
-  primaryBasePrompt,
-  poseBasePrompt,
-  moodboardBasePrompt,
+  onGenerate,
+  onHoverChange,
 }: {
   element: StudioElement
-  onUpdate: (updates: Partial<StudioElement>) => void
-  primaryBasePrompt: string
-  poseBasePrompt: string
-  moodboardBasePrompt: string
+  pendingCount: number
+  onAdd: (refs: PickedRef[]) => void
+  onRemove: (index: number) => void
+  onPreview: (index: number) => void
+  onLibrary: () => void
+  onGenerate: () => void
+  onHoverChange?: (over: boolean) => void
 }) {
-  const [name, setName] = useState(element.name)
-  const [description, setDescription] = useState(element.description)
-  const [prompt, setPrompt] = useState(element.prompt)
-  const [voiceId, setVoiceId] = useState(element.voiceId || '')
-  const [tags, setTags] = useState<string[]>(element.tags)
-  const [showLibraryPicker, setShowLibraryPicker] = useState(false)
-  const [libraryPickerTarget, setLibraryPickerTarget] = useState<'pose' | 'primary' | 'moodboard'>('primary')
-  const [showQuickComposer, setShowQuickComposer] = useState(false)
-  const [showPosePreview, setShowPosePreview] = useState(false)
-  const [showPrimaryPreview, setShowPrimaryPreview] = useState(false)
-  const [showRefPreview, setShowRefPreview] = useState(false)
-  const [refPreviewIndex, setRefPreviewIndex] = useState(0)
-  const [quickComposerTarget, setQuickComposerTarget] = useState<'pose' | 'primary' | 'moodboard'>('pose')
-  const mountedRef = useRef(true)
-
-  useEffect(() => { return () => { mountedRef.current = false } }, [])
-
-  const handleGenerate = useCallback((target: 'pose' | 'primary' | 'moodboard') => {
-    console.log('[ElementDashboard] handleGenerate:', { target, poseBasePrompt: poseBasePrompt?.substring(0, 80), primaryBasePrompt: primaryBasePrompt?.substring(0, 80) })
-    setQuickComposerTarget(target)
-    setShowQuickComposer(true)
-  }, [poseBasePrompt, primaryBasePrompt])
-
-  const hasChanges =
-    name !== element.name ||
-    description !== element.description ||
-    prompt !== element.prompt ||
-    voiceId !== (element.voiceId || '') ||
-    JSON.stringify(tags) !== JSON.stringify(element.tags)
-
-  const handleSave = () => {
-    onUpdate({
-      name: name.trim(),
-      description,
-      prompt,
-      voiceId,
-      tags,
-    })
-  }
-
-  const handlePrimaryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    onUpdate({ imageBase64: await b64FromFile(file) })
-  }
-
-  const handlePoseUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    onUpdate({ poseRef: await b64FromFile(file) })
-  }
-
-  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    onUpdate({ videoRef: await b64FromFile(file) })
-  }
-
-  const handleHdriUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    onUpdate({ hdriRef: await b64FromFile(file) })
-  }
-
-  const addRefImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || element.referenceImages.length >= 8) return
-    onUpdate({ referenceImages: [...element.referenceImages, await b64FromFile(file)] })
-  }
-
-  const removeRefImage = (idx: number) => {
-    onUpdate({ referenceImages: element.referenceImages.filter((_, i) => i !== idx) })
-  }
-
-  const showVoice = element.kind === 'avatar' || element.kind === 'character'
-  const showPose = element.kind === 'avatar' || element.kind === 'character'
-  const showVideo = element.kind === 'environment'
-  const showHdri = element.kind === 'environment'
+  const inputRef = useRef<HTMLInputElement>(null)
+  const count = element.referenceImages.length
+  const full = count + pendingCount >= MAX_REFERENCES
+  const { over, handlers } = useDropZone(async (dt) => {
+    const refs = await refsFromDrop(dt, 'image')
+    if (refs.length) onAdd(refs)
+  }, !full)
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="max-w-[1440px] mx-auto p-6">
-        <div className="grid grid-cols-12 gap-3 auto-rows-[minmax(180px,auto)]">
-          {/* Information */}
-          <div className="col-span-4 card p-5 flex flex-col relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-              {(() => { const Icon = KIND_ICONS[element.kind]; return <Icon size={80} /> })()}
-            </div>
-            <div className="flex items-center justify-between mb-3 border-b border-surface-800 pb-2">
-              <h3 className="text-[10px] text-accent-400 uppercase tracking-wider font-semibold">Information</h3>
-            </div>
-            <div className="flex-1 flex flex-col gap-4">
-              <div>
-                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Name</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-transparent border-0 border-b border-surface-800 px-0 py-2 text-sm text-surface-100 placeholder:text-surface-600 focus:border-accent-500 focus:outline-none transition-colors"
-                  placeholder="Enter element name..."
-                />
-              </div>
-              <div className="flex-1 flex flex-col">
-                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Description</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full flex-1 bg-surface-800/50 border border-surface-800 rounded-lg p-3 text-xs text-surface-200 placeholder:text-surface-600 resize-none focus:border-accent-500 focus:outline-none transition-colors"
-                  placeholder="Outline physical traits, origin, and visual identifiers..."
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Tags</label>
-                <div className="bg-surface-800/50 border border-surface-800 rounded-lg p-2 flex flex-wrap gap-2 min-h-[42px] content-start">
-                  {tags.map((tag) => (
-                    <span key={tag} className="bg-accent-500/10 text-accent-400 text-[11px] px-2 py-1 rounded flex items-center gap-1">
-                      {tag}
-                      <button onClick={() => setTags(tags.filter((t) => t !== tag))} className="hover:text-red-400 transition-colors leading-none">
-                        <X size={11} />
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    className="bg-transparent border-none p-0 text-xs text-surface-300 placeholder:text-surface-600 focus:outline-none w-24"
-                    placeholder="Add tag..."
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        const val = (e.target as HTMLInputElement).value.trim().toLowerCase()
-                        if (val && !tags.includes(val)) {
-                          setTags([...tags, val])
-                          ;(e.target as HTMLInputElement).value = ''
-                        }
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Primary Render */}
-          <div className="col-span-4 card p-4 flex flex-col relative group">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[10px] text-accent-400 uppercase tracking-wider font-semibold">Primary Render</h3>
-            </div>
-            <label className="flex-1 border-2 border-dashed border-surface-700/50 rounded-lg flex flex-col items-center justify-center bg-surface-800/30 transition-colors group-hover:border-accent-500/50 cursor-pointer relative overflow-hidden">
-              {element.imageBase64 ? (
-                <>
-                  <img src={`data:image/png;base64,${element.imageBase64}`} alt="" className="w-full h-full object-cover rounded-lg" />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPrimaryPreview(true) }}
-                      className="bg-white/90 hover:bg-white text-black text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                    >
-                      <Maximize2 size={12} />
-                    </button>
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLibraryPickerTarget('primary'); setShowLibraryPicker(true) }}
-                      className="bg-surface-800/90 hover:bg-surface-700 text-surface-300 text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                    >
-                      <Library size={12} /> Biblioteca
-                    </button>
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleGenerate('primary') }}
-                      className="bg-accent-500/90 hover:bg-accent-500 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                    >
-                      <RefreshCw size={12} /> Regenerate
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <UploadIcon />
-                  <p className="text-[10px] text-surface-500 mt-2">DROP FILE OR CLICK</p>
-                  <p className="text-[9px] text-surface-600 mt-1">4:5 ASPECT PREFERRED</p>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLibraryPickerTarget('primary'); setShowLibraryPicker(true) }}
-                      className="bg-surface-800/60 hover:bg-surface-700/60 text-surface-400 hover:text-surface-200 text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                    >
-                      <Library size={12} /> Biblioteca
-                    </button>
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleGenerate('primary') }}
-                      className="bg-accent-500/20 hover:bg-accent-500/40 text-accent-400 hover:text-accent-300 text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                    >
-                      <Wand2 size={12} /> Generate
-                    </button>
-                  </div>
-                </>
-              )}
-              <input type="file" accept="image/*" className="hidden" onChange={handlePrimaryUpload} />
-            </label>
-          </div>
-
-          {/* Voice Profile */}
-          {showVoice && (
-            <div className="col-span-4 card p-5 flex flex-col justify-between">
-              <div className="flex items-center justify-between mb-3 border-b border-surface-800 pb-2">
-                <h3 className="text-[10px] text-blue-400 uppercase tracking-wider font-semibold">Acoustic Signature</h3>
-              </div>
-              <div className="flex-1 flex flex-col justify-center gap-3">
-                <div className="h-14 flex items-end justify-between gap-[2px] w-full px-1">
-                  {Array.from({ length: 28 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="w-1 bg-blue-500/30 rounded-t-sm opacity-50 hover:opacity-100 transition-opacity"
-                      style={{
-                        height: `${Math.max(8, Math.abs(Math.sin(i * 0.7) * 80 + Math.cos(i * 1.3) * 20))}%`,
-                        animation: `pulse ${0.6 + Math.random() * 0.8}s infinite alternate ease-in-out`,
-                        animationDelay: `-${Math.random() * 1}s`,
-                      }}
-                    />
-                  ))}
-                </div>
-                <div>
-                  <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Voice ID (ElevenLabs)</label>
-                  <input
-                    value={voiceId}
-                    onChange={(e) => setVoiceId(e.target.value)}
-                    placeholder="Voice ID..."
-                    className="input-field text-xs font-mono"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Pose Reference */}
-          {showPose && (
-              <div className="col-span-8 card p-4 flex flex-col relative group overflow-hidden">
-              <div className="flex items-center justify-between mb-3 border-b border-surface-800 pb-2">
-                <h3 className="text-[10px] text-accent-400 uppercase tracking-wider font-semibold">Pose Reference</h3>
-                <span className="text-[9px] text-surface-500 font-mono">16:9</span>
-              </div>
-              <label className="flex-1 border-2 border-dashed border-surface-700/50 rounded-lg flex flex-col items-center justify-center bg-surface-800/30 transition-colors group-hover:border-accent-500/50 cursor-pointer relative overflow-hidden" style={{ aspectRatio: '16/9', maxHeight: '400px' }}>
-                {element.poseTaskId ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <RefreshCw size={24} className="text-accent-400 animate-spin" />
-                    <p className="text-[11px] text-surface-400 font-medium">Generating pose reference...</p>
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onUpdate({ poseTaskId: '' }) }}
-                      className="text-[10px] text-surface-500 hover:text-red-400 border border-surface-700 hover:border-red-500/50 rounded-lg px-3 py-1 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : element.poseRef ? (
-                  <>
-                    <img src={`data:image/png;base64,${element.poseRef}`} alt="" className="w-full h-full object-contain rounded-lg" />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPosePreview(true) }}
-                        className="bg-white/90 hover:bg-white text-black text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                      >
-                        <Maximize2 size={12} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onUpdate({ poseRef: '' }) }}
-                        className="bg-red-500/90 hover:bg-red-500 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                      >
-                        <Trash2 size={12} /> Delete
-                      </button>
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleGenerate('pose') }}
-                        className="bg-accent-500/90 hover:bg-accent-500 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                      >
-                        <RefreshCw size={12} /> Regenerate
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <UploadIcon />
-                    <p className="text-[10px] text-surface-500 mt-2 font-medium">POSE REFERENCE</p>
-                    <p className="text-[9px] text-surface-600 mt-1">Upload or generate a turnaround sheet</p>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLibraryPickerTarget('pose'); setShowLibraryPicker(true) }}
-                        className="bg-surface-800/60 hover:bg-surface-700/60 text-surface-400 hover:text-surface-200 text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                      >
-                        <Library size={12} /> Biblioteca
-                      </button>
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleGenerate('pose') }}
-                        disabled={!!element.poseTaskId}
-                        className="bg-accent-500/20 hover:bg-accent-500/40 text-accent-400 hover:text-accent-300 text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        <Wand2 size={12} /> Generate
-                      </button>
-                    </div>
-                  </>
-                )}
-                <input type="file" accept="image/*" className="hidden" onChange={handlePoseUpload} />
-              </label>
-            </div>
-          )}
-
-          {/* Moodboard / Refs */}
-          <MoodboardCard
-            refs={element.referenceImages}
-            count={element.referenceImages.length}
-            max={8}
-            onAdd={(b64) => onUpdate({ referenceImages: [...element.referenceImages, b64].slice(0, 8) })}
-            onRemove={(i) => onUpdate({ referenceImages: element.referenceImages.filter((_, j) => j !== i) })}
-            onPreview={(i) => { setRefPreviewIndex(i); setShowRefPreview(true) }}
-            onGenerate={() => handleGenerate('moodboard')}
-            onLibrary={() => { setLibraryPickerTarget('moodboard'); setShowLibraryPicker(true) }}
-          />
-
-          {/* Video Reference */}
-          {showVideo && (
-            <div className="col-span-12 lg:col-span-4 card p-4 flex flex-col aspect-video relative group overflow-hidden">
-              <div className="flex items-center justify-between z-10 bg-surface-900/90 backdrop-blur px-3 py-1.5 rounded-lg border border-surface-800 absolute top-4 left-4 right-4">
-                <h3 className="text-[10px] text-accent-400 uppercase tracking-wider font-semibold">Video Reference</h3>
-                <span className="text-[9px] text-surface-500 font-mono">16:9</span>
-              </div>
-              <label className="absolute inset-0 m-4 mt-16 border-2 border-dashed border-surface-700/50 rounded-lg flex flex-col items-center justify-center bg-surface-800/30 transition-colors group-hover:border-accent-500/50 cursor-pointer">
-                {element.videoRef ? (
-                  <video               src={element.videoRef ? `data:video/mp4;base64,${element.videoRef}` : undefined} className="w-full h-full object-cover rounded-lg" controls />
-                ) : (
-                  <>
-                    <UploadIcon />
-                    <p className="text-[10px] text-surface-500 mt-2 font-medium">DROP VIDEO HERE</p>
-                    <p className="text-[9px] text-surface-600 mt-1">Reference footage for the environment</p>
-                  </>
-                )}
-                <input type="file" accept="video/*" className="hidden" onChange={handleVideoUpload} />
-              </label>
-            </div>
-          )}
-
-          {/* HDRI Reference */}
-          {showHdri && (
-            <div className="col-span-12 lg:col-span-4 card p-4 flex flex-col aspect-video relative group overflow-hidden">
-              <div className="flex items-center justify-between z-10 bg-surface-900/90 backdrop-blur px-3 py-1.5 rounded-lg border border-surface-800 absolute top-4 left-4 right-4">
-                <h3 className="text-[10px] text-accent-400 uppercase tracking-wider font-semibold">HDRI / 360</h3>
-                <span className="text-[9px] text-surface-500 font-mono">2:1</span>
-              </div>
-              <label className="absolute inset-0 m-4 mt-16 border-2 border-dashed border-surface-700/50 rounded-lg flex flex-col items-center justify-center bg-surface-800/30 transition-colors group-hover:border-accent-500/50 cursor-pointer">
-                {element.hdriRef ? (
-                  <img               src={element.hdriRef ? `data:image/png;base64,${element.hdriRef}` : undefined} alt="" className="w-full h-full object-cover rounded-lg" />
-                ) : (
-                  <>
-                    <UploadIcon />
-                    <p className="text-[10px] text-surface-500 mt-2 font-medium">DROP HDR IMAGE HERE</p>
-                    <p className="text-[9px] text-surface-600 mt-1">360 equirectangular panorama</p>
-                  </>
-                )}
-                <input type="file" accept="image/*,.hdr,.exr" className="hidden" onChange={handleHdriUpload} />
-              </label>
-            </div>
-          )}
-
-          {/* Empty spacer */}
-          {!showPose && !showVideo && !showHdri && (
-            <div className="col-span-12 lg:col-span-8 card p-4 flex flex-col items-center justify-center text-surface-600">
-              <Box size={32} className="opacity-30 mb-2" />
-              <p className="text-[10px]">No additional references needed</p>
-            </div>
-          )}
-        </div>
-
-        {hasChanges && (
-          <div className="mt-4 flex justify-end">
-            <button onClick={handleSave} className="btn-primary text-xs px-6 py-2">
-              Save Changes
+    <Section
+      title="Moodboard"
+      meta={`${count}/${MAX_REFERENCES}`}
+      action={
+        <>
+          <ToolButton icon={Library} onClick={onLibrary} disabled={full}>Biblioteca</ToolButton>
+          <ToolButton icon={Wand2} onClick={onGenerate} disabled={full}>Generar</ToolButton>
+        </>
+      }
+    >
+      <div
+        {...handlers}
+        onMouseEnter={() => onHoverChange?.(true)}
+        onMouseLeave={() => onHoverChange?.(false)}
+        className={`grid grid-cols-4 gap-2 rounded-2xl transition-shadow ${over ? 'ring-1 ring-ink ring-offset-4 ring-offset-canvas' : ''}`}
+      >
+        {element.referenceImages.map((img, i) => (
+          <div key={element.referenceAssetIds[i] || i} className="group relative aspect-square rounded-xl overflow-hidden bg-surface-soft border border-hairline">
+            <button type="button" onClick={() => onPreview(i)} className="block w-full h-full cursor-zoom-in" aria-label={`Ver referencia ${i + 1}`}>
+              <img src={b64Src(img)} alt="" className="w-full h-full object-cover" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onRemove(i)}
+              className="absolute top-1.5 right-1.5 size-6 rounded-full bg-canvas/90 text-ink flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+              title="Quitar"
+            >
+              <X size={12} />
             </button>
           </div>
+        ))}
+        {Array.from({ length: pendingCount }).map((_, i) => (
+          <div key={`pending-${i}`} className="aspect-square rounded-xl bg-surface-soft border border-hairline flex items-center justify-center">
+            <Loader2 size={16} className="animate-spin text-ink-muted" />
+          </div>
+        ))}
+        {!full && (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="aspect-square rounded-xl border border-dashed border-surface-700 text-ink-subtle hover:text-ink hover:border-surface-500 flex flex-col items-center justify-center gap-1 transition-colors"
+            title="Subir imágenes"
+          >
+            <Plus size={16} />
+            {count === 0 && <span className="text-meta">Añadir</span>}
+          </button>
         )}
       </div>
-
-      {showLibraryPicker && (
-        <LibraryPickerModal
-          onSelect={({ base64, prompt: assetPrompt }) => {
-            if (libraryPickerTarget === 'pose') {
-              onUpdate({ poseRef: base64 })
-            } else if (libraryPickerTarget === 'moodboard') {
-              onUpdate({ referenceImages: [...element.referenceImages, base64].slice(0, 8) })
-            } else {
-              const updates: Partial<StudioElement> = { imageBase64: base64 }
-              if (assetPrompt) updates.prompt = assetPrompt
-              onUpdate(updates)
-              if (assetPrompt) setPrompt(assetPrompt)
-            }
-          }}
-          onClose={() => setShowLibraryPicker(false)}
-        />
+      {count === 0 && pendingCount === 0 && (
+        <p className="text-meta text-ink-subtle mt-2">Referencias de estilo, vestuario o paleta. Se usan para mantener la consistencia del elemento. Pega imágenes con Ctrl+V.</p>
       )}
-
-      {showQuickComposer && (
-        <QuickPromptComposer
-          basePrompt={quickComposerTarget === 'pose' ? poseBasePrompt : quickComposerTarget === 'moodboard' ? moodboardBasePrompt : `${primaryBasePrompt}${prompt ? `\n\n${prompt}` : ''}`}
-          referenceImage={quickComposerTarget === 'pose' ? (element.imageBase64 || undefined) : undefined}
-          imageRefs={quickComposerTarget === 'moodboard' ? [
-            ...(element.imageBase64 ? [{ base64: element.imageBase64, mime: 'image/png' as const }] : []),
-            ...(element.poseRef ? [{ base64: element.poseRef, mime: 'image/png' as const }] : []),
-          ] : undefined}
-          aspectRatio={quickComposerTarget === 'pose' ? '16:9' : '3:4'}
-          aspectRatioLocked={quickComposerTarget !== 'moodboard'}
-          resolution="2K"
-          resolutionLocked={quickComposerTarget !== 'moodboard'}
-          promptLocked={quickComposerTarget === 'pose'}
-          onTaskCreated={quickComposerTarget !== 'primary' ? (taskId) => {
-            if (quickComposerTarget === 'pose') {
-              onUpdate({ poseTaskId: taskId })
-            } else {
-              onUpdate({ moodboardTaskId: taskId })
-            }
-            setShowQuickComposer(false)
-          } : undefined}
-          onGenerated={(result) => {
-            if (quickComposerTarget === 'pose') {
-              onUpdate({ poseRef: result.base64, poseTaskId: '' })
-            } else if (quickComposerTarget === 'moodboard') {
-              onUpdate({ referenceImages: [...element.referenceImages, result.base64].slice(0, 8), moodboardTaskId: '' })
-            } else {
-              const updates: Partial<StudioElement> = { imageBase64: result.base64 }
-              if (!prompt) {
-                setPrompt(result.prompt)
-                updates.prompt = result.prompt
-              }
-              onUpdate(updates)
-            }
-            setShowQuickComposer(false)
-          }}
-          onClose={() => setShowQuickComposer(false)}
-        />
-      )}
-
-      {showPosePreview && element.poseRef && (
-        <ImagePreviewModal
-              src={`data:image/png;base64,${element.poseRef}`}
-          onClose={() => setShowPosePreview(false)}
-        >
-          <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Element</p>
-            <p className="text-sm text-surface-200">{element.name || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Type</p>
-            <p className="text-sm text-surface-200">{KIND_CONFIG[element.kind]?.label || element.kind}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
-            <p className="text-sm text-surface-200 leading-relaxed">{element.prompt || '—'}</p>
-          </div>
-        </ImagePreviewModal>
-      )}
-
-      {showPrimaryPreview && element.imageBase64 && (
-        <ImagePreviewModal
-              src={`data:image/png;base64,${element.imageBase64}`}
-          onClose={() => setShowPrimaryPreview(false)}
-        >
-          <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Element</p>
-            <p className="text-sm text-surface-200">{element.name || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Type</p>
-            <p className="text-sm text-surface-200">{KIND_CONFIG[element.kind]?.label || element.kind}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Prompt</p>
-            <p className="text-sm text-surface-200 leading-relaxed">{element.prompt || '—'}</p>
-          </div>
-        </ImagePreviewModal>
-      )}
-
-      {showRefPreview && element.referenceImages[refPreviewIndex] && (
-        <ImagePreviewModal
-          src={`data:image/png;base64,${element.referenceImages[refPreviewIndex]}`}
-          onClose={() => setShowRefPreview(false)}
-          onPrev={refPreviewIndex > 0 ? () => setRefPreviewIndex(i => i - 1) : undefined}
-          onNext={refPreviewIndex < element.referenceImages.length - 1 ? () => setRefPreviewIndex(i => i + 1) : undefined}
-        />
-      )}
-    </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={async (e) => {
+          const refs = await filesToRefs(Array.from(e.target.files || []), 'image')
+          e.target.value = ''
+          if (refs.length) onAdd(refs)
+        }}
+      />
+    </Section>
   )
 }
 
-// ───────────────────── Elements Page (Grid) ─────────────────────
-export function ElementsPage() {
-  const elements = useElementsStore((s) => s.elements)
-  const deleteElement = useElementsStore((s) => s.deleteElement)
-  const loadElements = useElementsStore((s) => s.loadElements)
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
-  const [search, setSearch] = useState('')
-  const [kindFilter, setKindFilter] = useState<ElementKind | 'all'>('all')
-  const [showModal, setShowModal] = useState(false)
-  const [editingElement, setEditingElement] = useState<StudioElement | undefined>(undefined)
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [primaryBasePrompt, setPrimaryBasePrompt] = useState(PRIMARY_BASE_PROMPT)
-  const [poseBasePrompt, setPoseBasePrompt] = useState(POSE_BASE_PROMPT)
-  const [moodboardBasePrompt, setMoodboardBasePrompt] = useState(MOODBOARD_BASE_PROMPT)
+// ───────────────────── Attributes ─────────────────────
 
-  useEffect(() => { loadElements() }, [])
+function Attributes({ element, onChange }: { element: StudioElement; onChange: (props: Record<string, string>) => void }) {
+  const [editing, setEditing] = useState(false)
+  const config = ELEMENT_PROPERTIES[element.kind]
+  const props = element.properties || {}
+  const set = config.filter((p) => props[p.key])
 
-  useEffect(() => {
-    const api = (window as any).electronAPI
-    if (!api?.settings?.getAll) return
-    api.settings.getAll().then((settings: any) => {
-      console.log('[ElementsPage] Settings loaded:', Object.keys(settings || {}))
-      if (settings?.['elements:primaryBasePrompt'] != null) {
-        console.log('[ElementsPage] primaryBasePrompt from settings:', settings['elements:primaryBasePrompt'].substring(0, 80))
-        setPrimaryBasePrompt(settings['elements:primaryBasePrompt'])
+  return (
+    <Section
+      title="Atributos"
+      action={
+        <ToolButton icon={editing ? X : Pencil} onClick={() => setEditing(!editing)}>
+          {editing ? 'Cerrar' : 'Editar'}
+        </ToolButton>
       }
-      if (settings?.['elements:poseBasePrompt'] != null) {
-        console.log('[ElementsPage] poseBasePrompt from settings:', settings['elements:poseBasePrompt'].substring(0, 80))
-        setPoseBasePrompt(settings['elements:poseBasePrompt'])
-      }
-      if (settings?.['elements:moodboardBasePrompt'] != null) {
-        setMoodboardBasePrompt(settings['elements:moodboardBasePrompt'])
-      }
-    }).catch((err: any) => console.error('[ElementsPage] Failed to load settings:', err))
-  }, [])
-
-  // Poll recent assets to resolve pending pose tasks (same pattern as ImageGenPage)
-  const { data: assetPoll } = useQuery({
-    queryKey: ['elements', 'pending-pose', activeWorkspaceId],
-    queryFn: () => (window as any).electronAPI?.assets.list({ type: 'image', limit: 30 }) ?? { assets: [] },
-    refetchInterval: 15000,
-  })
-
-  const pollRef = useRef(false)
-  useEffect(() => {
-    if (!assetPoll?.assets?.length) return
-    const store = useElementsStore.getState()
-    for (const el of store.elements) {
-      // Check pose tasks
-      if (el.poseTaskId) {
-        const match = assetPoll.assets.find((a: any) => a.taskId === el.poseTaskId)
-        if (!match) continue
-        const hasLocal = !!match.localPath
-        const hasRemote = match.filePath && match.filePath.startsWith('http')
-        const hasError = match.filePath?.startsWith('__error__')
-        if (hasError) {
-          useElementsStore.getState().updateElement(el.id, { poseTaskId: '' })
-          continue
-        }
-        if (hasLocal || hasRemote) {
-          if (pollRef.current) return
-          pollRef.current = true
-          ;(async () => {
-            try {
-              const api = (window as any).electronAPI
-              const results = await api?.assets.readBase64([match.id])
-              const b64 = results?.[0]?.base64 || ''
-              if (b64) {
-                useElementsStore.getState().updateElement(el.id, { poseRef: b64, poseTaskId: '' })
-              }
-            } catch (err: any) { console.error('[ElementsPage] Failed to read pose asset:', err) }
-            pollRef.current = false
-          })()
-          break
-        }
-      }
-      // Check moodboard tasks
-      if (el.moodboardTaskId) {
-        const match = assetPoll.assets.find((a: any) => a.taskId === el.moodboardTaskId)
-        if (!match) continue
-        const hasLocal = !!match.localPath
-        const hasRemote = match.filePath && match.filePath.startsWith('http')
-        const hasError = match.filePath?.startsWith('__error__')
-        if (hasError) {
-          useElementsStore.getState().updateElement(el.id, { moodboardTaskId: '' })
-          continue
-        }
-        if (hasLocal || hasRemote) {
-          if (pollRef.current) return
-          pollRef.current = true
-          ;(async () => {
-            try {
-              const api = (window as any).electronAPI
-              const results = await api?.assets.readBase64([match.id])
-              const b64 = results?.[0]?.base64 || ''
-              if (b64) {
-                const current = useElementsStore.getState().elements.find(e => e.id === el.id)
-                if (current) {
-                  useElementsStore.getState().updateElement(el.id, {
-                    referenceImages: [...current.referenceImages, b64].slice(0, 8),
-                    moodboardTaskId: '',
-                  })
-                }
-              }
-            } catch (err: any) { console.error('[ElementsPage] Failed to read moodboard asset:', err) }
-            pollRef.current = false
-          })()
-          break
-        }
-      }
-    }
-  }, [assetPoll])
-
-  const selectedElement = selectedId ? elements.find((e) => e.id === selectedId) || null : null
-
-  const filtered = elements.filter((e) => {
-    if (kindFilter !== 'all' && e.kind !== kindFilter) return false
-    if (search) {
-      const q = search.toLowerCase()
-      if (!e.name.toLowerCase().includes(q) && !e.tags.some((t) => t.toLowerCase().includes(q))) return false
-    }
-    return true
-  })
-
-  const kindCounts: Record<string, number> = {
-    all: elements.length,
-    ...Object.fromEntries(
-      KIND_FILTERS.filter((f) => f.key !== 'all').map((f) => [
-        f.key,
-        elements.filter((e) => e.kind === f.key).length,
-      ]),
-    ),
-  }
-
-  if (selectedElement) {
-    return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-surface-800">
-          <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 text-surface-400 hover:text-surface-100 transition-colors text-xs">
-            <ChevronLeft size={14} />
-            Elements
-          </button>
-          <div className="flex items-center gap-2">
-            <button onClick={() => { setEditingElement(selectedElement); setShowModal(true) }} className="btn-ghost text-xs flex items-center gap-1">
-              <Edit3 size={12} /> Editar
-            </button>
-            <button onClick={() => setConfirmDelete(selectedElement.id)} className="btn-danger text-xs flex items-center gap-1">
-              <Trash2 size={12} /> Eliminar
-            </button>
-          </div>
+    >
+      {editing ? (
+        <div className="space-y-5 rounded-2xl border border-hairline p-4">
+          {config.map((p) => (
+            <PropertySelector
+              key={p.key}
+              label={p.label}
+              options={p.options}
+              value={props[p.key] || ''}
+              onChange={(v) => onChange(withProperty(props, p.key, v))}
+            />
+          ))}
         </div>
-        <ElementDashboard
-          element={selectedElement}
-          onUpdate={(updates) => {
-            useElementsStore.getState().updateElement(selectedElement.id, updates)
-          }}
-          primaryBasePrompt={primaryBasePrompt}
-          poseBasePrompt={poseBasePrompt}
-          moodboardBasePrompt={moodboardBasePrompt}
-        />
-      </div>
-    )
+      ) : set.length === 0 ? (
+        <p className="text-meta text-ink-subtle">Sin atributos. Defínelos para que los renders generados sean más precisos.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {set.map((p) => (
+            <span key={p.key} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-pill bg-surface-soft border border-hairline text-meta">
+              <span className="text-ink-subtle">{p.label}</span>
+              <span className="text-ink font-emphasis">{props[p.key]}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </Section>
+  )
+}
+
+// ───────────────────── Element detail ─────────────────────
+
+type PickerTarget = 'primary' | 'pose' | 'moodboard' | 'video' | 'hdri'
+/** Slots a Ctrl+V can land in: the same ones the library picker fills */
+type PasteTarget = PickerTarget
+
+const PASTE_LABELS: Record<PasteTarget, string> = {
+  primary: 'Render principal',
+  pose: 'Pose de referencia',
+  moodboard: 'Moodboard',
+  video: 'Video de referencia',
+  hdri: 'HDRI / 360',
+}
+
+type PreviewState = { kind: 'primary' } | { kind: 'pose' } | { kind: 'hdri' } | { kind: 'ref'; index: number }
+
+const TEXT_FIELDS = ['name', 'description', 'prompt', 'voiceId'] as const
+type TextDraft = Pick<StudioElement, typeof TEXT_FIELDS[number]>
+
+function draftOf(el: StudioElement): TextDraft {
+  return { name: el.name, description: el.description, prompt: el.prompt, voiceId: el.voiceId || '' }
+}
+
+function ElementDetail({
+  element,
+  basePrompts,
+  initialComposer,
+  onBack,
+  onDelete,
+}: {
+  element: StudioElement
+  basePrompts: BasePrompts
+  initialComposer: ElementSlot | null
+  onBack: () => void
+  onDelete: () => void
+}) {
+  const updateElement = useElementsStore((s) => s.updateElement)
+  const addReferences = useElementsStore((s) => s.addReferences)
+  const removeReference = useElementsStore((s) => s.removeReference)
+  const trackTask = useElementsStore((s) => s.trackTask)
+  const cancelTask = useElementsStore((s) => s.cancelTask)
+  const allPending = useElementsStore((s) => s.pending)
+  const pending = useMemo(() => allPending.filter((p) => p.elementId === element.id), [allPending, element.id])
+  const pendingOf = (slot: ElementSlot) => pending.filter((p) => p.slot === slot)
+
+  const [composer, setComposer] = useState<ElementSlot | null>(initialComposer)
+  const [picker, setPicker] = useState<PickerTarget | null>(null)
+  const [preview, setPreview] = useState<PreviewState | null>(null)
+
+  const update = (updates: Partial<StudioElement>) => updateElement(element.id, updates)
+
+  // ── Text fields autosave (debounced, flushed on leave) ──
+  const [draft, setDraft] = useState<TextDraft>(() => draftOf(element))
+  const elementRef = useRef(element)
+  elementRef.current = element
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+
+  const commitDraft = useCallback(() => {
+    const el = elementRef.current
+    const d = draftRef.current
+    const changes: Partial<StudioElement> = {}
+    for (const key of TEXT_FIELDS) {
+      const value = key === 'name' ? d.name.trim() : d[key]
+      if (key === 'name' && !value) continue
+      if (value !== (el[key] || '')) changes[key] = value
+    }
+    if (Object.keys(changes).length) updateElement(el.id, changes)
+  }, [updateElement])
+
+  useEffect(() => {
+    const t = setTimeout(commitDraft, 500)
+    return () => clearTimeout(t)
+  }, [draft, commitDraft])
+
+  useEffect(() => () => commitDraft(), [commitDraft])
+
+  const setField = (key: keyof TextDraft) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setDraft((d) => ({ ...d, [key]: e.target.value }))
+
+  // ── Media ──
+  const setPrimary = (ref: PickedRef) => {
+    const updates: Partial<StudioElement> = { imageBase64: ref.base64, imageAssetId: ref.assetId }
+    if (ref.prompt && !draftRef.current.prompt.trim()) {
+      updates.prompt = ref.prompt
+      setDraft((d) => ({ ...d, prompt: ref.prompt! }))
+    }
+    update(updates)
   }
+
+  const addRefs = (refs: PickedRef[]) => {
+    const added = addReferences(element.id, refs)
+    if (added < refs.length) toast.message(`El moodboard admite ${MAX_REFERENCES} imágenes`, { description: `Se añadieron ${added}.` })
+  }
+
+  // ── Paste (Ctrl+V): into the slot under the pointer, else the empty primary render, else the moodboard ──
+  const hoverTarget = useRef<PasteTarget | null>(null)
+  const hoverOf = (target: PasteTarget) => (over: boolean) => {
+    if (over) hoverTarget.current = target
+    else if (hoverTarget.current === target) hoverTarget.current = null
+  }
+
+  useEffect(() => {
+    if (picker || composer || preview) return
+    const onPaste = async (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
+      if (files.length === 0) return
+      // Typing in a field with text on the clipboard: a normal text paste
+      const active = document.activeElement as HTMLElement | null
+      const typing = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+      if (typing && e.clipboardData?.types.includes('text/plain')) return
+      e.preventDefault()
+
+      const el = elementRef.current
+      const target: PasteTarget = hoverTarget.current || (el.imageBase64 ? 'moodboard' : 'primary')
+      const slot: ElementSlot | null = target === 'primary' || target === 'pose' || target === 'moodboard' ? target : null
+      if (slot && pendingOf(slot).length > 0 && target !== 'moodboard') {
+        toast.message(`${PASTE_LABELS[target]} se está generando`)
+        return
+      }
+      const accept: MediaKind = target === 'video' ? 'video' : 'image'
+      const refs = await filesToRefs(files, accept)
+      if (refs.length === 0) {
+        toast.error(accept === 'video' ? 'Aquí solo se puede pegar un vídeo' : 'El portapapeles no tiene una imagen')
+        return
+      }
+      if (target === 'primary') setPrimary(refs[0])
+      else if (target === 'pose') update({ poseRef: refs[0].base64, poseAssetId: '' })
+      else if (target === 'video') update({ videoRef: refs[0].base64, videoAssetId: '' })
+      else if (target === 'hdri') update({ hdriRef: refs[0].base64, hdriAssetId: '' })
+      else addRefs(refs)
+      toast.success(`Pegado en ${PASTE_LABELS[target]}`)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  })
+
+  const handlePicked = async (selected: any) => {
+    const target = picker
+    setPicker(null)
+    if (!target) return
+    const items = Array.isArray(selected) ? selected : [selected]
+    const refs = await assetsToRefs(items, target === 'video' ? 'video' : 'image')
+    if (refs.length === 0) return
+    const [first] = refs
+    if (target === 'primary') setPrimary(first)
+    else if (target === 'pose') update({ poseRef: first.base64, poseAssetId: first.assetId })
+    else if (target === 'video') update({ videoRef: first.base64, videoAssetId: first.assetId })
+    else if (target === 'hdri') update({ hdriRef: first.base64, hdriAssetId: first.assetId })
+    else addRefs(refs)
+  }
+
+  // ── Generation (QuickPromptComposer) ──
+  const subject = subjectPrompt(element)
+  const primaryBase = basePrompts.primary && (element.kind === 'avatar' || element.kind === 'character')
+    ? basePrompts.primary
+    : PRIMARY_BASE_PROMPTS[element.kind]
+
+  const composerConfig = (slot: ElementSlot) => {
+    const refs = [
+      ...(element.imageBase64 ? [{ base64: element.imageBase64, mime: b64Mime(element.imageBase64) }] : []),
+      ...(element.poseRef ? [{ base64: element.poseRef, mime: b64Mime(element.poseRef) }] : []),
+    ]
+    if (slot === 'pose') {
+      return {
+        title: `Pose · ${element.name}`,
+        basePrompt: basePrompts.pose,
+        promptLocked: true,
+        referenceImage: element.imageBase64 || undefined,
+        referenceMime: element.imageBase64 ? b64Mime(element.imageBase64) : undefined,
+        aspectRatio: '16:9',
+        aspectRatioLocked: true,
+      }
+    }
+    if (slot === 'moodboard') {
+      return {
+        title: `Moodboard · ${element.name}`,
+        basePrompt: `${basePrompts.moodboard}\n\n${subject}`,
+        imageRefs: refs.length ? refs : undefined,
+        aspectRatio: '3:4',
+      }
+    }
+    return {
+      title: `Render principal · ${element.name}`,
+      basePrompt: `${primaryBase}\n\n${subject}`,
+      aspectRatio: PRIMARY_ASPECT[element.kind].ar,
+    }
+  }
+
+  const isPerson = element.kind === 'avatar' || element.kind === 'character'
+  const isEnvironment = element.kind === 'environment'
+  const KindIcon = KIND_ICONS[element.kind]
+
+  const previewSrc = !preview ? undefined
+    : preview.kind === 'primary' ? b64Src(element.imageBase64)
+      : preview.kind === 'pose' ? b64Src(element.poseRef)
+        : preview.kind === 'hdri' ? b64Src(element.hdriRef)
+          : b64Src(element.referenceImages[preview.index])
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-lg font-semibold text-surface-100">Elements</h1>
-            <button onClick={() => { setEditingElement(undefined); setShowModal(true) }} className="btn-primary text-xs flex items-center gap-1">
-              <Plus size={12} /> Nuevo elemento
+      <div className="flex items-center justify-between gap-3 px-4 h-12 border-b border-hairline flex-shrink-0">
+        <button onClick={() => { commitDraft(); onBack() }} className="btn-ghost flex items-center gap-1 text-meta">
+          <ChevronLeft size={14} /> Elements
+        </button>
+        <div className="flex items-center gap-3">
+          {pending.length > 0 && (
+            <span className="flex items-center gap-1.5 text-meta text-ink-muted">
+              <Loader2 size={12} className="animate-spin" />
+              {pending.length === 1 ? '1 generación en curso' : `${pending.length} generaciones en curso`}
+            </span>
+          )}
+          <button onClick={onDelete} className="btn-icon size-7" title="Eliminar elemento">
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-6xl mx-auto px-6 py-8 grid gap-10 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
+          {/* Primary render */}
+          <aside className="lg:sticky lg:top-8 self-start">
+            <Section title="Render principal">
+              <MediaSlot
+                src={b64Src(element.imageBase64)}
+                aspect={PRIMARY_ASPECT[element.kind].css}
+                accept="image"
+                emptyLabel="Añade el render principal"
+                emptyHint="La imagen de referencia que define al elemento"
+                pending={pendingOf('primary').length > 0}
+                onDiscardPending={() => pendingOf('primary').forEach((p) => cancelTask(p.taskId))}
+                onRefs={([ref]) => setPrimary(ref)}
+                onPreview={() => setPreview({ kind: 'primary' })}
+                onLibrary={() => setPicker('primary')}
+                onGenerate={() => setComposer('primary')}
+                onRemove={() => update({ imageBase64: '', imageAssetId: '' })}
+                onHoverChange={hoverOf('primary')}
+              />
+            </Section>
+          </aside>
+
+          <main className="space-y-10 min-w-0">
+            {/* Identity */}
+            <div>
+              <p className="eyebrow flex items-center gap-1.5">
+                <KindIcon size={11} /> {KIND_CONFIG[element.kind].label}
+              </p>
+              <input
+                value={draft.name}
+                onChange={setField('name')}
+                onBlur={commitDraft}
+                placeholder="Nombre del elemento"
+                className="w-full mt-1 bg-transparent border-0 outline-none text-[28px] leading-tight font-strong tracking-tight text-ink placeholder:text-ink-subtle"
+              />
+            </div>
+
+            <Section title="Descripción">
+              <div className="space-y-3">
+                <textarea
+                  value={draft.description}
+                  onChange={setField('description')}
+                  onBlur={commitDraft}
+                  placeholder={FIELD_PLACEHOLDERS[element.kind].description}
+                  rows={3}
+                  className="input-field resize-none leading-relaxed"
+                />
+                <div>
+                  <label className="text-meta text-ink-subtle mb-1.5 block">Prompt base · se añade al generar</label>
+                  <textarea
+                    value={draft.prompt}
+                    onChange={setField('prompt')}
+                    onBlur={commitDraft}
+                    placeholder={FIELD_PLACEHOLDERS[element.kind].prompt}
+                    rows={2}
+                    className="input-field resize-none text-body"
+                  />
+                </div>
+                <TagEditor tags={element.tags} onChange={(tags) => update({ tags })} />
+              </div>
+            </Section>
+
+            <Attributes
+              element={element}
+              onChange={(properties) => update({ properties, style: properties.style || '' })}
+            />
+
+            {isPerson && (
+              <Section title="Voz">
+                <input
+                  value={draft.voiceId}
+                  onChange={setField('voiceId')}
+                  onBlur={commitDraft}
+                  placeholder="Voice ID de ElevenLabs"
+                  className="input-field font-mono text-body"
+                />
+              </Section>
+            )}
+
+            {isPerson && (
+              <Section title="Pose de referencia" meta="16:9">
+                <MediaSlot
+                  src={b64Src(element.poseRef)}
+                  aspect="16 / 9"
+                  fit="contain"
+                  accept="image"
+                  emptyLabel="Hoja de poses"
+                  emptyHint="Vista frontal, lateral y trasera del personaje"
+                  pending={pendingOf('pose').length > 0}
+                  onDiscardPending={() => pendingOf('pose').forEach((p) => cancelTask(p.taskId))}
+                  onRefs={([ref]) => update({ poseRef: ref.base64, poseAssetId: ref.assetId })}
+                  onPreview={() => setPreview({ kind: 'pose' })}
+                  onLibrary={() => setPicker('pose')}
+                  onGenerate={() => setComposer('pose')}
+                  generateBlocked={element.imageBase64 ? undefined : 'Primero añade el render principal'}
+                  onRemove={() => update({ poseRef: '', poseAssetId: '' })}
+                  onHoverChange={hoverOf('pose')}
+                />
+              </Section>
+            )}
+
+            <Moodboard
+              element={element}
+              pendingCount={pendingOf('moodboard').length}
+              onAdd={addRefs}
+              onRemove={(i) => removeReference(element.id, i)}
+              onPreview={(index) => setPreview({ kind: 'ref', index })}
+              onLibrary={() => setPicker('moodboard')}
+              onGenerate={() => setComposer('moodboard')}
+              onHoverChange={hoverOf('moodboard')}
+            />
+
+            {isEnvironment && (
+              <div className="grid gap-6 sm:grid-cols-2">
+                <Section title="Video de referencia">
+                  <MediaSlot
+                    src={element.videoRef ? (element.videoRef.startsWith('data:') ? element.videoRef : `data:video/mp4;base64,${element.videoRef}`) : undefined}
+                    isVideo
+                    aspect="16 / 9"
+                    accept="video"
+                    emptyLabel="Video del entorno"
+                    emptyHint="MP4 de hasta 50 MB"
+                    onRefs={([ref]) => update({ videoRef: ref.base64, videoAssetId: ref.assetId })}
+                    onLibrary={() => setPicker('video')}
+                    onRemove={() => update({ videoRef: '', videoAssetId: '' })}
+                    onHoverChange={hoverOf('video')}
+                  />
+                </Section>
+                <Section title="HDRI / 360" meta="2:1">
+                  <MediaSlot
+                    src={b64Src(element.hdriRef)}
+                    aspect="2 / 1"
+                    accept="image"
+                    emptyLabel="Panorama 360"
+                    emptyHint="Equirectangular en JPG o PNG"
+                    onRefs={([ref]) => update({ hdriRef: ref.base64, hdriAssetId: ref.assetId })}
+                    onPreview={() => setPreview({ kind: 'hdri' })}
+                    onLibrary={() => setPicker('hdri')}
+                    onRemove={() => update({ hdriRef: '', hdriAssetId: '' })}
+                    onHoverChange={hoverOf('hdri')}
+                  />
+                </Section>
+              </div>
+            )}
+          </main>
+        </div>
+      </div>
+
+      {picker && (
+        <ImageLibraryPicker
+          multiple={picker === 'moodboard'}
+          allowVideo={picker === 'video'}
+          onSelect={handlePicked}
+          onClose={() => setPicker(null)}
+        />
+      )}
+
+      {composer && (
+        <QuickPromptComposer
+          key={composer}
+          {...composerConfig(composer)}
+          resolution="2K"
+          styleSuffix={styleOf(element)}
+          onTaskCreated={(taskId) => {
+            trackTask(element.id, composer, taskId)
+            setComposer(null)
+          }}
+          onGenerated={() => { /* results land through trackTask */ }}
+          onClose={() => setComposer(null)}
+        />
+      )}
+
+      {preview && previewSrc && (
+        <ImagePreviewModal
+          src={previewSrc}
+          onClose={() => setPreview(null)}
+          onPrev={preview.kind === 'ref' && preview.index > 0 ? () => setPreview({ kind: 'ref', index: preview.index - 1 }) : undefined}
+          onNext={preview.kind === 'ref' && preview.index < element.referenceImages.length - 1 ? () => setPreview({ kind: 'ref', index: preview.index + 1 }) : undefined}
+        >
+          <div>
+            <p className="eyebrow mb-1">Elemento</p>
+            <p className="text-sm text-ink">{element.name || '—'}</p>
+          </div>
+          <div>
+            <p className="eyebrow mb-1">Tipo</p>
+            <p className="text-sm text-ink">{KIND_CONFIG[element.kind].label}</p>
+          </div>
+          {element.prompt && (
+            <div>
+              <p className="eyebrow mb-1">Prompt</p>
+              <p className="text-sm text-ink leading-relaxed">{element.prompt}</p>
+            </div>
+          )}
+        </ImagePreviewModal>
+      )}
+    </div>
+  )
+}
+
+// ───────────────────── Delete confirmation ─────────────────────
+
+function ConfirmDeleteElement({ element, onConfirm, onClose }: { element: StudioElement; onConfirm: () => void; onClose: () => void }) {
+  return (
+    <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
+      <div
+        className="modal-surface w-full max-w-sm mx-4 p-6"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
+      >
+        <h2 className="text-title text-ink">¿Eliminar "{element.name}"?</h2>
+        <p className="text-body text-ink-muted mt-2">
+          El elemento deja de estar disponible para @menciones. Sus imágenes siguen en tu biblioteca.
+        </p>
+        <div className="flex justify-end gap-2 mt-6">
+          <button onClick={onClose} className="btn-ghost" autoFocus>Cancelar</button>
+          <button onClick={onConfirm} className="px-4 py-2 rounded-pill text-sm font-emphasis bg-red-600 hover:bg-red-500 text-white transition-colors">
+            Eliminar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────── Elements page (grid) ─────────────────────
+
+function ElementCard({ element, generating, onOpen, onDelete }: {
+  element: StudioElement
+  generating: boolean
+  onOpen: () => void
+  onDelete: () => void
+}) {
+  const Icon = KIND_ICONS[element.kind]
+  return (
+    <div className="group relative">
+      <button type="button" onClick={onOpen} className="block w-full text-left">
+        <div className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-surface-soft border border-hairline group-hover:border-surface-600 transition-colors">
+          {element.imageBase64 ? (
+            <img src={b64Src(element.imageBase64)} alt={element.name} className="w-full h-full object-cover" loading="lazy" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-ink-subtle">
+              <Icon size={28} strokeWidth={1.25} />
+            </div>
+          )}
+          {generating && (
+            <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 h-6 px-2 rounded-pill bg-canvas/90 text-meta text-ink">
+              <Loader2 size={11} className="animate-spin" /> Generando
+            </span>
+          )}
+        </div>
+        <div className="mt-2.5 px-0.5">
+          <p className="text-body font-emphasis text-ink truncate">{element.name}</p>
+          <p className="text-meta text-ink-subtle truncate">
+            {KIND_CONFIG[element.kind].label}
+            {element.tags.length > 0 && ` · ${element.tags.join(', ')}`}
+          </p>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="absolute top-2 right-2 size-7 rounded-full bg-canvas/90 text-ink-muted hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+        title="Eliminar"
+      >
+        <Trash2 size={12} />
+      </button>
+    </div>
+  )
+}
+
+export function ElementsPage() {
+  const elements = useElementsStore((s) => s.elements)
+  const loaded = useElementsStore((s) => s.loaded)
+  const pending = useElementsStore((s) => s.pending)
+  const deleteElement = useElementsStore((s) => s.deleteElement)
+  const loadElements = useElementsStore((s) => s.loadElements)
+  const [search, setSearch] = useState('')
+  const [kindFilter, setKindFilter] = useState<ElementKind | 'all'>('all')
+  const [showWizard, setShowWizard] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<StudioElement | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [openComposer, setOpenComposer] = useState<ElementSlot | null>(null)
+  const [basePrompts, setBasePrompts] = useState<BasePrompts>({
+    primary: null,
+    pose: POSE_BASE_PROMPT,
+    moodboard: MOODBOARD_BASE_PROMPT,
+  })
+
+  useEffect(() => { loadElements() }, [loadElements])
+
+  // Base prompts configured in Settings → Elements
+  useEffect(() => {
+    const api = (window as any).electronAPI
+    api?.settings?.getAll?.().then((settings: any) => {
+      setBasePrompts({
+        primary: settings?.['elements:primaryBasePrompt'] || null,
+        pose: settings?.['elements:poseBasePrompt'] || POSE_BASE_PROMPT,
+        moodboard: settings?.['elements:moodboardBasePrompt'] || MOODBOARD_BASE_PROMPT,
+      })
+    }).catch((err: any) => console.error('[ElementsPage] Failed to load settings:', err))
+  }, [])
+
+  const selectedElement = selectedId ? elements.find((e) => e.id === selectedId) || null : null
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return elements.filter((e) => {
+      if (kindFilter !== 'all' && e.kind !== kindFilter) return false
+      if (!q) return true
+      return e.name.toLowerCase().includes(q)
+        || e.description.toLowerCase().includes(q)
+        || e.tags.some((t) => t.toLowerCase().includes(q))
+    })
+  }, [elements, search, kindFilter])
+
+  const kindCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: elements.length }
+    for (const k of KIND_ORDER) counts[k] = elements.filter((e) => e.kind === k).length
+    return counts
+  }, [elements])
+
+  const generatingIds = useMemo(() => new Set(pending.map((p) => p.elementId)), [pending])
+
+  const handleDelete = () => {
+    if (!confirmDelete) return
+    deleteElement(confirmDelete.id)
+    if (selectedId === confirmDelete.id) setSelectedId(null)
+    setConfirmDelete(null)
+  }
+
+  const deleteModal = confirmDelete && (
+    <ConfirmDeleteElement element={confirmDelete} onConfirm={handleDelete} onClose={() => setConfirmDelete(null)} />
+  )
+
+  if (selectedElement) {
+    return (
+      <>
+        <ElementDetail
+          key={selectedElement.id}
+          element={selectedElement}
+          basePrompts={basePrompts}
+          initialComposer={openComposer}
+          onBack={() => { setSelectedId(null); setOpenComposer(null) }}
+          onDelete={() => setConfirmDelete(selectedElement)}
+        />
+        {deleteModal}
+      </>
+    )
+  }
+
+  const filters: { key: ElementKind | 'all'; label: string }[] = [
+    { key: 'all', label: 'Todos' },
+    ...KIND_ORDER.map((k) => ({ key: k, label: KIND_CONFIG[k].label })),
+  ]
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="flex items-end justify-between gap-4 mb-6">
+            <div>
+              <h1 className="text-title-lg text-ink">Elements</h1>
+              <p className="text-meta text-ink-subtle mt-1">
+                Personajes, avatares, entornos y objetos reutilizables con @ en tus prompts
+              </p>
+            </div>
+            <button onClick={() => setShowWizard(true)} className="btn-primary flex items-center gap-1.5 flex-shrink-0">
+              <Plus size={14} /> Nuevo elemento
             </button>
           </div>
 
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative flex-1">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre o tag..." className="input-field pl-9" />
+          {elements.length > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-8">
+              <div className="relative flex-1 max-w-sm">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-subtle pointer-events-none" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar por nombre, descripción o tag"
+                  className="w-full h-9 pl-9 pr-8 rounded-pill bg-surface-soft border border-hairline text-body text-ink placeholder:text-ink-subtle outline-none focus:border-accent-500 transition-colors"
+                />
+                {search && (
+                  <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-subtle hover:text-ink" title="Limpiar">
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1 overflow-x-auto">
+                {filters.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setKindFilter(key)}
+                    className={`h-8 px-3 rounded-pill text-meta font-emphasis whitespace-nowrap transition-colors ${
+                      kindFilter === key ? 'bg-accent-600 text-on-accent' : 'text-ink-muted hover:text-ink hover:bg-surface-800'
+                    }`}
+                  >
+                    {label}
+                    <span className={`ml-1.5 font-mono ${kindFilter === key ? 'opacity-60' : 'text-ink-subtle'}`}>{kindCounts[key] || 0}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex gap-1 bg-surface-900/40 rounded-lg p-1 border border-surface-800/60">
-              {KIND_FILTERS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setKindFilter(key as ElementKind | 'all')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-                    kindFilter === key ? 'bg-surface-800 text-surface-100' : 'text-surface-500 hover:text-surface-100'
-                  }`}
-                >
-                  {label} <span className="text-surface-600 ml-1">({kindCounts[key] || 0})</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
 
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-surface-600">
-              <Box size={48} className="mb-4 opacity-50" />
-              <p className="text-sm">No hay elementos</p>
-              <p className="text-xs text-surface-700 mt-1">Crea avatares, personajes, entornos y objetos</p>
+          {!loaded ? (
+            <div className="flex justify-center py-24 text-ink-subtle">
+              <Loader2 size={18} className="animate-spin" />
+            </div>
+          ) : elements.length === 0 ? (
+            <div className="block-lilac rounded-block p-10 sm:p-14 max-w-3xl">
+              <p className="eyebrow !text-current opacity-70">Empieza aquí</p>
+              <h2 className="text-[26px] leading-snug font-strong tracking-tight mt-2">Crea tu primer elemento</h2>
+              <p className="text-body opacity-80 mt-2 max-w-md">
+                Define un personaje, avatar, entorno u objeto una sola vez y reutilízalo con @ en cualquier prompt
+                para mantener la consistencia entre imágenes y videos.
+              </p>
+              <button onClick={() => setShowWizard(true)} className="btn-primary mt-6 flex items-center gap-1.5">
+                <Plus size={14} /> Nuevo elemento
+              </button>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="py-20 text-center">
+              <p className="text-body text-ink">Ningún elemento coincide con la búsqueda</p>
+              <button onClick={() => { setSearch(''); setKindFilter('all') }} className="btn-ghost text-meta mt-3">
+                Limpiar filtros
+              </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {filtered.map((el) => {
-                const cfg = KIND_CONFIG[el.kind]
-                const Icon = KIND_ICONS[el.kind]
-                return (
-                  <div key={el.id} className="card group relative overflow-hidden p-0 cursor-pointer" onClick={() => setSelectedId(el.id)}>
-                    <div className="aspect-square bg-surface-800 flex items-center justify-center overflow-hidden">
-                      {el.imageBase64 ? (
-                        <img               src={el.imageBase64 ? `data:image/png;base64,${el.imageBase64}` : undefined} alt={el.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <Icon size={40} className={`${cfg.color} opacity-40`} />
-                      )}
-                    </div>
-                    <div className="px-3 py-2.5">
-                      <div className="flex items-start gap-2">
-                        <Icon size={14} className={`${cfg.color} flex-shrink-0 mt-0.5`} />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-surface-200 truncate">{el.name}</p>
-                          <p className="text-[10px] text-surface-500">{cfg.label}</p>
-                        </div>
-                      </div>
-                      {el.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {el.tags.map((tag) => (
-                            <span key={tag} className="px-1.5 py-0.5 rounded bg-accent-500/10 text-accent-400 text-[9px] font-medium">{tag}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={(e) => { e.stopPropagation(); setEditingElement(el); setShowModal(true) }} className="w-6 h-6 bg-surface-900/80 hover:bg-surface-700 rounded-md flex items-center justify-center text-surface-400 hover:text-surface-100">
-                        <Edit3 size={11} />
-                      </button>
-                      {confirmDelete === el.id ? (
-                        <div className="flex gap-0.5 bg-surface-900/80 rounded-md p-0.5">
-                          <button onClick={(e) => { e.stopPropagation(); deleteElement(el.id); setConfirmDelete(null) }} className="px-1.5 py-0.5 bg-red-500/80 rounded text-[10px] text-white">Sí</button>
-                          <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(null) }} className="px-1.5 py-0.5 bg-white/10 rounded text-[10px] text-white">No</button>
-                        </div>
-                      ) : (
-                        <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(el.id) }} className="w-6 h-6 bg-surface-900/80 hover:bg-red-500/20 rounded-md flex items-center justify-center text-surface-400 hover:text-red-400">
-                          <Trash2 size={11} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 gap-y-6">
+              {filtered.map((el) => (
+                <ElementCard
+                  key={el.id}
+                  element={el}
+                  generating={generatingIds.has(el.id)}
+                  onOpen={() => { setOpenComposer(null); setSelectedId(el.id) }}
+                  onDelete={() => setConfirmDelete(el)}
+                />
+              ))}
             </div>
           )}
         </div>
       </div>
 
-      {showModal && editingElement && (
-        <CreateEditModal
-          element={editingElement}
-          onClose={() => { setShowModal(false); setEditingElement(undefined) }}
-        />
-      )}
-
-      {showModal && !editingElement && (
+      {showWizard && (
         <ElementWizard
-          onClose={() => { setShowModal(false); setEditingElement(undefined) }}
+          onClose={() => setShowWizard(false)}
+          onCreated={(id, { generate }) => {
+            setOpenComposer(generate ? 'primary' : null)
+            setSelectedId(id)
+          }}
         />
       )}
 
-      {confirmDelete && !showModal && (
-        <ConfirmDeleteModal
-          count={1}
-          onConfirm={() => { deleteElement(confirmDelete); setConfirmDelete(null) }}
-          onClose={() => setConfirmDelete(null)}
-        />
-      )}
+      {deleteModal}
     </div>
   )
 }

@@ -6,8 +6,11 @@ Fecha_Lanzamiento,Modelo,Proveedor,Tipo,Pricing,Estado_Integracion,Clasificacion
 2026-04,google/gemini-3.1-flash-tts,Replicate,TTS,.015 / 1k chars,Integrado,Más reciente,https://replicate.com/google/gemini-3.1-flash-tts
 2026-04,google/veo-3.1,Replicate,Video,.150 - .200 / s,Integrado,Más reciente,https://replicate.com/google/veo-3.1
 2026-04,Veo 3.1,fal.ai,Video,.150 - .200 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/google/veo-3-1
+2026-10,Genjutsu Motion Transfer,Higgsfield AI,Video,.318 - 1.632 / s,Integrado,Más reciente,https://open.higgsfield.ai/models/higgsfield/genjutsu/motion-transfer/v1.0
+2026-10,AI Influencer,Higgsfield AI,Imagen,.050 / img,Integrado,Más reciente,https://open.higgsfield.ai/models/higgsfield/ai-influencer
 2026-03,Kling 3.0 Standard,Higgsfield AI,Video,.070 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/kling-3-0
 2026-03,Wan 3.0 (Higgsfield),Higgsfield AI,Video,.040 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/wan-3-0
+2026-03,Marketing Studio Image,Higgsfield AI,Imagen,.040 - .090 / img,Integrado,Más reciente,https://console.higgsfield.ai/models/marketing-studio/image
 2026-03,Gemini Omni 1.1 Flash,KIE.ai,Video,.315 - .260 / video,Integrado,Más reciente,https://kie.ai/market/gemini-omni-flash-1-1
 2026-03,Kling 3.0,KIE.ai,Video,.070 - .335 / s,Integrado,Más reciente,https://kie.ai/market/kling-3-0
 2026-03,Wan 3.0,KIE.ai,Video,.040 - .160 / s,Integrado,Más reciente,https://kie.ai/market/wan-3-0
@@ -29,9 +32,10 @@ Fecha_Lanzamiento,Modelo,Proveedor,Tipo,Pricing,Estado_Integracion,Clasificacion
 2026-02,MiniMax H3 Max,fal.ai,Video,.013 - .040 / s,Integrado,Más reciente,https://fal.ai/models/minimax/h3-max/text-to-video
 2026-02,MiniMax H3 Max Reference,fal.ai,Video,.050 - .080 / s,Integrado,Más reciente,https://fal.ai/models/minimax/h3-max/reference-to-video
 2026-02,MiniMax H3 Max Turbo,fal.ai,Video,.006 - .020 / s,Integrado,Más reciente,https://fal.ai/models/minimax/h3-max-turbo/text-to-video
+2026-02,Seedance 2.5 (MachGen),MachGen,Video,.100 - .590 / s,Integrado,Más reciente,https://www.machgen.ai/docs/models/seedance-2-5
 2026-02,MiniMax H3 Turbo (MachGen),MachGen,Video,.015 - .050 / s,Integrado,Más reciente,https://www.machgen.ai/docs/models/minimax-h3-turbo
 2026-02,MiniMax Music 3,fal.ai,Music generation,.030 / 30s,Integrado,Más reciente,https://fal.ai/models/fal-ai/minimax/music-3
-2026-02,Seedance 2.5,fal.ai,Video,.180 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/bytedance/seedance-2-5
+2026-02,Seedance 2.5,fal.ai,Video,.221 - 1.164 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/bytedance/seedance-2-5
 2026-01,Soul 2.0 Cinema,Higgsfield AI,Video,.120 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/soul-2-0
 2026-01,Soul Image 2.0,Higgsfield AI,Imagen,.030 / img,Integrado,Más reciente,https://console.higgsfield.ai/models/soul-image-2
 2026-01,Flux 2 Pro,KIE.ai,Imagen,.050 - .080 / img,Integrado,Más usado,https://kie.ai/market/flux-2-pro

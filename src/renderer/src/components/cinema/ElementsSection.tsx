@@ -3,9 +3,9 @@ import { useCinemaStore, type ElementType, type CinemaElement } from '../../stor
 import { Plus, User, Box, Mountain, Edit3, Trash2, X, Mic, Image } from 'lucide-react'
 
 const TYPE_CONFIG: Record<ElementType, { label: string; icon: typeof User; color: string }> = {
-  character: { label: 'Personaje', icon: User, color: 'text-blue-400' },
-  object: { label: 'Objeto', icon: Box, color: 'text-amber-400' },
-  scenario: { label: 'Escenario', icon: Mountain, color: 'text-emerald-400' },
+  character: { label: 'Personaje', icon: User, color: 'text-blue-600 dark:text-blue-400' },
+  object: { label: 'Objeto', icon: Box, color: 'text-amber-600 dark:text-amber-400' },
+  scenario: { label: 'Escenario', icon: Mountain, color: 'text-emerald-600 dark:text-emerald-400' },
 }
 
 function ElementModal({
@@ -49,8 +49,8 @@ function ElementModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
-      <div className="bg-surface-900 border border-surface-800 rounded-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="modal-surface w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-surface-800">
           <h3 className="text-sm font-semibold text-surface-100">
             {element ? 'Editar elemento' : 'Nuevo elemento'}
@@ -60,7 +60,7 @@ function ElementModal({
 
         <div className="p-4 space-y-4">
           <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Tipo</label>
+            <label className="eyebrow mb-1 block">Tipo</label>
             <div className="flex gap-2">
               {(Object.entries(TYPE_CONFIG) as [ElementType, typeof TYPE_CONFIG['character']][]).map(([key, cfg]) => (
                 <button
@@ -80,12 +80,12 @@ function ElementModal({
           </div>
 
           <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Nombre</label>
+            <label className="eyebrow mb-1 block">Nombre</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del elemento" className="input-field" />
           </div>
 
           <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Descripción</label>
+            <label className="eyebrow mb-1 block">Descripción</label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
@@ -96,7 +96,7 @@ function ElementModal({
           </div>
 
           <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Stylesheet / Prompt base</label>
+            <label className="eyebrow mb-1 block">Stylesheet / Prompt base</label>
             <textarea
               value={stylesheet}
               onChange={e => setStylesheet(e.target.value)}
@@ -108,7 +108,7 @@ function ElementModal({
 
           {type === 'character' && (
             <div>
-              <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+              <label className="eyebrow mb-1 flex items-center gap-1">
                 <Mic size={10} /> Voice ID (ElevenLabs)
               </label>
               <input
@@ -121,7 +121,7 @@ function ElementModal({
           )}
 
           <div>
-            <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+            <label className="eyebrow mb-1 flex items-center gap-1">
               <Image size={10} /> Imagen de referencia
             </label>
             <div className="flex items-center gap-2">
@@ -233,19 +233,19 @@ export function ElementsSection({ projectId }: { projectId: string }) {
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => { setEditingElement(el); setShowModal(true) }}
-                      className="w-6 h-6 bg-surface-800 hover:bg-surface-700 rounded-md flex items-center justify-center text-surface-400 hover:text-surface-100"
+                      className="w-6 h-6 bg-surface-800 hover:bg-surface-700 rounded-full flex items-center justify-center text-surface-400 hover:text-surface-100"
                     >
                       <Edit3 size={11} />
                     </button>
                     {confirmDelete === el.id ? (
                       <div className="flex gap-0.5 bg-surface-800 rounded-md p-0.5">
                         <button onClick={() => { deleteElement(projectId, el.id); setConfirmDelete(null) }} className="px-1.5 py-0.5 bg-red-500/80 rounded text-[10px] text-white">Sí</button>
-                        <button onClick={() => setConfirmDelete(null)} className="px-1.5 py-0.5 bg-white/10 rounded text-[10px] text-white">No</button>
+                        <button onClick={() => setConfirmDelete(null)} className="px-1.5 py-0.5 bg-ink/10 rounded text-[10px] text-ink">No</button>
                       </div>
                     ) : (
                       <button
                         onClick={() => setConfirmDelete(el.id)}
-                        className="w-6 h-6 bg-surface-800 hover:bg-red-500/20 rounded-md flex items-center justify-center text-surface-400 hover:text-red-400"
+                        className="w-6 h-6 bg-surface-800 hover:bg-red-500/20 rounded-full flex items-center justify-center text-surface-400 hover:text-red-500 dark:hover:text-red-400"
                       >
                         <Trash2 size={11} />
                       </button>

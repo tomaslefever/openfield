@@ -127,7 +127,7 @@ function createBadgeElement(name: string, el?: StudioElement): HTMLElement {
     user-select: none; cursor: default;
     background: ${c === 'violet' ? 'rgba(139,92,246,0.12)' : c === 'blue' ? 'rgba(59,130,246,0.12)' : c === 'emerald' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)'};
     border: 1px solid ${c === 'violet' ? 'rgba(139,92,246,0.3)' : c === 'blue' ? 'rgba(59,130,246,0.3)' : c === 'emerald' ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'};
-    color: ${c === 'violet' ? '#a78bfa' : c === 'blue' ? '#60a5fa' : c === 'emerald' ? '#34d399' : '#fbbf24'};
+    color: ${c === 'violet' ? 'light-dark(#7c3aed, #a78bfa)' : c === 'blue' ? 'light-dark(#2563eb, #60a5fa)' : c === 'emerald' ? 'light-dark(#059669, #34d399)' : 'light-dark(#d97706, #fbbf24)'};
   `
 
   if (el?.imageBase64) {
@@ -150,7 +150,7 @@ function createTagBadge(token: string): HTMLElement {
     user-select: none; cursor: default;
     background: rgba(34,211,238,0.12);
     border: 1px solid rgba(34,211,238,0.32);
-    color: #22d3ee;
+    color: light-dark(#0891b2, #22d3ee);
   `
   span.appendChild(document.createTextNode(token))
   return span
@@ -420,7 +420,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
           data-placeholder={placeholder}
           className={`w-full bg-transparent text-sm text-surface-100 resize-none outline-none px-3 py-2.5 leading-relaxed overflow-y-auto break-words transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${expanded ? 'h-[50vh] min-h-[50vh] max-h-[50vh]' : 'h-[64px] min-h-[42px] max-h-[120px]'}`}
           style={{
-            caretColor: '#a78bfa',
+            caretColor: 'rgb(var(--ink))',
             wordBreak: 'break-word',
           }}
           role="textbox"
@@ -429,7 +429,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, Props>(
         <style>{`
           [data-placeholder]:empty::before {
             content: attr(data-placeholder);
-            color: #6b7280;
+            color: rgb(var(--ink-subtle));
             pointer-events: none;
           }
         `}</style>

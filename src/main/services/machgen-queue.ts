@@ -6,7 +6,11 @@ import { getRawDb } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
+import { redactPayload } from './payload-redact'
+import { persistMediaToAssets } from './media-persist'
 import { MachgenApiClient, getMachgenModel, type MachgenTaskInput, type MachgenTaskStatusResponse } from './machgen'
+import { registerRecoverableProvider, readApiKey, RemoteJobFailedError, forgetFailedJob, markPlaceholderFailed, canAutoResume, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
+import { resolveAssetFileForUpload, prepareUploadFile } from './asset-file'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_RETRIES = 3
@@ -15,13 +19,97 @@ function logRun(raw: any, taskId: string, step: string, message: string, payload
   try {
     const ws = workspaceId || getTaskWorkspace(taskId)
     raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(payload) : null, ws, Date.now())
+      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(redactPayload(payload)) : null, ws, Date.now())
   } catch {}
 }
 
-export class MachgenQueue extends EventEmitter {
+/**
+ * Picks the closest (width, height) pair from a model's fixed allowed-sizes list.
+ * Aspect-ratio fidelity weighs much more than the resolution tier.
+ */
+function pickClosestAllowedSize(sizes: [number, number][], aspectRatio: string | null, targetHeight: number): [number, number] {
+  const parseAspect = (ar: string | null): number | null => {
+    if (!ar) return null
+    const [w, h] = ar.split(':').map(Number)
+    return w > 0 && h > 0 ? w / h : null
+  }
+  const target = parseAspect(aspectRatio)
+  let best = sizes[0]
+  let bestScore = Infinity
+  for (const [w, h] of sizes) {
+    const a = w / h
+    const aspectErr = target ? Math.abs(a - target) / target : 0
+    const tierErr = Math.abs(Math.max(w, h) - targetHeight) / Math.max(targetHeight, 1)
+    const score = aspectErr * 4 + tierErr
+    if (score < bestScore) {
+      bestScore = score
+      best = [w, h]
+    }
+  }
+  return best
+}
+
+/**
+ * Seedance 2.5 drafts: the draft asset records its 1080p final in its parameters
+ * (`draftFinalTaskId`, then `draftFinalAssetId` once completed) so it can be marked and
+ * never finalized twice. `sourceTaskId` is the draft's MachGen task id.
+ */
+export function updateDraftAssetParams(sourceTaskId: string, patch: Record<string, any>) {
+  try {
+    const raw = getRawDb()
+    const draftTask = raw.prepare("SELECT task_id FROM tasks WHERE provider = 'machgen' AND (request_id = ? OR external_id = ?) LIMIT 1").get(sourceTaskId, sourceTaskId) as any
+    if (!draftTask?.taskId) return
+    const asset = raw.prepare('SELECT id, parameters FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(draftTask.taskId) as any
+    if (!asset) return
+    let params: any = {}
+    try { params = JSON.parse(asset.parameters || '{}') } catch {}
+    raw.prepare('UPDATE assets SET parameters = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify({ ...params, ...patch }), Date.now(), asset.id)
+  } catch (err: any) {
+    console.warn('[MachgenQueue] Could not update draft asset:', err?.message)
+  }
+}
+
+/** A final that failed or was cancelled: release its draft so the final can be retried. */
+function releaseDraftOfFinal(task: any, reason: string) {
+  try {
+    const payload = typeof task?.payload === 'string' ? JSON.parse(task.payload) : (task?.payload || {})
+    if (payload?.draftSourceTaskId) {
+      updateDraftAssetParams(String(payload.draftSourceTaskId), { draftFinalTaskId: null, draftFinalAssetId: null, draftFinalError: reason })
+    }
+  } catch {}
+}
+
+/**
+ * MachGen returns no per-task charge (only the account balance), so the cost is derived from
+ * what the completed task actually rendered — `metadata.duration_secs` and `metadata.height` —
+ * times the catalog rate. Models with a `costPerSecWithVideoInput` rate bill input + output
+ * seconds at that rate when the task had video refs. Returned in app credits (dollars × 200),
+ * or null when not computable.
+ */
+function machgenTaskCostCredits(model: ReturnType<typeof getMachgenModel>, meta: any, payload?: any): number | null {
+  const prices = model?.prices || []
+  if (prices.length === 0) return null
+  const height = Number(meta?.height) || 0
+  const price = prices.find(p => p.height === height)
+    || (height ? prices.reduce((a, b) => Math.abs((b.height || 0) - height) < Math.abs((a.height || 0) - height) ? b : a) : prices[0])
+  let dollars: number | null = null
+  if (price.costPerSec != null) {
+    const secs = Number(meta?.duration_secs) || 0
+    const videoRefs: any[] = Array.isArray(payload?.videoRefs) ? payload.videoRefs : []
+    const inputSecs = videoRefs.reduce((s, v) => s + (Number(v?.duration) || 0), 0)
+    if (secs > 0 && videoRefs.length > 0 && price.costPerSecWithVideoInput != null) {
+      dollars = price.costPerSecWithVideoInput * (secs + inputSecs)
+    } else if (secs > 0) dollars = price.costPerSec * secs
+  } else if (price.cost != null) {
+    dollars = price.cost
+  }
+  return dollars == null ? null : Math.round(dollars * 200 * 100) / 100
+}
+
+export class MachgenQueue extends EventEmitter implements RecoverableQueue {
   private apiClient: MachgenApiClient
-  private processing = new Set<string>()
+  readonly processing = new Set<string>()
   private coolingDown = new Set<string>()
   private uploadCache = new Map<string, string>()
   private maxConcurrent = 2
@@ -42,11 +130,14 @@ export class MachgenQueue extends EventEmitter {
     const now = Date.now()
     const wsId = getActiveWorkspaceId()
 
+    // Media is persisted as binary assets on disk; the DB only stores asset IDs.
+    const storedPayload = redactPayload(await persistMediaToAssets(payload))
+
     logRun(raw, taskId, 'enqueue', `MachGen task enqueued: model=${payload?.model}, mode=${payload?.mode}`, undefined, 'info', wsId)
 
     raw.prepare(
       'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'machgen', 'pending', type, JSON.stringify(payload), wsId, now, now)
+    ).run(taskId, 'machgen', 'pending', type, JSON.stringify(storedPayload), wsId, now, now)
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
@@ -55,11 +146,11 @@ export class MachgenQueue extends EventEmitter {
     const assetType = isImage ? 'image' : isAudio ? 'audio' : 'video'
     const mimeType = isImage ? 'image/png' : isAudio ? 'audio/mpeg' : 'video/mp4'
     raw.prepare(
-      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, provider, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       assetId, assetType, '', '', `pending-${taskId}`, mimeType,
-      payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
+      payload?.model || '', 'machgen', payload?.prompt || '', JSON.stringify(storedPayload),
       0, taskId, wsId, now, now
     )
     raw.save()
@@ -69,7 +160,7 @@ export class MachgenQueue extends EventEmitter {
     return taskId
   }
 
-  private async processQueue() {
+  async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
     const pending = raw.prepare('SELECT * FROM tasks WHERE provider = ? AND status = ? ORDER BY created_at ASC').all('machgen', 'pending')
@@ -86,20 +177,19 @@ export class MachgenQueue extends EventEmitter {
     const rawModel = payload?.model || ''
     const modelDef = getMachgenModel(rawModel)
     const modelId = modelDef?.id || rawModel.replace(/^machgen\//, '').replace(/\/(t2v|i2v|fflf|ref|upscale|t2i|i2i|t2s|t2d|t2sfx|t2m)$/, '').trim()
+    if (!modelId) {
+      throw new Error('MachGen error: Model ID is empty or invalid.')
+    }
 
     // Resolves a media source (base64, local path, assetId, file://, data:) to an uploaded MachGen @input/... reference or URL
     const resolveSource = async (source?: string, assetId?: string, defaultMime = 'image/png'): Promise<string | null> => {
       let resolvedSource = source
       let mime = defaultMime
 
-      if (!resolvedSource && assetId) {
-        try {
-          const asset = raw.prepare('SELECT local_path, mime_type FROM assets WHERE id = ?').get(assetId) as any
-          if (asset?.local_path && syncFs.existsSync(asset.local_path)) {
-            resolvedSource = asset.local_path
-            mime = asset.mime_type || defaultMime
-          }
-        } catch {}
+      const file = assetId ? await resolveAssetFileForUpload(assetId) : null
+      if (file) {
+        resolvedSource = file.path
+        mime = file.mime || defaultMime
       }
 
       if (!resolvedSource) return null
@@ -115,6 +205,11 @@ export class MachgenQueue extends EventEmitter {
         return trimmed
       }
 
+      if (!trimmed.startsWith('data:') && syncFs.existsSync(trimmed)) {
+        const prepared = await prepareUploadFile(trimmed, mime)
+        resolvedSource = prepared.path
+        mime = prepared.mime || mime
+      }
       const inputRef = await this.apiClient.uploadSource(resolvedSource, mime)
       if (cacheKey) {
         this.uploadCache.set(cacheKey, inputRef)
@@ -192,6 +287,8 @@ export class MachgenQueue extends EventEmitter {
       } else {
         taskType = 'T2I'
       }
+    } else if (payload.type === 'image' || payload.mode === 'image') {
+      taskType = (srcImageUrls.length > 0 && modelDef?.supportsI2I) ? 'I2I' : 'T2I'
     } else {
       // Video model
       if (rawModel.endsWith('/upscale') || (modelDef?.supportsUpscale && !modelDef.supportsT2V && !modelDef.supportsI2V && !modelDef.supportsR2V)) {
@@ -214,9 +311,14 @@ export class MachgenQueue extends EventEmitter {
 
     // Video Config resolution (only for video generation tasks)
     const isVideoTask = ['T2V', 'I2V', 'R2V'].includes(taskType)
+    // Topaz UPSCALE: video models take the source in src_video_urls plus a video_config;
+    // image models take it in src_image_urls plus an image_config. The prompt is empty.
+    const isUpscale = taskType === 'UPSCALE'
+    const isVideoUpscale = isUpscale && (/video/i.test(modelId) || payload.videoRefs?.length > 0)
+    const isImageUpscale = isUpscale && !isVideoUpscale
     let videoConfig: MachgenTaskInput['video_config'] = null
 
-    if (isVideoTask) {
+    if (isVideoTask || isVideoUpscale) {
       let height = 720
       const resStr = String(payload.resolution || '').toLowerCase()
       if (resStr.includes('480')) height = 480
@@ -225,6 +327,7 @@ export class MachgenQueue extends EventEmitter {
       else if (resStr.includes('768')) height = 768
       else if (resStr.includes('1080')) height = 1080
       else if (resStr.includes('1440') || resStr.includes('2k')) height = 1440
+      else if (resStr.includes('4k') || resStr.includes('2160')) height = 2160
 
       if (modelDef?.allowedHeights && modelDef.allowedHeights.length > 0 && !modelDef.allowedHeights.includes(height)) {
         height = modelDef.allowedHeights[0]
@@ -241,7 +344,11 @@ export class MachgenQueue extends EventEmitter {
         aspectRatio = modelDef.allowedAspectRatios[0] || '16:9'
       }
 
-      const fps = payload.fps != null ? Number(payload.fps) : (modelDef?.defaultFps || 24)
+      let fps = payload.fps != null ? Number(payload.fps) : (modelDef?.defaultFps || 24)
+      const allowedFps = modelDef?.allowedFps?.[taskType]
+      if (allowedFps && allowedFps.length > 0 && !allowedFps.includes(fps)) {
+        fps = allowedFps.reduce((prev, curr) => Math.abs(curr - fps) < Math.abs(prev - fps) ? curr : prev)
+      }
       const inferSteps = payload.inferSteps != null ? Number(payload.inferSteps) : modelDef?.defaultInferSteps
 
       videoConfig = {
@@ -251,10 +358,65 @@ export class MachgenQueue extends EventEmitter {
         aspect_ratio: aspectRatio,
         fps,
         infer_steps: inferSteps || null,
-        audio: payload.sound != null ? Boolean(payload.sound) : (payload.audio != null ? Boolean(payload.audio) : null),
+        audio: payload.sound !== false && payload.audio !== false,
         bitrate_mode: payload.bitrateMode || null,
         negative_prompt: payload.negativePrompt || null,
         guidance_scale: payload.guidanceScale != null ? (Array.isArray(payload.guidanceScale) ? payload.guidanceScale : [Number(payload.guidanceScale)]) : null,
+      }
+    }
+
+    // Draft mode (Seedance 2.5 T2V/I2V/R2V only): `draft` renders a 480p sample; a task with
+    // `draftSourceTaskId` renders the 1080p final of that sample (the server reuses its prompt,
+    // references, duration, aspect ratio, seed and audio). Both bypass allowedHeights.
+    const draftCapable = modelId === 'Seedance-2.5' && isVideoTask
+    const draftSourceTaskId: string | null = draftCapable && payload.draftSourceTaskId ? String(payload.draftSourceTaskId) : null
+    const isDraft = draftCapable && !draftSourceTaskId && payload.draft === true
+    if (videoConfig && isDraft) videoConfig.height = 480
+    if (videoConfig && draftSourceTaskId) videoConfig.height = 1080
+
+    // Image Config resolution (only for image generation tasks)
+    const isImageTask = ['T2I', 'I2I'].includes(taskType) || isImageUpscale
+    let imageConfig: MachgenTaskInput['image_config'] = null
+
+    if (isImageTask) {
+      let height = 1024
+      const resStr = String(payload.resolution || '').toLowerCase()
+      if (resStr.includes('4k')) height = 4096
+      else if (resStr.includes('2k')) height = 2048
+      else if (resStr.includes('1080')) height = 1080
+      else if (resStr.includes('720')) height = 720
+      else if (resStr.includes('1k')) height = 1024
+
+      let aspectRatio = payload.aspectRatio || '1:1'
+      if (aspectRatio === 'auto') aspectRatio = '1:1'
+
+      let width: number | null = payload.width || null
+
+      if (modelDef?.allowedSizes && modelDef.allowedSizes.length > 0) {
+        // Models with a fixed list of allowed (width, height) pairs: snap to the
+        // closest pair by aspect ratio and resolution tier instead of sending a
+        // bare height (the API would otherwise derive the width from the source
+        // image and reject the combination, e.g. GPT-Image-2.5 I2I 1821x1024).
+        const [w, h] = pickClosestAllowedSize(modelDef.allowedSizes, aspectRatio, height)
+        width = w
+        height = h
+        aspectRatio = null
+      } else {
+        if (modelDef?.allowedHeights && modelDef.allowedHeights.length > 0 && !modelDef.allowedHeights.includes(height)) {
+          height = modelDef.allowedHeights[0]
+        }
+        if (modelDef?.allowedAspectRatios && modelDef.allowedAspectRatios.length > 0 && !modelDef.allowedAspectRatios.includes(aspectRatio)) {
+          aspectRatio = modelDef.allowedAspectRatios[0] || '1:1'
+        }
+      }
+
+      const inferSteps = payload.inferSteps != null ? Number(payload.inferSteps) : modelDef?.defaultInferSteps
+
+      imageConfig = {
+        height,
+        width,
+        aspect_ratio: aspectRatio,
+        infer_steps: inferSteps || null,
       }
     }
 
@@ -284,6 +446,7 @@ export class MachgenQueue extends EventEmitter {
 
     const isR2V = taskType === 'R2V'
     const isI2V = taskType === 'I2V'
+    const isI2I = taskType === 'I2I'
 
     // I2V only accepts FF or FF-LF (keyframe indices [0] or [0, -1] / [-1]).
     // For R2V, if reference images are present, pass them as reference image inputs without keyframe indices.
@@ -305,20 +468,54 @@ export class MachgenQueue extends EventEmitter {
         finalImageUrls = srcImageUrls.length > 0 ? srcImageUrls : null
       }
       finalKeyframeIndices = null
+    } else if (isI2I) {
+      // Image-to-image: send every attached reference image (1..16 accepted by
+      // models like GPT-Image-2.5). A bare height without these images was the
+      // "accepts 1 to 16 input images; got 0" failure.
+      if (payload.imageRefs && Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0) {
+        const refUrls: string[] = []
+        for (const img of payload.imageRefs) {
+          const imgUrl = await resolveSource(img.url || img.base64 || img.localPath, img.assetId, img.mime || 'image/png')
+          if (imgUrl) refUrls.push(imgUrl)
+        }
+        finalImageUrls = refUrls.length > 0 ? refUrls : (srcImageUrls.length > 0 ? srcImageUrls : null)
+      } else {
+        finalImageUrls = srcImageUrls.length > 0 ? srcImageUrls : null
+      }
+      finalKeyframeIndices = null
+      // No resolvable input images: degrade to plain text-to-image instead of
+      // submitting an I2I request with zero inputs.
+      if (!finalImageUrls) taskType = 'T2I'
+    } else if (isImageUpscale) {
+      // Upscale one image: the first attached one
+      finalImageUrls = srcImageUrls.length > 0 ? [srcImageUrls[0]] : null
     }
+
+    if (isVideoUpscale && srcVideoUrls.length === 0) throw new Error('Adjunta el video que quieres escalar con Topaz.')
+    // Topaz processes (and bills) the whole source video: send its length, rounded up
+    const sourceVideoSecs = Number(payload.videoRefs?.[0]?.duration) || 0
+    if (isVideoUpscale && videoConfig) {
+      // Topaz video UPSCALE only takes the output height and the length; aspect ratio, fps,
+      // audio, etc. are rejected ("does not support configurable aspect_ratio for UPSCALE")
+      videoConfig = {
+        height: videoConfig.height,
+        duration_secs: sourceVideoSecs > 0 ? Math.ceil(sourceVideoSecs) : videoConfig.duration_secs,
+      }
+    }
+    if (isImageUpscale && !finalImageUrls) throw new Error('Adjunta la imagen que quieres escalar con Topaz.')
 
     const input: MachgenTaskInput = {
       model: modelId,
       task_type: taskType,
-      prompt: payload.prompt || '',
-      enhance_prompt: enhancePrompt,
+      prompt: isUpscale ? '' : (payload.prompt || ''),
+      enhance_prompt: isUpscale ? null : enhancePrompt,
       prompt_enhancer: payload.promptEnhancer || null,
       seed: payload.seed != null ? Number(payload.seed) : null,
       optimization_level: payload.optimizationLevel || null,
       adapter: payload.adapter || null,
       src_image_urls: finalImageUrls,
       keyframe_indices: finalKeyframeIndices,
-      src_video_urls: isR2V && srcVideoUrls.length > 0 ? srcVideoUrls : null,
+      src_video_urls: isR2V && srcVideoUrls.length > 0 ? srcVideoUrls : (isVideoUpscale ? srcVideoUrls.slice(0, 1) : null),
       src_audio_urls: isR2V && srcAudioUrls.length > 0 ? srcAudioUrls : null,
       src_task_ids: isR2V ? (payload.srcTaskIds || null) : null,
       reference_video_operation: isR2V ? (payload.referenceVideoOperation || null) : null,
@@ -327,7 +524,17 @@ export class MachgenQueue extends EventEmitter {
       subject_to_video_ids: isR2V ? (payload.subjectToVideoIds || null) : null,
       subject_to_audio_ids: isR2V ? (payload.subjectToAudioIds || null) : null,
       video_config: videoConfig,
-      upscale_config: taskType === 'UPSCALE' ? { factor: payload.upscaleFactor || 2 } : null,
+      image_config: imageConfig,
+      ...(isDraft ? { draft: true } : {}),
+      ...(draftSourceTaskId ? { draft_source_task_id: draftSourceTaskId } : {}),
+      upscale_config: taskType === 'UPSCALE'
+        ? {
+            // factor is only valid for image upscalers (video ones take the height from video_config)
+            ...(isImageUpscale ? { factor: payload.upscaleFactor || 2 } : {}),
+            // Only engines this model accepts; none → Topaz uses the tier default
+            ...(payload.upscaleEngine && modelDef?.upscaleEngines?.includes(payload.upscaleEngine) ? { engine: payload.upscaleEngine } : {}),
+          }
+        : null,
     }
 
     return input
@@ -346,6 +553,15 @@ export class MachgenQueue extends EventEmitter {
     this.emit('task:started', { taskId })
 
     try {
+      // Retry of an already-submitted task: resume the same MachGen job instead of resubmitting
+      const existingJobId = task.requestId || task.externalId
+      if (existingJobId) {
+        logRun(raw, taskId, 'recovery', `Resuming existing MachGen task: ${existingJobId}`)
+        const resumed = await this.pollTask(taskId, existingJobId)
+        await this.handleSuccess(task, resumed)
+        return
+      }
+
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : task.payload
       const input = await this.buildInput(payload)
 
@@ -363,6 +579,7 @@ export class MachgenQueue extends EventEmitter {
       await this.handleSuccess(task, finalStatus)
     } catch (err: any) {
       logRun(raw, taskId, 'error', `Task failed: ${err.message}`, null, 'error')
+      forgetFailedJob(taskId, err)
       await this.handleFailure(task, err.message)
     } finally {
       this.processing.delete(taskId)
@@ -385,7 +602,7 @@ export class MachgenQueue extends EventEmitter {
       }
 
       if (statusRes.status === 'FAILED') {
-        throw new Error(statusRes.error_msg || 'MachGen task failed without error message')
+        throw new RemoteJobFailedError(statusRes.error_msg || 'MachGen task failed without error message')
       }
 
       raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
@@ -399,10 +616,17 @@ export class MachgenQueue extends EventEmitter {
     const taskPayload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
     const assetId = crypto.randomUUID()
     const remoteUrl = statusRes.task_output?.audio || statusRes.task_output?.video || statusRes.task_output?.image || null
+    // Persisted on the asset (and task): computed from the response metadata, see machgenTaskCostCredits
+    const costCredits = machgenTaskCostCredits(getMachgenModel(taskPayload?.model), statusRes.metadata, taskPayload)
+    if (costCredits != null) {
+      logRun(raw, taskId, 'cost', `Coste calculado: ${costCredits} cr ($${(costCredits / 200).toFixed(3)}) — ${statusRes.metadata?.duration_secs ?? '-'}s @ ${statusRes.metadata?.height ?? '-'}p`)
+      raw.prepare('UPDATE tasks SET credits_used = ? WHERE task_id = ?').run(costCredits, taskId)
+    }
 
-    const updatePlaceholder = (fields: Record<string, any>) => {
+    const updatePlaceholder = (rawFields: Record<string, any>) => {
       const placeholder = raw.prepare('SELECT id FROM assets WHERE task_id = ? ORDER BY created_at ASC LIMIT 1').get(taskId) as any
       if (!placeholder) return null
+      const fields = costCredits != null ? { ...rawFields, credits_used: costCredits } : rawFields
       const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ')
       raw.prepare(`UPDATE assets SET ${sets}, updated_at = ? WHERE id = ?`)
         .run(...Object.values(fields), Date.now(), placeholder.id)
@@ -442,7 +666,7 @@ export class MachgenQueue extends EventEmitter {
           mime_type: mime,
           model_used: taskPayload?.model || '',
           prompt: taskPayload?.prompt || '',
-          parameters: JSON.stringify(taskPayload),
+          parameters: JSON.stringify(redactPayload(taskPayload)),
           file_size: fileSize,
         })
       } catch (err: any) {
@@ -454,7 +678,7 @@ export class MachgenQueue extends EventEmitter {
           mime_type: mime,
           model_used: taskPayload?.model || '',
           prompt: taskPayload?.prompt || '',
-          parameters: JSON.stringify(taskPayload),
+          parameters: JSON.stringify(redactPayload(taskPayload)),
         })
       }
     } else {
@@ -467,13 +691,18 @@ export class MachgenQueue extends EventEmitter {
         mime_type: mime,
         model_used: taskPayload?.model || '',
         prompt: taskPayload?.prompt || '',
-        parameters: JSON.stringify(taskPayload),
+        parameters: JSON.stringify(redactPayload(taskPayload)),
       })
     }
 
     raw.prepare(
       'UPDATE tasks SET status = ?, result_asset_id = ?, completed_at = ?, updated_at = ? WHERE task_id = ?'
     ).run('completed', localAssetId, Date.now(), Date.now(), taskId)
+
+    // A 1080p final: mark its draft as finalized and link the final asset
+    if (taskPayload?.draftSourceTaskId && localAssetId) {
+      updateDraftAssetParams(String(taskPayload.draftSourceTaskId), { draftFinalTaskId: taskId, draftFinalAssetId: localAssetId, draftFinalError: null })
+    }
     raw.save()
 
     logRun(raw, taskId, 'completed', 'MachGen task completed successfully', { assetId: localAssetId })
@@ -497,7 +726,8 @@ export class MachgenQueue extends EventEmitter {
       errorMessage.toLowerCase().includes('unsupported') ||
       errorMessage.toLowerCase().includes('invalid')
 
-    if (retryCount <= MAX_RETRIES && !isNonRetryable) {
+    // Only resume an accepted job; never resubmit (see canAutoResume)
+    if (retryCount <= MAX_RETRIES && !isNonRetryable && canAutoResume(taskId)) {
       logRun(raw, taskId, 'retry', `Retrying task (attempt ${retryCount}/${MAX_RETRIES}): ${errorMessage}`, null, 'warn')
       raw.prepare(
         'UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
@@ -516,14 +746,26 @@ export class MachgenQueue extends EventEmitter {
         'UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?'
       ).run('failed', errorMessage, Date.now(), taskId)
 
-      // Delete optimistic placeholder
-      try {
-        raw.prepare('DELETE FROM assets WHERE task_id = ? AND (file_path = "" OR file_path IS NULL)').run(taskId)
-      } catch {}
+      // Keep the placeholder as an error card (the grid shows the message)
+      markPlaceholderFailed(taskId, errorMessage)
+      releaseDraftOfFinal(task, errorMessage)
       raw.save()
 
       this.emit('task:failed', { taskId, error: errorMessage })
     }
+  }
+
+  // ─── RecoverableQueue (see task-recovery.ts) ─────────────────
+
+  async checkRemote(_task: any, machgenTaskId: string): Promise<RemoteTaskStatus> {
+    const statusRes = await this.apiClient.getTaskStatus(machgenTaskId)
+    if (statusRes.status === 'COMPLETED') return { state: 'completed', result: statusRes }
+    if (statusRes.status === 'FAILED') return { state: 'failed', error: statusRes.error_msg || 'MachGen task failed without error message' }
+    return { state: 'running', detail: statusRes.status }
+  }
+
+  async completeRemote(task: any, result: MachgenTaskStatusResponse): Promise<void> {
+    await this.handleSuccess(task, result)
   }
 
   cancelTask(taskId: string): boolean {
@@ -536,9 +778,8 @@ export class MachgenQueue extends EventEmitter {
     raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
       .run('failed', 'Cancelled by user', Date.now(), taskId)
 
-    try {
-      raw.prepare('DELETE FROM assets WHERE task_id = ? AND (file_path = "" OR file_path IS NULL)').run(taskId)
-    } catch {}
+    markPlaceholderFailed(taskId, 'Cancelled by user')
+    releaseDraftOfFinal(task, 'Cancelled by user')
     raw.save()
 
     this.processing.delete(taskId)
@@ -559,3 +800,8 @@ export function getMachgenQueue(apiKey: string): MachgenQueue {
   }
   return queueInstance
 }
+
+registerRecoverableProvider('machgen', () => {
+  const key = readApiKey('machgenApiKey')
+  return key ? getMachgenQueue(key) : null
+})

@@ -8,6 +8,7 @@ export type ProviderId =
   | 'elevenlabs'
   | 'machgen'
   | 'higgsfield'
+  | 'apimart'
   | 'local'
   | 'deepseek'
   | 'openai'
@@ -36,6 +37,15 @@ export interface ProviderDef {
 export const PROVIDER_DEFS: ProviderDef[] = [
   // Generación Audiovisual (Video, Imagen, Audio)
   {
+    id: 'apimart',
+    label: 'APIMart',
+    description: 'Gateway multi-modelo: GPT Image, Kling, Seedance, Sora, VEO3 y más',
+    keyName: 'apimartApiKey',
+    keyPlaceholder: 'sk-... (APIMart API key)',
+    helperUrl: 'https://apimart.ai/keys',
+    category: 'media',
+  },
+  {
     id: 'machgen',
     label: 'MachGen',
     description: 'Dollar balance via MachGen API',
@@ -47,9 +57,9 @@ export const PROVIDER_DEFS: ProviderDef[] = [
   {
     id: 'higgsfield',
     label: 'Higgsfield AI',
-    description: 'Seedance 2.0 via Higgsfield API',
+    description: 'Seedance 2.5 / Kling / Wan / MiniMax via Higgsfield',
     keyName: 'higgsfieldApiKey',
-    keyPlaceholder: 'KEY_ID:KEY_SECRET (Higgsfield key)',
+    keyPlaceholder: 'KEY_ID:KEY_SECRET o API Key (console.higgsfield.ai)',
     helperUrl: 'https://console.higgsfield.ai',
     category: 'media',
   },
@@ -145,6 +155,19 @@ export function getConfiguredProviderIds(configured: Record<string, boolean>): P
   return PROVIDER_DEFS.filter((p) => Boolean(configured[p.id])).map((p) => p.id)
 }
 
+/** Setting key holding the ids of providers the user switched off on the Providers page */
+const DISABLED_PROVIDERS_KEY = 'disabledProviders'
+
+/** A provider is usable when it has an API key and the user hasn't switched it off */
+function buildConfigured(keys: Record<string, string>, disabled: string[]): Record<string, boolean> {
+  const res: Record<string, boolean> = {}
+  PROVIDER_DEFS.forEach((p) => {
+    res[p.id] = Boolean(String(keys[p.id] ?? '').trim()) && !disabled.includes(p.id)
+  })
+  return res
+}
+
+/** `configured` = has a key AND is enabled, so disabled providers drop out of every model picker */
 export function isModelConfigured(model: ModelPricing, configured: Record<string, boolean>): boolean {
   const provider = model.provider || 'kie'
   return !!configured[provider]
@@ -160,7 +183,10 @@ function buildInitialConfigured(): Record<string, boolean> {
 
 interface ProvidersState {
   keys: Record<string, string>
+  /** Providers with an API key that are enabled (see buildConfigured) */
   configuredProviders: Record<string, boolean>
+  /** Providers switched off by the user: hidden from model selectors, still listed in the price comparator */
+  disabledProviders: string[]
   hasAnyProvider: boolean
   statuses: Record<string, ProviderStatus | null>
   loaded: boolean
@@ -170,11 +196,13 @@ interface ProvidersState {
   refreshBalances: () => Promise<void>
   setKey: (providerId: ProviderId, keyName: string, value: string) => Promise<void>
   removeKey: (providerId: ProviderId, keyName: string) => Promise<void>
+  setProviderEnabled: (providerId: ProviderId, enabled: boolean) => Promise<void>
 }
 
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
   keys: {},
   configuredProviders: buildInitialConfigured(),
+  disabledProviders: [],
   hasAnyProvider: false,
   statuses: {},
   loaded: false,
@@ -193,14 +221,13 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         keys.kie = settings.kieApiKey
       }
 
-      const configured: Record<string, boolean> = {}
-      PROVIDER_DEFS.forEach((p) => {
-        const val = keys[p.id] || settings[p.keyName] || (p.id === 'kie' ? (settings.openfieldApiKey || settings.kieApiKey) : '')
-        configured[p.id] = Boolean(val && String(val).trim())
-      })
+      const disabled: string[] = Array.isArray(settings[DISABLED_PROVIDERS_KEY])
+        ? settings[DISABLED_PROVIDERS_KEY].filter((id: unknown) => typeof id === 'string')
+        : []
+      const configured = buildConfigured(keys, disabled)
 
       const hasAny = hasAnyConfiguredProvider(configured)
-      set({ keys, configuredProviders: configured, hasAnyProvider: hasAny, loaded: true })
+      set({ keys, configuredProviders: configured, disabledProviders: disabled, hasAnyProvider: hasAny, loaded: true })
       await get().refreshBalances()
     } catch (e) {
       console.warn('[providers-store] load error:', e)
@@ -232,7 +259,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 
     set((state) => {
       const newKeys = { ...state.keys, [providerId]: value }
-      const newConfigured = { ...state.configuredProviders, [providerId]: !!value.trim() }
+      const newConfigured = buildConfigured(newKeys, state.disabledProviders)
       return {
         keys: newKeys,
         configuredProviders: newConfigured,
@@ -253,7 +280,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     set((state) => {
       const newKeys = { ...state.keys }
       delete newKeys[providerId]
-      const newConfigured = { ...state.configuredProviders, [providerId]: false }
+      const newConfigured = buildConfigured(newKeys, state.disabledProviders)
       const newStatuses = { ...state.statuses, [providerId]: null }
       return {
         keys: newKeys,
@@ -262,5 +289,23 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         statuses: newStatuses,
       }
     })
+  },
+
+  setProviderEnabled: async (providerId: ProviderId, enabled: boolean) => {
+    const prev = get().disabledProviders
+    const disabled = enabled ? prev.filter((id) => id !== providerId) : Array.from(new Set([...prev, providerId]))
+    set((state) => {
+      const newConfigured = buildConfigured(state.keys, disabled)
+      return {
+        disabledProviders: disabled,
+        configuredProviders: newConfigured,
+        hasAnyProvider: hasAnyConfiguredProvider(newConfigured),
+      }
+    })
+    try {
+      await (window as any).electronAPI?.settings?.set?.(DISABLED_PROVIDERS_KEY, disabled)
+    } catch (e) {
+      console.warn('[providers-store] failed to persist disabled providers:', e)
+    }
   },
 }))

@@ -15,14 +15,14 @@ export function ConfirmDeleteModal({ count, onConfirm, onClose }: ConfirmDeleteM
  }
 
  return (
- <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center" onClick={onClose}>
- <div className="bg-surface-900 border border-surface-800 rounded-2xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+ <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
+ <div className="modal-surface max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
  <div className="flex justify-between items-start mb-4">
  <div className="flex items-center gap-3">
  <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
- <AlertTriangle size={20} className="text-red-400" />
+ <AlertTriangle size={20} className="text-red-600 dark:text-red-400" />
  </div>
- <h2 className="text-lg font-semibold text-surface-100">Delete {count} Asset{count > 1 ? 's' : ''}?</h2>
+ <h2 className="text-title text-ink">Delete {count} Asset{count > 1 ? 's' : ''}?</h2>
  </div>
  <button onClick={onClose} className="text-surface-500 hover:text-surface-100">
  <X size={18} />
@@ -51,7 +51,7 @@ export function ConfirmDeleteModal({ count, onConfirm, onClose }: ConfirmDeleteM
  <button
  onClick={onConfirm}
  disabled={typed !== String(count)}
- className="px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-1 bg-red-600 hover:bg-red-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+ className="px-4 py-2 rounded-pill text-sm font-medium transition-colors flex-1 bg-red-600 hover:bg-red-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
  >
  Delete {count} Asset{count > 1 ? 's' : ''}
  </button>

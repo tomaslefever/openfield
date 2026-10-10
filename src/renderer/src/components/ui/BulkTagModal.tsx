@@ -36,10 +36,10 @@ export function BulkTagModal({ count, onApply, onClose }: BulkTagModalProps) {
  }
 
  return (
- <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center" onClick={onClose}>
- <div className="bg-surface-900 border border-surface-800 rounded-2xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+ <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
+ <div className="modal-surface max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
  <div className="flex justify-between items-start mb-4">
- <h2 className="text-lg font-semibold text-surface-100">Add Tags to {count} Assets</h2>
+ <h2 className="text-title text-ink">Add Tags to {count} Assets</h2>
  <button onClick={onClose} className="text-surface-500 hover:text-surface-100">
  <X size={18} />
  </button>
@@ -48,9 +48,9 @@ export function BulkTagModal({ count, onApply, onClose }: BulkTagModalProps) {
  <div className="flex flex-wrap gap-1.5 mb-3 min-h-[36px] p-2 bg-surface-800 rounded-lg border border-surface-700">
  <Tag size={14} className="text-surface-500 mt-0.5" />
  {tags.map(tag => (
- <span key={tag} className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-accent-500/10 text-accent-400 text-xs font-medium">
+ <span key={tag} className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-pill bg-ink/5 text-ink text-xs font-medium">
  {tag}
- <button onClick={() => removeTag(tag)} className="text-accent-400/60 hover:text-red-400">
+ <button onClick={() => removeTag(tag)} className="text-ink-subtle hover:text-red-500">
  <X size={10} />
  </button>
  </span>

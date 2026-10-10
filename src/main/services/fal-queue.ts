@@ -5,7 +5,10 @@ import { getRawDb } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, getTaskWorkspace } from './workspace-service'
 import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
+import { redactPayload } from './payload-redact'
+import { persistMediaToAssets, hydratePayloadMedia } from './media-persist'
 import { FalApiClient, getFalModel, type FalImageResult, type FalVideoResult, type FalAudioResult, type FalResult } from './fal'
+import { registerRecoverableProvider, readApiKey, canAutoResume, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_RETRIES = 3
@@ -14,13 +17,13 @@ function logRun(raw: any, taskId: string, step: string, message: string, payload
   try {
     const ws = workspaceId || getTaskWorkspace(taskId)
     raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(payload) : null, ws, Date.now())
+      .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(redactPayload(payload)) : null, ws, Date.now())
   } catch {}
 }
 
-export class FalQueue extends EventEmitter {
+export class FalQueue extends EventEmitter implements RecoverableQueue {
   private apiClient: FalApiClient
-  private processing = new Set<string>()
+  readonly processing = new Set<string>()
   private coolingDown = new Set<string>()
   private maxConcurrent = 2
 
@@ -40,20 +43,23 @@ export class FalQueue extends EventEmitter {
     const now = Date.now()
     const wsId = getActiveWorkspaceId()
 
+    // Media is persisted as binary assets on disk; the DB only stores asset IDs.
+    const storedPayload = redactPayload(await persistMediaToAssets(payload))
+
     logRun(raw, taskId, 'enqueue', `fal.ai task enqueued: model=${payload?.model}, hasImage=${!!payload?.imageBase64}`, undefined, 'info', wsId)
 
     raw.prepare(
       'INSERT INTO tasks (task_id, provider, status, type, payload, workspace_id, created_at, updated_at) VALUES (?, \'fal\', ?, ?, ?, ?, ?, ?)'
-    ).run(taskId, 'pending', type, JSON.stringify(payload), wsId, now, now)
+    ).run(taskId, 'pending', type, JSON.stringify(storedPayload), wsId, now, now)
 
     // Optimistic placeholder asset
     const assetId = crypto.randomUUID()
     raw.prepare(
-      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, provider, prompt, parameters, credits_used, task_id, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       assetId, type, '', '', `pending-${taskId}`, type === 'image' ? 'image/png' : type === 'audio' ? 'audio/mpeg' : 'video/mp4',
-      payload?.model || '', payload?.prompt || '', JSON.stringify(payload),
+      payload?.model || '', 'fal', payload?.prompt || '', JSON.stringify(storedPayload),
       0, taskId, wsId, now, now
     )
     raw.save()
@@ -63,7 +69,7 @@ export class FalQueue extends EventEmitter {
     return taskId
   }
 
-  private async processQueue() {
+  async processQueue() {
     if (this.processing.size >= this.maxConcurrent) return
     const raw = getRawDb()
     const pending = raw.prepare('SELECT * FROM tasks WHERE provider = \'fal\' AND status = ? ORDER BY created_at ASC').all('pending')
@@ -178,6 +184,9 @@ export class FalQueue extends EventEmitter {
     try {
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
 
+      // Re-hydrate media from binary assets (base64 only lives in memory here)
+      await hydratePayloadMedia(payload)
+
       let requestId = task.requestId || task.externalId || payload?.requestId
 
       if (requestId) {
@@ -193,7 +202,7 @@ export class FalQueue extends EventEmitter {
 
         payload.requestId = requestId
         raw.prepare('UPDATE tasks SET payload = ?, external_id = ?, request_id = ? WHERE task_id = ?')
-          .run(JSON.stringify(payload), requestId, requestId, task.taskId)
+          .run(JSON.stringify(redactPayload(payload)), requestId, requestId, task.taskId)
       }
 
       raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), task.taskId)
@@ -284,7 +293,7 @@ export class FalQueue extends EventEmitter {
           mime_type: 'video/mp4',
           model_used: taskPayload?.model || '',
           prompt: taskPayload?.prompt || '',
-          parameters: JSON.stringify(taskPayload),
+          parameters: JSON.stringify(redactPayload(taskPayload)),
           file_size: fileSize,
         })
       } catch (err: any) {
@@ -296,7 +305,7 @@ export class FalQueue extends EventEmitter {
           mime_type: 'video/mp4',
           model_used: taskPayload?.model || '',
           prompt: taskPayload?.prompt || '',
-          parameters: JSON.stringify(taskPayload),
+          parameters: JSON.stringify(redactPayload(taskPayload)),
         })
       }
     } else {
@@ -363,7 +372,7 @@ export class FalQueue extends EventEmitter {
         file_size: buffer.length,
         model_used: taskPayload?.model || '',
         prompt: taskPayload?.prompt || '',
-        parameters: JSON.stringify(taskPayload),
+        parameters: JSON.stringify(redactPayload(taskPayload)),
       })
     } catch (err: any) {
       logRun(raw, task.taskId, 'download-error', `Download failed: ${err.message}`, null, 'error')
@@ -374,7 +383,7 @@ export class FalQueue extends EventEmitter {
         mime_type: mimeType,
         model_used: taskPayload?.model || '',
         prompt: taskPayload?.prompt || '',
-        parameters: JSON.stringify(taskPayload),
+        parameters: JSON.stringify(redactPayload(taskPayload)),
       })
     }
 
@@ -438,7 +447,7 @@ export class FalQueue extends EventEmitter {
         file_size: buffer.length,
         model_used: taskPayload?.model || '',
         prompt: taskPayload?.prompt || '',
-        parameters: JSON.stringify(taskPayload),
+        parameters: JSON.stringify(redactPayload(taskPayload)),
       })
     } catch (err: any) {
       logRun(raw, task.taskId, 'download-error', `Download failed: ${err.message}`, null, 'error')
@@ -450,7 +459,7 @@ export class FalQueue extends EventEmitter {
         type: 'audio',
         model_used: taskPayload?.model || '',
         prompt: taskPayload?.prompt || '',
-        parameters: JSON.stringify(taskPayload),
+        parameters: JSON.stringify(redactPayload(taskPayload)),
       })
     }
 
@@ -482,7 +491,8 @@ export class FalQueue extends EventEmitter {
       error.message.toLowerCase().includes('incorrect') ||
       error.message.toLowerCase().includes('invalid')
 
-    if (retryCount <= MAX_RETRIES && !isNonRetryable) {
+    // Only resume an accepted job; never resubmit (see canAutoResume)
+    if (retryCount <= MAX_RETRIES && !isNonRetryable && canAutoResume(task.taskId || task.task_id, error)) {
       raw.prepare('UPDATE tasks SET status = ?, retry_count = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
         .run('pending', retryCount, error.message, Date.now(), taskId)
       this.emit('task:retry', { taskId, attempt: retryCount, error: error.message })
@@ -497,6 +507,25 @@ export class FalQueue extends EventEmitter {
       this.emit('task:failed', { taskId, error: error.message })
     }
     raw.save()
+  }
+
+  // ─── RecoverableQueue (see task-recovery.ts) ─────────────────
+
+  async checkRemote(task: any, requestId: string): Promise<RemoteTaskStatus> {
+    const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
+    const status = await this.apiClient.getRequestStatus(payload.model, requestId)
+    if (status.status !== 'COMPLETED') return { state: 'running', detail: status.status }
+    try {
+      return { state: 'completed', result: await this.apiClient.getRequestResult(payload.model, requestId) }
+    } catch (err: any) {
+      // fal reports failed jobs as COMPLETED and returns the job error from the result endpoint
+      if (/\((400|404|422)\)/.test(String(err?.message))) return { state: 'failed', error: err.message }
+      throw err
+    }
+  }
+
+  async completeRemote(task: any, result: FalResult): Promise<void> {
+    await this.handleSuccess(task, result)
   }
 
   async cancelTask(taskId: string): Promise<boolean> {
@@ -562,3 +591,8 @@ const ASPECT_TO_IMAGE_SIZE: Record<string, string> = {
 function aspectToImageSize(aspectRatio?: string): string {
   return ASPECT_TO_IMAGE_SIZE[aspectRatio || '1:1'] || 'square_1_1'
 }
+
+registerRecoverableProvider('fal', () => {
+  const key = readApiKey('falApiKey')
+  return key ? getFalQueue(key) : null
+})

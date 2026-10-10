@@ -5,6 +5,8 @@ export interface ReplicateModelCatalogEntry {
   name: string
   category: string
   version?: string
+  /** Replicate's owner/name when the id is prefixed to stay unique across providers */
+  apiModel?: string
   type: 'video' | 'image' | 'audio'
   costPerSecond?: number
   costPerImage?: number
@@ -77,6 +79,7 @@ export const REPLICATE_MODELS: ReplicateModelCatalogEntry[] = [
   { id: 'black-forest-labs/flux-1.1-pro', name: 'FLUX 1.1 Pro', category: 'Flux', type: 'image', costPerImage: 0.040, resolutions: ['1K'] },
   { id: 'ideogram-ai/ideogram-v2', name: 'Ideogram v2', category: 'Ideogram', type: 'image', costPerImage: 0.080, resolutions: ['1K'] },
   { id: 'ideogram-ai/ideogram-v2-turbo', name: 'Ideogram v2 Turbo', category: 'Ideogram', type: 'image', costPerImage: 0.040, resolutions: ['1K'] },
+  { id: 'replicate/google/nano-banana-2.1', apiModel: 'google/nano-banana-2.1', name: 'Nano Banana 2.1', category: 'Google', type: 'image', costPerImage: 0.034, resolutions: ['1K', '2K', '4K'] },
   { id: 'google/imagen-3', name: 'Imagen 3', category: 'Google', type: 'image', costPerImage: 0.030, resolutions: ['1K'] },
   { id: 'recraft-ai/recraft-v3', name: 'Recraft V3', category: 'Recraft', type: 'image', costPerImage: 0.040, resolutions: ['1K'] },
 

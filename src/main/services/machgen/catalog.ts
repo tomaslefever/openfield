@@ -1,5 +1,15 @@
 import type { MachgenModelDef } from './types'
 
+// Verified against the MachGen API error for GPT-Image-2.5-Sunburst I2I
+// ("allowed sizes: [...]"). Same fixed list applies to the GPT-Image-2.5 family.
+const GPT_IMAGE_SIZES: [number, number][] = [
+  [1280, 544], [1280, 720], [1920, 816], [1280, 848], [2048, 880],
+  [1280, 960], [1920, 1088], [2048, 1152], [720, 1280], [848, 1280],
+  [960, 1280], [1280, 1280], [2048, 1360], [2048, 1536], [3840, 1648],
+  [1088, 1920], [1152, 2048], [1360, 2048], [1536, 2048], [2048, 2048],
+  [3840, 2160], [2160, 3840],
+]
+
 export const MACHGEN_MODELS: MachgenModelDef[] = [
   // ─── Video models ─────────────────────────────────────────────────────────
   {
@@ -98,15 +108,16 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsR2V: true,
     supportsUpscale: true, // Accepts 768p outputs, returns 2K
     supportsVideoRef: true,
-    supportsAudioRef: false,
-    allowedHeights: [480, 768, 1080],
-    allowedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'],
-    allowedDurations: [5, 6, 8, 10, 12, 15],
+    supportsAudioRef: true, // R2V accepts up to 3 audio refs
+    allowedHeights: [480, 768, 1080, 1440],
+    allowedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    allowedDurations: Array.from({ length: 12 }, (_, i) => 4 + i), // 4..15 s, 1 s steps
     defaultFps: 24,
     prices: [
       { resolution: '480p', height: 480, costPerSec: 0.035 },
       { resolution: '768p', height: 768, costPerSec: 0.04 },
       { resolution: '1080p', height: 1080, costPerSec: 0.08 },
+      { resolution: '2K', height: 1440, costPerSec: 0.10 },
     ],
   },
   {
@@ -124,11 +135,12 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsAudioRef: false,
     allowedHeights: [480, 768, 1080],
     allowedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'],
-    allowedDurations: [5, 6, 8, 10, 12, 15],
+    allowedDurations: Array.from({ length: 11 }, (_, i) => 5 + i), // 5..15 s, 1 s steps
     defaultFps: 24,
+    // machgen.ai/pricing (Oct 2026) lists $0.01/s at 480p/768p (discounted from $0.02); 1080p is not listed
     prices: [
-      { resolution: '480p', height: 480, costPerSec: 0.015 },
-      { resolution: '768p', height: 768, costPerSec: 0.020 },
+      { resolution: '480p', height: 480, costPerSec: 0.01 },
+      { resolution: '768p', height: 768, costPerSec: 0.01 },
       { resolution: '1080p', height: 1080, costPerSec: 0.040 },
     ],
   },
@@ -144,13 +156,15 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsR2V: true,
     supportsVideoRef: true,
     supportsUpscale: false,
-    allowedHeights: [720, 1080],
+    allowedHeights: [480, 720, 1080],
     allowedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
-    allowedDurations: [5, 10],
+    allowedDurations: Array.from({ length: 27 }, (_, i) => 4 + i), // 4..30 s, 1 s steps
     defaultFps: 24,
+    // With an input video MachGen bills input + output seconds at a lower rate
     prices: [
-      { resolution: '720p', height: 720, costPerSec: 0.05 },
-      { resolution: '1080p', height: 1080, costPerSec: 0.09 },
+      { resolution: '480p', height: 480, costPerSec: 0.10, costPerSecWithVideoInput: 0.06 },
+      { resolution: '720p', height: 720, costPerSec: 0.23, costPerSecWithVideoInput: 0.14 },
+      { resolution: '1080p', height: 1080, costPerSec: 0.59, costPerSecWithVideoInput: 0.32 },
     ],
   },
   {
@@ -165,13 +179,16 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsR2V: true,
     supportsVideoRef: true,
     supportsUpscale: false,
-    allowedHeights: [720, 1080],
+    allowedHeights: [480, 720, 1080, 2160],
     allowedAspectRatios: ['16:9', '9:16', '1:1'],
     allowedDurations: [5, 10],
     defaultFps: 24,
+    // machgen.ai/pricing (Oct 2026); with an input video, input + output seconds are billed
     prices: [
-      { resolution: '720p', height: 720, costPerSec: 0.04 },
-      { resolution: '1080p', height: 1080, costPerSec: 0.07 },
+      { resolution: '480p', height: 480, costPerSec: 0.07, costPerSecWithVideoInput: 0.04 },
+      { resolution: '720p', height: 720, costPerSec: 0.15, costPerSecWithVideoInput: 0.085 },
+      { resolution: '1080p', height: 1080, costPerSec: 0.37, costPerSecWithVideoInput: 0.23 },
+      { resolution: '4K', height: 2160, costPerSec: 0.78, costPerSecWithVideoInput: 0.465 },
     ],
   },
   {
@@ -186,11 +203,14 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsR2V: true,
     supportsVideoRef: true,
     supportsUpscale: false,
-    allowedHeights: [720],
+    allowedHeights: [480, 720],
     allowedAspectRatios: ['16:9', '9:16', '1:1'],
     allowedDurations: [5, 10],
     defaultFps: 24,
-    prices: [{ resolution: '720p', height: 720, costPerSec: 0.025 }],
+    prices: [
+      { resolution: '480p', height: 480, costPerSec: 0.05, costPerSecWithVideoInput: 0.03 },
+      { resolution: '720p', height: 720, costPerSec: 0.12, costPerSecWithVideoInput: 0.07 },
+    ],
   },
   {
     id: 'Seedance-2.0-Mini',
@@ -204,11 +224,14 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsR2V: true,
     supportsVideoRef: true,
     supportsUpscale: false,
-    allowedHeights: [720],
+    allowedHeights: [480, 720],
     allowedAspectRatios: ['16:9', '9:16', '1:1'],
     allowedDurations: [5, 10],
     defaultFps: 24,
-    prices: [{ resolution: '720p', height: 720, costPerSec: 0.02 }],
+    prices: [
+      { resolution: '480p', height: 480, costPerSec: 0.033, costPerSecWithVideoInput: 0.02 },
+      { resolution: '720p', height: 720, costPerSec: 0.08, costPerSecWithVideoInput: 0.045 },
+    ],
   },
   {
     id: 'Kling-v3',
@@ -299,6 +322,8 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     allowedAspectRatios: ['16:9', '9:16', '1:1'],
     allowedDurations: [5, 10, 15],
     defaultFps: 24,
+    // API: "Alibaba-Wan-3.0 R2V does not support fps=24; allowed frame rates: [30]"
+    allowedFps: { R2V: [30] },
     prices: [
       { resolution: '720p', height: 720, costPerSec: 0.04 },
       { resolution: '1080p', height: 1080, costPerSec: 0.08 },
@@ -453,6 +478,7 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     id: 'Topaz-Video-Precision',
     name: 'Topaz-Video-Precision (MachGen)',
     category: 'Topaz',
+    upscaleEngines: ['proteus', 'artemis-hq', 'artemis-mq', 'artemis-lq', 'gaia-hq', 'gaia-cg'],
     hosting: 'Partner',
     supportedTasks: ['UPSCALE'],
     supportsT2V: false,
@@ -462,7 +488,7 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsUpscale: true,
     allowedHeights: [1080, 2160],
     allowedAspectRatios: ['16:9', '9:16', '1:1'],
-    allowedDurations: [5, 10],
+    allowedDurations: [], // length = the source video
     defaultFps: 24,
     prices: [{ resolution: '4K', height: 2160, costPerSec: 0.05 }],
   },
@@ -470,6 +496,7 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     id: 'Topaz-Video-Precision-Animation',
     name: 'Topaz-Video-Precision-Animation (MachGen)',
     category: 'Topaz',
+    upscaleEngines: ['gaia-2'],
     hosting: 'Partner',
     supportedTasks: ['UPSCALE'],
     supportsT2V: false,
@@ -479,7 +506,7 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsUpscale: true,
     allowedHeights: [1080, 2160],
     allowedAspectRatios: ['16:9', '9:16', '1:1'],
-    allowedDurations: [5, 10],
+    allowedDurations: [], // length = the source video
     defaultFps: 24,
     prices: [{ resolution: '4K', height: 2160, costPerSec: 0.05 }],
   },
@@ -487,6 +514,7 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     id: 'Topaz-Video-Generative',
     name: 'Topaz-Video-Generative (MachGen)',
     category: 'Topaz',
+    upscaleEngines: ['starlight-hq', 'starlight-precise-2-5', 'starlight-mini', 'starlight-sharp'],
     hosting: 'Partner',
     supportedTasks: ['UPSCALE'],
     supportsT2V: false,
@@ -496,7 +524,7 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsUpscale: true,
     allowedHeights: [1080, 2160],
     allowedAspectRatios: ['16:9', '9:16', '1:1'],
-    allowedDurations: [5, 10],
+    allowedDurations: [], // length = the source video
     defaultFps: 24,
     prices: [{ resolution: '4K', height: 2160, costPerSec: 0.06 }],
   },
@@ -504,6 +532,7 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     id: 'Topaz-Video-Generative-Fast',
     name: 'Topaz-Video-Generative-Fast (MachGen)',
     category: 'Topaz',
+    upscaleEngines: ['starlight-fast-2'],
     hosting: 'Partner',
     supportedTasks: ['UPSCALE'],
     supportsT2V: false,
@@ -513,7 +542,7 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsUpscale: true,
     allowedHeights: [1080, 2160],
     allowedAspectRatios: ['16:9', '9:16', '1:1'],
-    allowedDurations: [5, 10],
+    allowedDurations: [], // length = the source video
     defaultFps: 24,
     prices: [{ resolution: '4K', height: 2160, costPerSec: 0.04 }],
   },
@@ -622,7 +651,12 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     allowedAspectRatios: ['1:1', '16:9', '9:16'],
     allowedDurations: [],
     defaultFps: 0,
-    prices: [{ resolution: '1K', height: 1024, cost: 0.020 }],
+    // machgen.ai/pricing (Oct 2026): 1024p / 2048p / 4096p
+    prices: [
+      { resolution: '1K', height: 1024, cost: 0.04 },
+      { resolution: '2K', height: 2048, cost: 0.048 },
+      { resolution: '4K', height: 4096, cost: 0.089 },
+    ],
   },
   {
     id: 'Nano-Banana-Pro',
@@ -637,7 +671,12 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     allowedAspectRatios: ['1:1', '16:9', '9:16'],
     allowedDurations: [],
     defaultFps: 0,
-    prices: [{ resolution: '1K', height: 1024, cost: 0.035 }],
+    // machgen.ai/pricing (Oct 2026): 1024p / 2048p / 4096p
+    prices: [
+      { resolution: '1K', height: 1024, cost: 0.079 },
+      { resolution: '2K', height: 2048, cost: 0.079 },
+      { resolution: '4K', height: 4096, cost: 0.142 },
+    ],
   },
   {
     id: 'Seedream-5.0-lite',
@@ -652,7 +691,8 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     allowedAspectRatios: ['1:1', '16:9', '9:16'],
     allowedDurations: [],
     defaultFps: 0,
-    prices: [{ resolution: '1K', height: 1024, cost: 0.015 }],
+    // machgen.ai/pricing (Oct 2026): flat per image
+    prices: [{ resolution: '1K', height: 1024, cost: 0.038 }],
   },
   {
     id: 'GPT-Image-2',
@@ -667,7 +707,12 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     allowedAspectRatios: ['1:1', '16:9', '9:16'],
     allowedDurations: [],
     defaultFps: 0,
-    prices: [{ resolution: '1K', height: 1024, cost: 0.030 }],
+    // machgen.ai/pricing (Oct 2026) prices by exact size; heights of the 16:9 sizes (squarer sizes cost more)
+    prices: [
+      { resolution: '1K', height: 720, cost: 0.068 },
+      { resolution: '2K', height: 1152, cost: 0.10 },
+      { resolution: '4K', height: 2160, cost: 0.236 },
+    ],
   },
   {
     id: 'GPT-Image-2.5-Sunburst',
@@ -681,8 +726,14 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     allowedHeights: [1024],
     allowedAspectRatios: ['1:1', '16:9', '9:16'],
     allowedDurations: [],
+    allowedSizes: GPT_IMAGE_SIZES,
     defaultFps: 0,
-    prices: [{ resolution: '1K', height: 1024, cost: 0.040 }],
+    // machgen.ai/pricing (Oct 2026), heights of the 16:9 sizes (squarer sizes cost more)
+    prices: [
+      { resolution: '1K', height: 720, cost: 0.094 },
+      { resolution: '2K', height: 1152, cost: 0.14 },
+      { resolution: '4K', height: 2160, cost: 0.33 },
+    ],
   },
   {
     id: 'GPT-Image-2.5-Flare',
@@ -696,8 +747,14 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     allowedHeights: [1024],
     allowedAspectRatios: ['1:1', '16:9', '9:16'],
     allowedDurations: [],
+    allowedSizes: GPT_IMAGE_SIZES,
     defaultFps: 0,
-    prices: [{ resolution: '1K', height: 1024, cost: 0.045 }],
+    // machgen.ai/pricing (Oct 2026), heights of the 16:9 sizes (squarer sizes cost more)
+    prices: [
+      { resolution: '1K', height: 720, cost: 0.094 },
+      { resolution: '2K', height: 1152, cost: 0.14 },
+      { resolution: '4K', height: 2160, cost: 0.33 },
+    ],
   },
 
   // ─── Audio models ─────────────────────────────────────────────────────────
@@ -749,6 +806,8 @@ const ALIASES: Record<string, string> = {
   'flux-dev': 'FLUX.2-dev',
   'flux-schnell': 'FLUX.2-dev',
   'flux-2-pro': 'FLUX.2-dev',
+  'flux-2-dev': 'FLUX.2-dev',
+  'flux.2-dev': 'FLUX.2-dev',
   'kokoro-82m': 'Eleven-v3',
   'fish-speech': 'Eleven-v3',
   'stable-audio': 'Eleven-Music-v2',

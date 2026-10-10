@@ -6,6 +6,17 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="shortcut icon" type="image/png" href="/favicon.png" />
     <title>Openfield</title>
+    <script>
+      // Apply the cached theme before first paint (see src/renderer/src/lib/theme.ts)
+      (function () {
+        var pref = 'dark'
+        try { pref = localStorage.getItem('openfield-theme') || 'dark' } catch (e) {}
+        var dark = pref === 'system'
+          ? window.matchMedia('(prefers-color-scheme: dark)').matches
+          : pref !== 'light'
+        document.documentElement.classList.toggle('dark', dark)
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

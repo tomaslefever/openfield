@@ -1,6 +1,7 @@
 import type { IpcContext } from './context'
 import { readSetting } from './helpers'
 import { getHiggsfieldQueue } from '../services/higgsfield-queue'
+import { HiggsfieldApiClient } from '../services/higgsfield'
 
 export function requireHiggsfieldKey(): string {
   const key = readSetting('higgsfieldApiKey')
@@ -40,5 +41,17 @@ export function registerHiggsfieldHandlers({ raw, handle }: IpcContext) {
   handle('higgsfield:task:cancel', (_e, taskId: string) => {
     const apiKey = requireHiggsfieldKey()
     return getHiggsfieldQueue(apiKey).cancelTask(taskId)
+  })
+
+  handle('higgsfield:presets', async (_e, cursor?: string) => {
+    const apiKey = requireHiggsfieldKey()
+    const client = new HiggsfieldApiClient(apiKey)
+    return client.getMarketingStudioPresets(50, cursor)
+  })
+
+  // Public catalog: no API key needed to browse traits
+  handle('higgsfield:influencer-options', async () => {
+    const client = new HiggsfieldApiClient(readSetting('higgsfieldApiKey') || '')
+    return client.getAiInfluencerOptions()
   })
 }

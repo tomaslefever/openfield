@@ -14,6 +14,8 @@ import { initFalQueue } from './services/fal-queue'
 import { getMcpBridge } from './services/mcp'
 import { isBridgeEnabled } from './services/storyboard-service'
 import { initUpdater, checkForUpdates } from './services/updater'
+import { applyNativeTheme, normalizeTheme, windowBackground } from './services/theme'
+import { readSetting } from './ipc/helpers'
 
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev')
 let mainWindow: BrowserWindow | null = null
@@ -50,13 +52,14 @@ protocol.registerSchemesAsPrivileged([
 async function createWindow() {
   const iconPath = getAppIconPath()
   const appIcon = iconPath ? nativeImage.createFromPath(iconPath) : undefined
+  try { applyNativeTheme(normalizeTheme(readSetting('theme'))) } catch {}
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
     title: 'Openfield',
-    backgroundColor: '#0f0f0f',
+    backgroundColor: windowBackground(),
     show: false,
     icon: appIcon && !appIcon.isEmpty() ? appIcon : iconPath,
     webPreferences: {

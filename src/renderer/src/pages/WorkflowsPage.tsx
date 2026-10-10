@@ -45,7 +45,7 @@ export function WorkflowsPage() {
                 <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button className="btn-ghost text-xs flex items-center gap-1"><Play size={12} /> Run</button>
                   <button className="btn-ghost text-xs flex items-center gap-1"><Save size={12} /> Edit</button>
-                  <button onClick={() => deleteMutation.mutate(wf.id)} className="btn-ghost text-xs text-red-400 flex items-center gap-1 ml-auto"><Trash2 size={12} /> Delete</button>
+                  <button onClick={() => deleteMutation.mutate(wf.id)} className="btn-ghost text-xs text-red-500 dark:text-red-400 flex items-center gap-1 ml-auto"><Trash2 size={12} /> Delete</button>
                 </div>
               </div>
             ))}

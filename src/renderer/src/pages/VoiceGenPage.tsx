@@ -7,7 +7,7 @@ export function VoiceGenPage() {
   const [audioStatus, setAudioStatus] = useState<{ status: string; message: string; pct: number } | null>(null)
   const [audioError, setAudioError] = useState('')
 
-  const { assets, reset } = usePagedAssets({ type: 'audio', pageSize: 20, excludeUploads: true })
+  const { assets, reset, hasMore, loadingMore, loadMore, sentinelRef } = usePagedAssets({ type: 'audio', pageSize: 20, excludeUploads: true })
   const voiceAssets = useMemo(() => assets.filter((a: any) => getAudioKind(a) === 'voice'), [assets])
 
   useEffect(() => {
@@ -108,6 +108,10 @@ export function VoiceGenPage() {
       <VoiceGenView
         onGenerate={handleGenerate}
         voiceAssets={voiceAssets}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        loadMore={loadMore}
+        sentinelRef={sentinelRef}
         isGenerating={!!audioStatus}
         statusMessage={audioStatus?.message || ''}
         statusPct={audioStatus?.pct || 0}

@@ -92,13 +92,83 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
 
     const higgsfieldKey = readSetting('higgsfieldApiKey')
     if (higgsfieldKey) {
-      balances.push({
-        provider: 'higgsfield',
-        label: 'Higgsfield AI',
-        kind: 'account',
-        value: 'Connected',
-        url: 'https://console.higgsfield.ai',
-      })
+      try {
+        const raw = higgsfieldKey.trim()
+        const authHeader = raw.startsWith('Key ') ? raw : `Key ${raw}`
+        const res = await fetch('https://api.higgsfield.ai/requests/00000000-0000-0000-0000-000000000000/status', {
+          headers: { 'Authorization': authHeader },
+        })
+        if (res.status === 401) {
+          balances.push({
+            provider: 'higgsfield',
+            label: 'Higgsfield AI',
+            kind: 'account',
+            value: 'Credenciales inválidas',
+            url: 'https://console.higgsfield.ai',
+          })
+        } else {
+          balances.push({
+            provider: 'higgsfield',
+            label: 'Higgsfield AI',
+            kind: 'account',
+            value: 'Conectado',
+            url: 'https://console.higgsfield.ai',
+          })
+        }
+      } catch {
+        balances.push({
+          provider: 'higgsfield',
+          label: 'Higgsfield AI',
+          kind: 'account',
+          value: 'Conectado',
+          url: 'https://console.higgsfield.ai',
+        })
+      }
+    }
+
+    const apimartKey = readSetting('apimartApiKey')
+    if (apimartKey) {
+      try {
+        const res = await fetch('https://api.apimart.ai/v1/user/balance', {
+          headers: { Authorization: `Bearer ${apimartKey}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data?.success) {
+            balances.push({
+              provider: 'apimart',
+              label: 'APIMart',
+              kind: 'dollars',
+              value: data.remain_balance != null ? Math.round(data.remain_balance * 100) / 100 : 'Conectado',
+              url: 'https://apimart.ai/keys',
+            })
+          } else {
+            balances.push({
+              provider: 'apimart',
+              label: 'APIMart',
+              kind: 'account',
+              value: 'Conectado',
+              url: 'https://apimart.ai/keys',
+            })
+          }
+        } else {
+          balances.push({
+            provider: 'apimart',
+            label: 'APIMart',
+            kind: 'account',
+            value: res.status === 401 ? 'API Key inválida' : 'Conectado',
+            url: 'https://apimart.ai/keys',
+          })
+        }
+      } catch {
+        balances.push({
+          provider: 'apimart',
+          label: 'APIMart',
+          kind: 'account',
+          value: 'Conectado',
+          url: 'https://apimart.ai/keys',
+        })
+      }
     }
 
     const deepseekKey = readSetting('deepseekApiKey')

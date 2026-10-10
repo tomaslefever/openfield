@@ -260,7 +260,7 @@ const Sidebar = React.forwardRef<
  >
  <div
  data-sidebar="sidebar"
-  className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:shadow-2xl group-data-[variant=floating]:shadow-indigo-900/20 group-data-[variant=floating]:border group-data-[variant=floating]:border-border/30 group-data-[variant=floating]:shadow-indigo group-data-[variant=floating]:shadow"
+  className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-2xl group-data-[variant=floating]:shadow-float group-data-[variant=floating]:border group-data-[variant=floating]:border-border/30"
  >
  {children}
  </div>
@@ -530,7 +530,7 @@ const sidebarMenuButtonVariants = cva(
       variant: {
         default: "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         outline:
-          "bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
+          "bg-background shadow-[0_0_0_1px_rgb(var(--hairline))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_rgb(var(--surface-800))]",
       },
       size: {
         default: "h-9 text-sm",

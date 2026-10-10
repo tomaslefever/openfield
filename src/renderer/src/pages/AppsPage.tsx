@@ -49,7 +49,7 @@ function AppCard({ app, onLaunch, onDetails }: {
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); onLaunch(app) }}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition-all opacity-0 group-hover:opacity-100"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-pill bg-accent-600 hover:bg-accent-500 text-on-accent text-xs font-medium transition-all opacity-0 group-hover:opacity-100"
           >
             <Play size={12} /> Launch
           </button>
@@ -147,7 +147,7 @@ export function AppsPage() {
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-                  className={`text-[11px] px-2.5 py-1 rounded-lg transition-all ${
+                  className={`text-[11px] px-2.5 py-1 rounded-pill transition-all ${
                     activeCategory === cat
                       ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
                       : 'bg-surface-800 text-surface-400 hover:text-surface-200 border border-surface-700'
@@ -162,7 +162,7 @@ export function AppsPage() {
                 <button
                   key={kind}
                   onClick={() => setActiveKind(activeKind === kind ? null : kind)}
-                  className={`text-[11px] px-2.5 py-1 rounded-lg transition-all ${
+                  className={`text-[11px] px-2.5 py-1 rounded-pill transition-all ${
                     activeKind === kind
                       ? 'bg-surface-700 text-surface-200 border border-surface-600'
                       : 'bg-surface-800 text-surface-500 hover:text-surface-300 border border-surface-800'
