@@ -18,6 +18,15 @@ export function extractUrls(resultJson: any): string[] {
     return resultJson.filter((u: any) => typeof u === 'string' && u.startsWith('http'))
   }
 
+  // Suno (ai-music-api): tracks are objects with audio_url in data[] (or response.data[])
+  const tracks = resultJson?.data ?? resultJson?.response?.data
+  if (Array.isArray(tracks)) {
+    const audioUrls = tracks
+      .map((t: any) => t?.audio_url || t?.audioUrl)
+      .filter((u: any) => typeof u === 'string' && u.startsWith('http'))
+    if (audioUrls.length > 0) return audioUrls
+  }
+
   // Try common field names for result URLs
   const fields = ['resultUrls', 'resultUrl', 'urls', 'url', 'imageUrls', 'imageUrl', 'image_url', 'videoUrl', 'video_url', 'outputUrl', 'output_url', 'downloadUrl', 'download_url', 'fileUrl', 'file_url', 'src', 'images']
   for (const field of fields) {
@@ -318,20 +327,37 @@ export class TaskQueue extends EventEmitter {
       genTimeSeconds = Number((elapsedMs / 1000).toFixed(1))
     }
 
-    const extraParams = {
+    const extraParams: Record<string, any> = {
       generationTimeSeconds: genTimeSeconds,
       generationTimeMs: genTimeMs,
       generationTime: `${genTimeSeconds}s`,
       costTime: result.costTime || genTimeSeconds,
     }
 
-    const resultUrls = extractUrls(result.resultJson)
+    // Some tasks (Suno) may only expose the parsed result as `response`
+    let resultUrls = extractUrls(result.resultJson)
+    if (resultUrls.length === 0 && result.response) resultUrls = extractUrls(result.response)
 
     let localAssetId: string | null = null
     const type = task.type as 'image' | 'video' | 'audio'
     const remoteUrl = resultUrls.length > 0 ? resultUrls[0] : null
 
-    const defaultMime = () => type === 'image' ? 'image/png' : type === 'audio' ? 'audio/mpeg' : 'video/mp4'
+    // Audio models return different formats (Gemini TTS → WAV), so trust the result URL's extension
+    const AUDIO_MIMES: Record<string, string> = { '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.m4a': 'audio/mp4', '.aac': 'audio/aac' }
+    const audioExtOf = (url: string | null): string => {
+      if (type !== 'audio' || !url) return '.mp3'
+      try {
+        const ext = path.extname(new URL(url).pathname).toLowerCase()
+        return AUDIO_MIMES[ext] ? ext : '.mp3'
+      } catch { return '.mp3' }
+    }
+    const audioExt = audioExtOf(remoteUrl)
+
+    // Music models (Suno) return several variations: the first fills the placeholder, the rest become extra assets
+    const extraAudioUrls = type === 'audio' ? resultUrls.slice(1) : []
+    if (extraAudioUrls.length > 0) extraParams.variation = 1
+
+    const defaultMime = () => type === 'image' ? 'image/png' : type === 'audio' ? AUDIO_MIMES[audioExt] : 'video/mp4'
 
     const updatePlaceholderWithRemote = () => {
       if (!remoteUrl) return
@@ -352,7 +378,7 @@ export class TaskQueue extends EventEmitter {
     }
 
     if (remoteUrl) {
-      const ext = type === 'video' ? '.mp4' : type === 'audio' ? '.mp3' : '.png'
+      const ext = type === 'video' ? '.mp4' : type === 'audio' ? audioExt : '.png'
       let fileName = `${assetId}${ext}`
       const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
       const subDir = workspaceAssetSubDir(type, taskWs)
@@ -426,6 +452,45 @@ export class TaskQueue extends EventEmitter {
     } else {
       logRun(raw, task.taskId, 'no-url', `No result URL found in resultJson: ${JSON.stringify(result.resultJson).substring(0, 200)}`, null, 'warn')
       console.warn('[TaskQueue] No result URL found in resultJson. Full response:', JSON.stringify(result).substring(0, 500))
+    }
+
+    if (extraAudioUrls.length > 0) {
+      const taskWs = task.workspace_id || getTaskWorkspace(task.taskId)
+      const subDir = workspaceAssetSubDir('audio', taskWs)
+      for (const [i, url] of extraAudioUrls.entries()) {
+        const extraId = crypto.randomUUID()
+        const ext = audioExtOf(url)
+        const fileName = `${extraId}${ext}`
+        const params = buildStoredParams(taskPayload, raw, task.taskId, { ...extraParams, variation: i + 2 })
+        let localPath: string | null = null
+        let fileSize = 0
+        try {
+          logRun(raw, task.taskId, 'download', `Downloading variation ${i + 2}: ${url.substring(0, 80)}...`)
+          const resp = await fetch(url)
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+          const buffer = Buffer.from(await resp.arrayBuffer())
+          await fs.mkdir(subDir, { recursive: true })
+          localPath = `${subDir}/${fileName}`
+          await fs.writeFile(localPath, buffer)
+          fileSize = buffer.length
+        } catch (err: any) {
+          // Keep the variation with its remote URL so it still plays from the gallery
+          logRun(raw, task.taskId, 'download-error', `Variation ${i + 2} download failed: ${err.message}`, null, 'error')
+        }
+        // Credits are billed once per task and already recorded on the first variation
+        raw.prepare(
+          `INSERT INTO assets (id, type, file_path, local_path, file_name, mime_type, model_used, provider, prompt, parameters, file_size, credits_used, task_id, workspace_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          extraId, 'audio', url, localPath, localPath ? fileName : `remote-audio-${extraId}`, AUDIO_MIMES[ext],
+          taskPayload?.model || result.model || '', 'kie',
+          taskPayload?.prompt || '',
+          params,
+          fileSize,
+          0,
+          task.taskId, taskWs, Date.now(), Date.now()
+        )
+      }
     }
 
     raw.prepare(

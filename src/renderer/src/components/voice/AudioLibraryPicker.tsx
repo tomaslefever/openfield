@@ -15,8 +15,15 @@ function modelLabel(model: string | undefined): string {
   if (model.startsWith('elevenlabs:vc:')) return `ElevenLabs VC · ${model.slice(13)}`
   if (model.startsWith('elevenlabs:')) return `ElevenLabs · ${model.slice(11)}`
   const names: Record<string, string> = {
+    'elevenlabs/text-to-speech-multilingual-v2': 'ElevenLabs Multilingual v2 (KIE)',
+    'elevenlabs/text-to-speech-turbo-2-5': 'ElevenLabs Turbo 2.5 (KIE)',
+    'google/gemini-3-1-flash-tts': 'Gemini 3.1 Flash TTS (KIE)',
+    'google/gemini-3-8-flash-tts': 'Gemini 3.8 Flash TTS (KIE)',
     'gpt-tts-1': 'GPT TTS',
     'minimax-text-to-speech': 'MiniMax TTS',
+    'suno/V6': 'Suno V6',
+    'suno/V6_MINI': 'Suno V6 Mini',
+    'suno/V6_WILD': 'Suno V6 Wild',
     'openaudio-text-to-music': 'OpenAudio Music',
     'mucat-text-to-music': 'MuCat Music',
     'elevenlabs:sfx': 'ElevenLabs SFX',

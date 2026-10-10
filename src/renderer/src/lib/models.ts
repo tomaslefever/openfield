@@ -44,6 +44,10 @@ export interface ModelPricing {
   falAspectRatios?: string[]
   pvAspectRatios?: string[]
   aspectRatios?: string[]
+  /** Music model that picks its own length: no duration control is shown or sent */
+  hideDuration?: boolean
+  /** Music model with an instrumental (no vocals) switch */
+  supportsInstrumental?: boolean
 }
 
 /**
@@ -673,19 +677,20 @@ export const VIDEO_MODELS: ModelPricing[] = [
 export const AUDIO_MODELS: ModelPricing[] = [
   { name: 'ElevenLabs TTS', category: 'ElevenLabs', unit: 'img', t2aId: 'elevenlabs-tts', kind: 'voice', provider: 'elevenlabs', engine: 'elevenlabs',
     prices: [{ resolution: 'clip', cost: 0.015 }] },
-  { name: 'GPT TTS', category: 'OpenAI', unit: 'img', t2aId: 'gpt-tts-1', kind: 'voice', provider: 'kie',
-    prices: [{ resolution: 'clip', cost: 0.004 }] },
-  { name: 'MiniMax TTS', category: 'MiniMax', unit: 'img', t2aId: 'minimax-text-to-speech', kind: 'voice', provider: 'kie',
-    prices: [{ resolution: 'clip', cost: 0.003 }] },
+  // KIE TTS (docs.kie.ai/market): costs are estimates, KIE doesn't publish per-request prices
+  { name: 'ElevenLabs Multilingual v2 (KIE)', category: 'ElevenLabs', unit: 'img', t2aId: 'elevenlabs/text-to-speech-multilingual-v2', kind: 'voice', provider: 'kie',
+    prices: [{ resolution: 'clip', cost: 0.020 }] },
+  { name: 'ElevenLabs Turbo 2.5 (KIE)', category: 'ElevenLabs', unit: 'img', t2aId: 'elevenlabs/text-to-speech-turbo-2-5', kind: 'voice', provider: 'kie',
+    prices: [{ resolution: 'clip', cost: 0.015 }] },
+  { name: 'Gemini 3.1 Flash TTS (KIE)', category: 'Google', unit: 'img', t2aId: 'google/gemini-3-1-flash-tts', kind: 'voice', provider: 'kie',
+    prices: [{ resolution: 'clip', cost: 0.015 }] },
+  { name: 'Gemini 3.8 Flash TTS (KIE)', category: 'Google', unit: 'img', t2aId: 'google/gemini-3-8-flash-tts', kind: 'voice', provider: 'kie',
+    prices: [{ resolution: 'clip', cost: 0.015 }] },
   { name: 'ElevenLabs Music', category: 'ElevenLabs', unit: 's', t2aId: 'elevenlabs-music', kind: 'music', provider: 'elevenlabs', engine: 'elevenlabs',
     prices: [{ resolution: 'std', cost: 0.004 }],
     durationMax: 600, durationOptions: ['15', '30', '60', '120', '180', '300'] },
 
   // Missing TTS (Voice) models
-  { name: 'Qwen 3 TTS (KIE)', category: 'Qwen', unit: 'img', t2aId: 'qwen-3-tts', kind: 'voice', provider: 'kie',
-    prices: [{ resolution: 'clip', cost: 0.015 }] },
-  { name: 'ElevenLabs TTS (KIE)', category: 'ElevenLabs', unit: 'img', t2aId: 'elevenlabs-tts-kie', kind: 'voice', provider: 'kie',
-    prices: [{ resolution: 'clip', cost: 0.020 }] },
   { name: 'Dia TTS (Fal)', category: 'Fal', unit: 'img', t2aId: 'fal-ai/dia-tts', kind: 'voice', provider: 'fal',
     prices: [{ resolution: 'clip', cost: 0.030 }] },
   { name: 'Orpheus TTS (Fal)', category: 'Fal', unit: 'img', t2aId: 'fal-ai/orpheus-tts', kind: 'voice', provider: 'fal',
@@ -719,10 +724,13 @@ export const AUDIO_MODELS: ModelPricing[] = [
   { name: 'ElevenLabs Music v2.5', category: 'ElevenLabs', unit: 's', t2aId: 'elevenlabs-music-v2-5', kind: 'music', provider: 'elevenlabs', engine: 'elevenlabs',
     prices: [{ resolution: 'std', cost: 0.004 }],
     durationMax: 600, durationOptions: ['15', '30', '60', '120', '180', '300'] },
-  { name: 'Suno v4 / v4.5 (KIE)', category: 'Suno', unit: 'img', t2aId: 'suno-v4', kind: 'music', provider: 'kie',
-    prices: [{ resolution: 'song', cost: 0.040 }] },
-  { name: 'Suno v3.5 (KIE)', category: 'Suno', unit: 'img', t2aId: 'suno-v3-5', kind: 'music', provider: 'kie',
-    prices: [{ resolution: 'song', cost: 0.030 }] },
+  // Suno on KIE: older versions are discontinued; the length is chosen by the model. Cost is an estimate
+  { name: 'Suno V6 (KIE)', category: 'Suno', unit: 'img', t2aId: 'suno/V6', kind: 'music', provider: 'kie', hideDuration: true, supportsInstrumental: true,
+    prices: [{ resolution: 'song', cost: 0.060 }] },
+  { name: 'Suno V6 Mini (KIE)', category: 'Suno', unit: 'img', t2aId: 'suno/V6_MINI', kind: 'music', provider: 'kie', hideDuration: true, supportsInstrumental: true,
+    prices: [{ resolution: 'song', cost: 0.060 }] },
+  { name: 'Suno V6 Wild (KIE)', category: 'Suno', unit: 'img', t2aId: 'suno/V6_WILD', kind: 'music', provider: 'kie', hideDuration: true, supportsInstrumental: true,
+    prices: [{ resolution: 'song', cost: 0.060 }] },
   { name: 'MiniMax Music 3 (Fal)', category: 'MiniMax', unit: 'img', t2aId: 'fal-ai/minimax/music-3', kind: 'music', provider: 'fal',
     prices: [{ resolution: 'clip', cost: 0.030 }] },
   { name: 'MiniMax Music 2.0 (Fal)', category: 'MiniMax', unit: 'img', t2aId: 'fal-ai/minimax-music', kind: 'music', provider: 'fal',

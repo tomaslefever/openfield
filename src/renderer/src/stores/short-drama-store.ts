@@ -311,7 +311,7 @@ function uid(): string {
 
 const DEFAULT_IMAGE_MODEL = IMAGE_MODELS.find(m => m.t2iId === 'seedream/5-pro-text-to-image' || m.t2iId === 'seedream-5-pro-text-to-image') || IMAGE_MODELS[0]
 const DEFAULT_VIDEO_MODEL = VIDEO_MODELS.find(m => m.t2vId === 'kling-3.0/video') || VIDEO_MODELS[0]
-const DEFAULT_VOICE_MODEL = AUDIO_MODELS.find(m => m.t2aId === 'minimax-text-to-speech') || AUDIO_MODELS[0]
+const DEFAULT_VOICE_MODEL = AUDIO_MODELS.find(m => m.t2aId === 'elevenlabs/text-to-speech-multilingual-v2') || AUDIO_MODELS[0]
 export const getDefaultLlmModel = (): ModelPricing => {
   try {
     const configured = useProvidersStore.getState().configuredProviders

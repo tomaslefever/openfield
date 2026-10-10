@@ -52,7 +52,7 @@ export const BUILTIN_APPS: AppDefinition[] = [
       shotsCount: 4,
       imageModel: 'seedream/5-pro-text-to-image',
       videoModel: 'kling-3.0/video',
-      voiceModel: 'minimax-text-to-speech',
+      voiceModel: 'elevenlabs/text-to-speech-multilingual-v2',
     },
     isBuiltIn: true,
     createdAt: Date.now(),

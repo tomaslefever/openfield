@@ -4,6 +4,11 @@ import { AUDIO_MODELS, cleanModelName, type ProviderId } from './models'
 export const MODEL_NAMES: Record<string, string> = {
   // Voice / TTS
   'elevenlabs-tts': 'ElevenLabs TTS',
+  'elevenlabs/text-to-speech-multilingual-v2': 'ElevenLabs Multilingual v2 (KIE)',
+  'elevenlabs/text-to-speech-turbo-2-5': 'ElevenLabs Turbo 2.5 (KIE)',
+  'google/gemini-3-1-flash-tts': 'Gemini 3.1 Flash TTS (KIE)',
+  'google/gemini-3-8-flash-tts': 'Gemini 3.8 Flash TTS (KIE)',
+  // Legacy ids (no longer offered by KIE), kept to label old assets
   'gpt-tts-1': 'GPT TTS',
   'minimax-text-to-speech': 'MiniMax TTS',
   'qwen-3-tts': 'Qwen 3 TTS',
@@ -33,6 +38,9 @@ export const MODEL_NAMES: Record<string, string> = {
   'elevenlabs-music': 'ElevenLabs Music',
   'elevenlabs-music-v2-5': 'ElevenLabs Music v2.5',
   'elevenlabs:sfx': 'ElevenLabs SFX',
+  'suno/V6': 'Suno V6',
+  'suno/V6_MINI': 'Suno V6 Mini',
+  'suno/V6_WILD': 'Suno V6 Wild',
   'suno-v4': 'Suno v4 / v4.5',
   'suno-v3-5': 'Suno v3.5',
   'fal-ai/minimax/music-3': 'MiniMax Music 3',
@@ -142,7 +150,7 @@ export function getAudioProvider(asset: any): ProviderId | null {
   ) {
     return 'replicate'
   }
-  if (model.startsWith('suno-') || model.startsWith('gpt-tts') || model.startsWith('minimax-') || model.startsWith('qwen-')) {
+  if (model.startsWith('suno-') || model.startsWith('suno/') || model.startsWith('gpt-tts') || model.startsWith('minimax-') || model.startsWith('qwen-')) {
     return 'kie'
   }
 

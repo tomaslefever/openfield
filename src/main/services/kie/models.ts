@@ -27,14 +27,15 @@ export const IMAGE_MODELS = [
 ]
 
 export const AUDIO_MODELS = [
-  { id: 'gpt-tts-1', name: 'GPT TTS', cost: 0.004, unit: 'img', category: 'OpenAI' },
-  { id: 'minimax-text-to-speech', name: 'MiniMax TTS', cost: 0.003, unit: 'img', category: 'MiniMax' },
-  { id: 'openaudio-text-to-music', name: 'OpenAudio Music', cost: 0.004, unit: 's', category: 'OpenAudio' },
-  { id: 'mucat-text-to-music', name: 'MuCat Music', cost: 0.006, unit: 's', category: 'MuCat' },
-  { id: 'qwen-3-tts', name: 'Qwen 3 TTS', cost: 0.015, unit: 'img', category: 'Qwen' },
-  { id: 'elevenlabs-tts-kie', name: 'ElevenLabs TTS (KIE)', cost: 0.020, unit: 'img', category: 'ElevenLabs' },
-  { id: 'suno-v4', name: 'Suno v4', cost: 0.040, unit: 'img', category: 'Suno' },
-  { id: 'suno-v3-5', name: 'Suno v3.5', cost: 0.030, unit: 'img', category: 'Suno' },
+  // TTS: KIE docs don't publish per-request prices; costs are estimates per clip
+  { id: 'elevenlabs/text-to-speech-multilingual-v2', name: 'ElevenLabs Multilingual v2 (KIE)', cost: 0.020, unit: 'img', category: 'ElevenLabs' },
+  { id: 'elevenlabs/text-to-speech-turbo-2-5', name: 'ElevenLabs Turbo 2.5 (KIE)', cost: 0.015, unit: 'img', category: 'ElevenLabs' },
+  { id: 'google/gemini-3-1-flash-tts', name: 'Gemini 3.1 Flash TTS (KIE)', cost: 0.015, unit: 'img', category: 'Google' },
+  { id: 'google/gemini-3-8-flash-tts', name: 'Gemini 3.8 Flash TTS (KIE)', cost: 0.015, unit: 'img', category: 'Google' },
+  // Suno via ai-music-api/generate (see kie/music.ts); ~$0.06 per generation is an estimate
+  { id: 'suno/V6', name: 'Suno V6', cost: 0.060, unit: 'img', category: 'Suno' },
+  { id: 'suno/V6_MINI', name: 'Suno V6 Mini', cost: 0.060, unit: 'img', category: 'Suno' },
+  { id: 'suno/V6_WILD', name: 'Suno V6 Wild', cost: 0.060, unit: 'img', category: 'Suno' },
 ] as const
 
 export const VIDEO_MODELS = [

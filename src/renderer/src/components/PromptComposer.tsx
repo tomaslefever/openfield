@@ -43,6 +43,7 @@ export interface PromptComposerHandle {
     duration?: number
     fps?: number
     sound?: boolean
+    instrumental?: boolean
     imageBase64?: string
     imageMime?: string
     imageRefs?: { base64: string; mime: string; name?: string; refType?: string }[]
@@ -72,6 +73,7 @@ interface PromptComposerProps {
     duration?: number
     fps?: number
     sound?: boolean
+    instrumental?: boolean
     enhancePrompt?: boolean
     imageBase64?: string
     imageMime?: string
@@ -231,7 +233,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const [modelName, setModelName] = useState(() => {
     if (initialModel) return initialModel
     const storageKey = `openfield-model-${mode}`
-    const def = mode === 'video' ? 'Seedance 2 Fast' : mode === 'audio' ? 'GPT TTS' : 'GPT Image 2'
+    const def = mode === 'video' ? 'Seedance 2 Fast' : mode === 'audio' ? 'ElevenLabs TTS' : 'GPT Image 2'
     try {
       const local = localStorage.getItem(storageKey)
       if (mode === 'video' && (!local || local === 'Kling 3.0')) return def
@@ -278,7 +280,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     if (!initialResolution && savedRes) setResolution(savedRes)
   }, [activeWorkspaceId, mode, initialModel, initialAspectRatio, initialResolution])
   const defaultModel = (mode === 'video' ? VIDEO_MODELS : mode === 'audio' ? AUDIO_MODELS : IMAGE_MODELS).find(m => {
-    const def = mode === 'video' ? 'Seedance 2 Fast' : mode === 'audio' ? 'GPT TTS' : 'GPT Image 2'
+    const def = mode === 'video' ? 'Seedance 2 Fast' : mode === 'audio' ? 'ElevenLabs TTS' : 'GPT Image 2'
     return m.name === (modelName || def)
   })
   const [resolution, setResolution] = useState(initialResolution || defaultModel?.prices[0]?.resolution || '1K')
@@ -445,6 +447,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   }, [prompt])
   const [multiPrompt, setMultiPrompt] = useState<{ prompt: string; duration: number }[]>([])
   const [soundEnabled, setSoundEnabled] = useState(false)
+  const [instrumental, setInstrumental] = useState(false)
   const [imageRefEntries, setImageRefEntries] = useState<{ name: string; type: 'subject' | 'background'; base64?: string; mime?: string }[]>([])
   const [replicateVoice, setReplicateVoice] = useState('Zephyr (Female)')
   const [replicateLanguage, setReplicateLanguage] = useState('English (US)')
@@ -1297,6 +1300,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (params.duration != null) setDuration(params.duration)
       if (params.fps != null) { setFps(params.fps); if (params.fps === 24 || params.fps === 48) setPVideoFps(params.fps) }
       if (params.sound != null) setSoundEnabled(params.sound)
+      if (params.instrumental != null) setInstrumental(!!params.instrumental)
       if (params.draft != null) setPVideoDraft(params.draft)
       if (params.voice) setReplicateVoice(params.voice)
       if (params.voiceLanguage) setReplicateLanguage(params.voiceLanguage)
@@ -1418,7 +1422,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       onGenerate({
         prompt: prompt.trim(),
         model: activeAudioId,
-        duration: currentModel.kind === 'music' ? duration : undefined,
+        duration: currentModel.kind === 'music' && !currentModel.hideDuration ? duration : undefined,
+        instrumental: currentModel.supportsInstrumental ? instrumental : undefined,
         modelId: currentModel.modelId,
         voiceId: currentModel.voiceId,
         engine: currentModel.engine,
@@ -1591,7 +1596,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       setShowRefsModal(false)
       setImageRefEntries([])
     }
-  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, showRefsModal, imageRefEntries, elements, isReplicate, isFal, isMachgen, isHiggsfield, machgenEnhancePrompt, isPVideo, pVideoFps, pVideoDraft, replicateVoice, replicateLanguage, cameraEnabled, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting, filmLook, cameraSpeed, embedded])
+  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, instrumental, showRefsModal, imageRefEntries, elements, isReplicate, isFal, isMachgen, isHiggsfield, machgenEnhancePrompt, isPVideo, pVideoFps, pVideoDraft, replicateVoice, replicateLanguage, cameraEnabled, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting, filmLook, cameraSpeed, embedded])
 
   const ffImageSrc = firstFrameUrl
     ? srcUrl(firstFrameUrl)
@@ -2322,7 +2327,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               )}
 
               {/* Audio duration for music models */}
-              {mode === 'audio' && currentModel.kind === 'music' && (
+              {mode === 'audio' && currentModel.kind === 'music' && !currentModel.hideDuration && (
                 <StreamDuration
                   value={duration}
                   options={currentModel.durationOptions}
@@ -2330,6 +2335,15 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   max={currentModel.durationMax || 600}
                   onChange={handleDurationChange}
                 />
+              )}
+
+              {mode === 'audio' && currentModel.supportsInstrumental && (
+                <button type="button" onClick={() => setInstrumental(!instrumental)}
+                  title={instrumental ? 'Instrumental: sin voces' : 'Con voces (letra generada por el modelo)'}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${instrumental ? 'bg-accent-600 text-white' : 'bg-surface-800/80 text-surface-500 hover:text-surface-300'}`}>
+                  <Music size={11} />
+                  Instrumental
+                </button>
               )}
 
               {/* Toggles: FF, Multi-shot, Image Refs, Sound */}

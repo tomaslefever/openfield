@@ -203,15 +203,16 @@ export function buildAudioPayload(
     voiceId?: string
   }
 ): AudioGenerationPayload {
-  const modelId = model.t2aId || model.modelId || 'minimax-text-to-speech'
+  const modelId = model.t2aId || model.modelId || 'elevenlabs/text-to-speech-multilingual-v2'
 
+  // No voice → the provider picks its default (KIE also swaps in its default for voices it doesn't offer)
   return {
     model: modelId,
     provider: model.provider,
     prompt: text,
     text: text,
-    voice_id: options?.voiceId || 'male-qn-qingse',
-    voiceId: options?.voiceId || 'male-qn-qingse',
+    voice_id: options?.voiceId,
+    voiceId: options?.voiceId,
   }
 }
 

@@ -535,7 +535,8 @@ export class AssetManager {
       console.log(`[refreshAsset] Task OK, model=${detail.model}, credits=${detail.creditsConsumed}`)
 
       const { extractUrls } = require('./task-queue')
-      const resultUrls = extractUrls(detail.resultJson)
+      let resultUrls = extractUrls(detail.resultJson)
+      if (resultUrls.length === 0 && detail.response) resultUrls = extractUrls(detail.response)
 
       if (resultUrls.length === 0) {
         console.error(`[refreshAsset] No URLs found in resultJson: ${JSON.stringify(detail.resultJson).substring(0, 300)}`)

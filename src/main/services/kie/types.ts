@@ -13,6 +13,8 @@ export interface KieTaskDetailResponse {
     state: 'waiting' | 'queuing' | 'generating' | 'success' | 'fail'
     param: string
     resultJson: string
+    /** Parsed resultJson, present on success */
+    response?: any
     failCode: string
     failMsg: string
     costTime: number
@@ -69,6 +71,15 @@ export interface GenerateAudioParams {
   prompt: string
   model: string
   duration?: number | string
+  text?: string
+  voice?: string
+  voiceId?: string
+  voice_id?: string
+  speed?: number | string
+  stability?: number | string
+  similarityBoost?: number | string
+  style?: number | string
+  instrumental?: boolean
 }
 
 export interface GeminiOmniVideoClip {
