@@ -1,10 +1,20 @@
+<div align="center">
+
+<img src="docs/assets/openfield-banner.png" alt="Openfield — the open creative studio for generative AI" width="100%" />
+
 # Openfield
+
+**One studio for every AI model — on your desktop, under your control, and ready for your agents.**
+
+</div>
+
+> **Why Openfield?** Hosted AI platforms lock you into one catalog, one credit system and one browser tab, and they keep your generations on their servers. Openfield brings **Kie.ai, Fal.ai, Replicate, APIMart, Higgsfield, MachGen, ElevenLabs and more** into a single desktop app with your own API keys: you pay provider prices with no markup, compare costs model by model, and every image, video and track lands in a **local library you own**, with its prompt, parameters and references.
+>
+> **Built to pair with AI agents.** A local MCP server exposes the whole studio — library, Playground, references, variants and storyboards — so Claude Code, OpenCode or any MCP client can browse your assets, generate with your references, queue variants and hand you the results, while you review everything visually in the app. Your agent writes the brief; Openfield gives it hands, eyes and memory for media.
 
 <div align="center">
 
-**The Open Desktop Creative Studio for Generative AI**
-
-[![Version](https://img.shields.io/badge/version-0.1.6-blue.svg)](https://github.com/tomaslefever/openfield/releases)
+[![Version](https://img.shields.io/badge/version-0.1.11-blue.svg)](https://github.com/tomaslefever/openfield/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/tomaslefever/openfield/releases)
 [![Electron](https://img.shields.io/badge/electron-v39-47848F.svg)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/react-v19-61DAFB.svg)](https://react.dev/)
@@ -19,7 +29,7 @@
 
 ## 🌟 Overview
 
-**Openfield** is a high-performance desktop workstation designed for creators, filmmakers, and digital artists. It unifies cloud AI providers (Kie.ai, Fal.ai, Replicate, ElevenLabs) with local inference engines, giving you complete control over prompts, multi-modal references, camera directions, voiceovers, music, and multi-scene storyboard pipelines directly on your machine.
+**Openfield** is a high-performance desktop workstation designed for creators, filmmakers, and digital artists. It unifies cloud AI providers (Kie.ai, Fal.ai, Replicate, APIMart, Higgsfield, MachGen, ElevenLabs, OpenRouter) with local inference engines, giving you complete control over prompts, multi-modal references, camera directions, voiceovers, music, and multi-scene storyboard pipelines directly on your machine.
 
 ---
 
@@ -61,6 +71,10 @@ A structured, end-to-end 5-stage automated & interactive production studio:
 - Allows external AI assistants (Claude, OpenCode, Antigravity) to introspect installed endpoints, query available models, orchestrate storyboards, and trigger generations autonomously.
 - Playground parity: browse the library (`list_assets`, `get_asset`), generate with references or reuse the references of any previous generation (`generate`), recreate a generation with overrides (`recreate_generation`), queue up to 4 variants and preview them numbered to pick one (`wait_for_tasks` / `preview_assets`), and manage assets (`update_assets`, `delete_assets`, `import_asset`).
 - Local-only: requests from non-loopback hosts or web origins are rejected.
+- Listens on `http://127.0.0.1:19877/mcp` by default (port and on/off switch in **Settings**). For example, with Claude Code:
+  ```bash
+  claude mcp add --transport http openfield http://127.0.0.1:19877/mcp
+  ```
 
 ### 🔄 Automatic Updates
 - In-app auto-updater powered by `electron-updater` and GitHub Releases.
@@ -75,7 +89,11 @@ A structured, end-to-end 5-stage automated & interactive production studio:
 | **Kie.ai** | Text-to-Image, Image-to-Video, Video-to-Video | FLUX.1 (schnell/dev), Midjourney, Imagen 3, Kling 1.5, Wan 2.1, Luma Dream Machine, Sora, Hailuo |
 | **Fal.ai** | Fast Inference, Upscaling, ControlNet | FLUX Pro, FLUX Realism, SDXL, Fast Inpainting |
 | **Replicate** | Community & Open-Source Models | SDXL, Flux Schnell/Dev, AudioCraft, Whisper |
+| **APIMart** | Image & Video Generation | Image and video catalog with queued tasks |
+| **Higgsfield / MachGen** | Image & Video Generation | Soul Image, MiniMax H3, Seedance and more |
+| **Kie.ai Audio** | Text-to-Speech & Music | ElevenLabs Multilingual v2 / Turbo 2.5, Gemini Flash TTS, Suno V6 |
 | **ElevenLabs** | Voice Synthesis & Voice Design | Multilingual v2, Turbo v2.5, Flash |
+| **OpenRouter** | LLM (prompt & script assistance) | Top-ranked models with balance checks |
 | **Local Models** | Offline & Local Processing | Kokoro TTS, Piper TTS, Local Server Endpoints |
 
 ---
@@ -135,6 +153,7 @@ Open **Settings** inside the application to configure your API credentials:
 - **Fal.ai API Key**
 - **Replicate API Token**
 - **ElevenLabs API Key**
+- **APIMart, Higgsfield, MachGen and OpenRouter keys** (optional)
 - **Local Model URLs** (default: `http://localhost:8000`)
 
 All credentials are saved securely in your local application data directory.
