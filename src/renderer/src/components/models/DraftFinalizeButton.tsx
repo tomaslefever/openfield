@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, ExternalLink, Loader, Sparkles } from 'lucide-react'
+import { VIDEO_MODELS, calcVideoCost, findModelById } from '../../lib/models'
 
 function parseParams(asset: any): any {
   try { return typeof asset?.parameters === 'string' ? JSON.parse(asset.parameters || '{}') : (asset?.parameters || {}) } catch { return {} }
+}
+
+/** Estimated cost of the 1080p final: same duration and video refs as the draft, at the 1080p rate */
+function finalCost(params: any) {
+  const model = findModelById(VIDEO_MODELS, 'machgen/Seedance-2.5/t2v', { provider: 'machgen' })
+  if (!model) return null
+  const videoRefs: any[] = Array.isArray(params?.videoRefs) ? params.videoRefs : []
+  return calcVideoCost(model, {
+    resolution: '1080p',
+    requestedSeconds: Number(params?.duration) || 5,
+    inputVideoSeconds: videoRefs.reduce((s, v) => s + (Number(v?.duration) || 0), 0),
+  })
 }
 
 /** True for a completed Seedance 2.5 (MachGen) 480p draft sample. */
@@ -86,6 +99,7 @@ export function DraftFinalizeButton({ asset, onOpenFinal, onQueued, className = 
 
   const pending = status === 'pending'
   const failedBefore = status === 'none' && !!flags.draftFinalError
+  const cost = finalCost(flags)
   return (
     <div className={className}>
       <button
@@ -96,6 +110,9 @@ export function DraftFinalizeButton({ asset, onOpenFinal, onQueued, className = 
       >
         {sending || pending ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}
         {pending ? 'Generando final 1080p…' : failedBefore ? 'Reintentar final 1080p' : 'Generar final 1080p'}
+        {!pending && cost && cost.totalCredits > 0 && (
+          <span className="tabular-nums opacity-80">· {cost.totalCredits.toLocaleString()} créditos (${cost.totalDollars.toFixed(2)})</span>
+        )}
       </button>
       {failedBefore && !error && <p className="mt-1 text-[10px] text-red-600 dark:text-red-400 text-center">El final anterior falló: {String(flags.draftFinalError)}</p>}
       {error && <p className="mt-1 text-[10px] text-red-600 dark:text-red-400 text-center">{error}</p>}

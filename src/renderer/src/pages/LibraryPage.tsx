@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Search, Download, Trash2, Star, Cloud, CheckSquare, Square, Loader, AlertCircle, X, ChevronLeft, ChevronRight, Copy, Check, RotateCcw, FolderOpen, Clock, Tag, RefreshCw, Inbox, Upload, AudioLines, Play, Pause, Image as ImageIcon, Video, Eraser, Clapperboard, Box, Archive } from 'lucide-react'
+import { Search, Trash2, Star, Cloud, CheckSquare, Square, Loader, AlertCircle, X, FolderOpen, Clock, Tag, RefreshCw, Inbox, Upload, AudioLines, Play, Pause, Image as ImageIcon, Video, Eraser, Clapperboard, Box, Archive, LayoutGrid } from 'lucide-react'
 import { toast } from 'sonner'
 import { srcUrl, thumbUrl } from '../services/file-url'
 import { usePagedAssets } from '../hooks/usePagedAssets'
@@ -7,20 +7,24 @@ import { useGridFlip } from '../hooks/useGridFlip'
 import { useAppStore } from '../stores/app-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { PromptComposer, type PromptComposerHandle } from '../components/PromptComposer'
-import { TagEditor } from '../components/ui/TagEditor'
-import { AutoPlayVideo } from '../components/ui/AutoPlayVideo'
 import { BulkActionBar } from '../components/ui/BulkActionBar'
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
 import { ImageGeneration } from '../components/agents/image-generation'
 import { ElementWizard } from '../components/ElementWizard'
-import { copyText, copyImage } from '../lib/clipboard'
+import { copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
 import { getAudioKind } from '../lib/audio'
 import { cleanModelName, getAssetProvider } from '../lib/models'
-import { ProviderLogo } from '../components/icons/ProviderLogos'
-import { DraftFinalizeButton, isSeedanceDraft } from '../components/models/DraftFinalizeButton'
+import { isSeedanceDraft } from '../components/models/DraftFinalizeButton'
 import { RetryGenerationButton } from '../components/ui/RetryGenerationButton'
+import { AssetDetailModal } from '../components/assets/AssetDetailModal'
+
+// Cards per row in the Playground grid, adjustable from the top bar slider.
+const GRID_COLS_KEY = 'openfield-playground-cols'
+const GRID_COLS_MIN = 2
+const GRID_COLS_MAX = 8
+const GRID_COLS_DEFAULT = 5
 
 const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-text-to-image': 'GPT Image 2',
@@ -226,28 +230,6 @@ function modelLabel(model: string | undefined): string {
   return cleanModelName(MODEL_NAMES[model] || model)
 }
 
-function clampPan(containerRef: React.RefObject<HTMLDivElement | null>, imgRef: React.RefObject<HTMLImageElement | null>, px: number, py: number, z: number) {
-  const c = containerRef.current
-  const img = imgRef.current
-  if (!c || !img) return { x: px, y: py }
-  const cw = c.clientWidth
-  const ch = c.clientHeight
-  const iw = img.offsetWidth
-  const ih = img.offsetHeight
-  const sw = iw * z
-  const sh = ih * z
-  let cx = px, cy = py
-  if (sw > cw) {
-    const lim = (sw - cw) / 2
-    cx = Math.max(-lim, Math.min(lim, px))
-  }
-  if (sh > ch) {
-    const lim = (sh - ch) / 2
-    cy = Math.max(-lim, Math.min(lim, py))
-  }
-  return { x: cx, y: cy }
-}
-
 export function LibraryPage() {
   const setPage = useAppStore((s) => s.setPage)
   const composerPayload = useAppStore((s) => s.composerPayload)
@@ -280,6 +262,16 @@ export function LibraryPage() {
   const [organizing, setOrganizing] = useState(false)
   const [dropActive, setDropActive] = useState(false)
   const [importingFiles, setImportingFiles] = useState(false)
+  const [gridCols, setGridCols] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem(GRID_COLS_KEY))
+      if (saved >= GRID_COLS_MIN && saved <= GRID_COLS_MAX) return saved
+    } catch {}
+    return GRID_COLS_DEFAULT
+  })
+  useEffect(() => {
+    try { localStorage.setItem(GRID_COLS_KEY, String(gridCols)) } catch {}
+  }, [gridCols])
 
   // Close the import overlay whenever a drag ends, even if a child (e.g. the composer)
   // handled the drop and stopped propagation. Capture phase runs before any child handler.
@@ -511,18 +503,6 @@ export function LibraryPage() {
       unsubHfFailed?.()
     }
   }, [refreshTags])
-
-  useEffect(() => {
-    if (!selectedAsset) return
-    const handler = (e: KeyboardEvent) => {
-      const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
-      if (e.key === 'ArrowLeft' && idx > 0) setSelectedAsset(assets[idx - 1])
-      if (e.key === 'ArrowRight' && idx < assets.length - 1) setSelectedAsset(assets[idx + 1])
-      if (e.key === 'Escape') setSelectedAsset(null)
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [selectedAsset, assets])
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -893,6 +873,16 @@ export function LibraryPage() {
   const filteredTags = allTags.filter(t => t.toLowerCase().includes(search.trim().toLowerCase()))
 
   const modalSrc = selectedAsset && (selectedAsset.localPath || (selectedAsset.filePath && !selectedAsset.filePath.startsWith('__error__') ? selectedAsset.filePath : ''))
+  const closeModal = () => setSelectedAsset(null)
+  const selectedIdx = selectedAsset ? assets.findIndex((a: any) => a.id === selectedAsset.id) : -1
+  const modalPrev = selectedIdx > 0 ? () => setSelectedAsset(assets[selectedIdx - 1]) : undefined
+  const modalNext = selectedIdx < 0 ? undefined
+    : selectedIdx < assets.length - 1 ? () => {
+      setSelectedAsset(assets[selectedIdx + 1])
+      if (selectedIdx + 1 >= assets.length - 2 && hasMore) loadMore()
+    }
+    : hasMore ? () => { pendingNextRef.current = true; loadMore() }
+    : undefined
 
   return (
     <div
@@ -992,6 +982,23 @@ export function LibraryPage() {
             >
               <Archive size={14} />
             </button>
+            <label
+              title="Elementos por fila"
+              className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-pill border border-surface-800 text-surface-500"
+            >
+              <LayoutGrid size={14} />
+              <input
+                type="range"
+                min={GRID_COLS_MIN}
+                max={GRID_COLS_MAX}
+                step={1}
+                value={gridCols}
+                onChange={(e) => setGridCols(Number(e.target.value))}
+                className="w-20 accent-accent-500"
+                aria-label="Elementos por fila"
+              />
+              <span className="text-xs font-mono text-surface-300 w-3 text-right">{gridCols}</span>
+            </label>
             <div className="flex gap-1 bg-surface-900/40 rounded-pill p-1 border border-surface-800/60">
               <button
                 onClick={() => {
@@ -1051,7 +1058,11 @@ export function LibraryPage() {
             </div>
           )}
 
-          <div ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          <div
+            ref={gridRef}
+            className={`grid ${gridCols >= 7 ? 'gap-2' : 'gap-4'}`}
+            style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
+          >
             {assets.map((asset: any) => {
               const isSel = selectedIds.has(asset.id)
               const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
@@ -1248,47 +1259,31 @@ export function LibraryPage() {
         />
       )}
 
-      {/* Unified detail modal (same as ImageGen/VideoGen) */}
       {selectedAsset && (
-        <LibraryAssetModal
+        <AssetDetailModal
           asset={selectedAsset}
           src={modalSrc || ''}
           params={params}
-          onClose={() => setSelectedAsset(null)}
-          onPrev={assets.findIndex((a: any) => a.id === selectedAsset.id) > 0 ? () => {
-            const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
-            setSelectedAsset(assets[idx - 1])
-          } : undefined}
-          onNext={(() => {
-            const idx = assets.findIndex((a: any) => a.id === selectedAsset.id)
-            if (idx < 0) return undefined
-            if (idx < assets.length - 1) {
-              return () => {
-                setSelectedAsset(assets[idx + 1])
-                if (idx + 1 >= assets.length - 2 && hasMore) {
-                  loadMore()
-                }
-              }
-            }
-            if (hasMore) {
-              return () => {
-                pendingNextRef.current = true
-                loadMore()
-              }
-            }
-            return undefined
-          })()}
-          onAssetChange={(updated) => setSelectedAsset(updated)}
+          modelLabel={modelLabel(selectedAsset.modelUsed)}
+          onClose={closeModal}
+          onPrev={modalPrev}
+          onNext={modalNext}
+          onAssetChange={setSelectedAsset}
           onToggleFavorite={() => handleToggleFavorite(selectedAsset.id)}
           onDelete={() => handleDelete(selectedAsset.id)}
           onRecreate={handleRecreate}
           onCopyImage={() => handleCopyImage(selectedAsset)}
           copiedImage={copiedAssetId === selectedAsset.id}
-          onAddReference={() => selectedAsset.type === 'video' ? handleAddVideoReference(selectedAsset) : handleAddImageReference(selectedAsset)}
-          onRemoveBackground={() => handleRemoveBackground(selectedAsset)}
-          onAnimate={() => handleAnimate(selectedAsset)}
-          onCreateElement={() => handleCreateElement(selectedAsset)}
+          actions={selectedAsset.type === 'image' ? [
+            { icon: ImageIcon, label: 'Referencia', onClick: () => handleAddImageReference(selectedAsset) },
+            { icon: Eraser, label: 'Quitar fondo', onClick: () => handleRemoveBackground(selectedAsset) },
+            { icon: Clapperboard, label: 'Animar', onClick: () => handleAnimate(selectedAsset) },
+            { icon: Box, label: 'Crear elemento', onClick: () => handleCreateElement(selectedAsset) },
+          ] : selectedAsset.type === 'video' ? [
+            { icon: Video, label: 'Referencia', onClick: () => handleAddVideoReference(selectedAsset) },
+          ] : []}
           onDraftFinalQueued={() => resetRef.current()}
+          onUpscaleQueued={() => resetRef.current()}
         />
       )}
 
@@ -1312,361 +1307,6 @@ export function LibraryPage() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-function LibraryAssetModal({
-  asset, src, params, onClose, onPrev, onNext, onAssetChange, onToggleFavorite, onDelete, onRecreate,
-  onCopyImage, copiedImage, onAddReference, onRemoveBackground, onAnimate, onCreateElement, onDraftFinalQueued,
-}: {
-  asset: any
-  src: string
-  params: any
-  onClose: () => void
-  onPrev?: () => void
-  onNext?: () => void
-  onAssetChange: (asset: any) => void
-  onToggleFavorite: () => void
-  onDelete: () => void
-  onRecreate: () => void
-  onCopyImage?: () => void
-  copiedImage?: boolean
-  onAddReference?: () => void
-  onRemoveBackground?: () => void
-  onAnimate?: () => void
-  onCreateElement?: () => void
-  /** A draft's 1080p final was queued */
-  onDraftFinalQueued?: () => void
-}) {
-  const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const [promptExpanded, setPromptExpanded] = useState(false)
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'done'>('idle')
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
-  const dragRef = useRef({ active: false, lastX: 0, lastY: 0 })
-  const zoomRef = useRef(1)
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
-  const assetProvider = getAssetProvider(asset)
-
-  useEffect(() => { zoomRef.current = zoom }, [zoom])
-  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); setPromptExpanded(false) }, [asset.id, src])
-
-  const handleSaveAs = async () => {
-    setSaveState('saving')
-    try {
-      const res = await (window as any).electronAPI?.assets.saveAs(asset.id)
-      if (res?.ok) {
-        setSaveState('done')
-        setTimeout(() => setSaveState('idle'), 1500)
-      } else {
-        setSaveState('idle')
-      }
-    } catch (err) {
-      console.error('Save as failed:', err)
-      setSaveState('idle')
-    }
-  }
-
-  const handleWheel = useCallback((e: any) => {
-    e.preventDefault()
-    const c = containerRef.current
-    if (!c) return
-    const rect = c.getBoundingClientRect()
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
-    const cw = rect.width
-    const ch = rect.height
-    const delta = e.deltaY < 0 ? 0.1 : -0.1
-    setZoom(prev => {
-      const newZoom = Math.min(4, Math.max(1, prev * (1 + delta)))
-      if (newZoom === prev) return prev
-      if (newZoom === 1) { setPan({ x: 0, y: 0 }); return newZoom }
-      const scale = newZoom / prev
-      setPan(prevPan => {
-        const relX = mx - cw / 2
-        const relY = my - ch / 2
-        return clampPan(containerRef, imgRef, relX * (1 - scale) + prevPan.x * scale, relY * (1 - scale) + prevPan.y * scale, newZoom)
-      })
-      return newZoom
-    })
-  }, [])
-
-  const handleMouseDown = useCallback((e: any) => {
-    if (zoomRef.current <= 1) return
-    dragRef.current = { active: true, lastX: e.clientX, lastY: e.clientY }
-    setIsDragging(true)
-  }, [])
-
-  const handleMouseMove = useCallback((e: any) => {
-    if (!dragRef.current.active) return
-    const dx = e.clientX - dragRef.current.lastX
-    const dy = e.clientY - dragRef.current.lastY
-    dragRef.current.lastX = e.clientX
-    dragRef.current.lastY = e.clientY
-    if (dx === 0 && dy === 0) return
-    setPan(prev => clampPan(containerRef, imgRef, prev.x + dx, prev.y + dy, zoomRef.current))
-  }, [])
-
-  const handleMouseUp = useCallback(() => {
-    dragRef.current.active = false
-    setIsDragging(false)
-  }, [])
-
-  const isImage = asset.type === 'image'
-  const isVideo = asset.type === 'video'
-  const hasLocalFile = !!(asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') && !asset.filePath.startsWith('http')))
-  const isError = asset.filePath?.startsWith('__error__')
-  const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
-  const isGeneratingOrError = !src || isError || isLoading
-
-  return (
-    <div className="modal-scrim z-50 flex items-center justify-center" onClick={onClose}>
-      <div className="modal-surface max-w-[95vw] w-full mx-2 max-h-[95vh] flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        {/* Media */}
-        <div
-          ref={containerRef}
-          className="flex-1 bg-black flex items-center justify-center min-h-[400px] relative overflow-hidden"
-          onWheel={isImage && !isGeneratingOrError ? handleWheel : undefined}
-          onMouseDown={isImage && !isGeneratingOrError ? handleMouseDown : undefined}
-          onMouseMove={isImage && !isGeneratingOrError ? handleMouseMove : undefined}
-          onMouseUp={isImage && !isGeneratingOrError ? handleMouseUp : undefined}
-          onMouseLeave={isImage && !isGeneratingOrError ? handleMouseUp : undefined}
-        >
-          {onPrev && (
-            <button onClick={(e) => { e.stopPropagation(); onPrev() }}
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors z-10">
-              <ChevronLeft size={20} />
-            </button>
-          )}
-          {onNext && (
-            <button onClick={(e) => { e.stopPropagation(); onNext() }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors z-10">
-              <ChevronRight size={20} />
-            </button>
-          )}
-          {isError ? (
-            <div className="flex flex-col items-center justify-center gap-3 text-red-400 p-8 text-center max-w-lg">
-              <AlertCircle size={36} className="flex-shrink-0" />
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-red-400">Error en la generación</p>
-                <p className="text-xs text-red-400/90 leading-relaxed font-mono bg-red-950/30 border border-red-900/40 rounded-lg p-3 max-w-md">
-                  {asset.filePath?.replace('__error__:', '') || 'No se pudo completar la generación'}
-                </p>
-              </div>
-              <div className="mt-2 flex flex-col items-center gap-2">
-                <RetryGenerationButton assetId={asset.id} variant="full" onRetried={onClose} />
-                <button
-                  type="button"
-                  onClick={onRecreate}
-                  className="text-[11px] text-white/60 hover:text-white/90 underline-offset-2 hover:underline"
-                >
-                  Editar y recrear en el composer
-                </button>
-              </div>
-            </div>
-          ) : isLoading ? (
-            <div className="absolute inset-0 w-full h-full">
-              <ImageGeneration
-                status="generating"
-                size="fill"
-                showStatus={false}
-                prompt={undefined}
-                resolution={undefined}
-                className="w-full h-full"
-              />
-            </div>
-          ) : isImage ? (
-            <img
-              ref={imgRef}
-              src={srcUrl(src)}
-              alt=""
-              className="max-w-full max-h-[90vh] object-contain select-none"
-              draggable={false}
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                transformOrigin: 'center center',
-                cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
-              }}
-            />
-          ) : asset.type === 'video' ? (
-            <AutoPlayVideo key={asset.id} src={srcUrl(src)} className="max-w-full max-h-[90vh] object-contain" />
-          ) : (
-            <audio controls src={srcUrl(src)} className="max-w-full px-4" autoPlay />
-          )}
-          {!isGeneratingOrError && isImage && onCopyImage && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onCopyImage() }}
-              title="Copiar imagen"
-              className={`absolute top-3 right-12 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10 transition-colors ${copiedImage ? 'text-green-400' : 'text-white/60 hover:text-white'}`}
-            >
-              {copiedImage ? <Check size={14} /> : <Copy size={14} />}
-            </button>
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); onToggleFavorite() }}
-            title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
-            className={`absolute top-3 right-3 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10 transition-colors ${asset.isFavorite ? 'text-amber-400' : 'text-white/60 hover:text-amber-400'}`}
-          >
-            <Star size={14} fill={asset.isFavorite ? 'currentColor' : 'none'} />
-          </button>
-          {zoom > 1 && (
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 rounded-full px-3 py-1.5 z-10">
-              <span className="text-white/80 text-xs font-medium">{Math.round(zoom * 100)}%</span>
-              <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }} className="text-white/60 hover:text-white text-xs">Reset</button>
-            </div>
-          )}
-        </div>
-        {/* Details */}
-        <div className="w-96 min-w-[380px] flex-shrink-0 bg-surface-900/80 border-l border-surface-800 flex flex-col">
-          <div className="flex items-center justify-end px-3 py-2 border-b border-surface-800 flex-shrink-0">
-            <button onClick={onClose} title="Close"
-              className="w-7 h-7 rounded-full flex items-center justify-center text-surface-500 hover:text-ink hover:bg-surface-800 transition-colors">
-              <X size={16} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <div>
-            <p className="eyebrow mb-1">Prompt</p>
-            <div className="flex items-start gap-1">
-              <p
-                onClick={() => setPromptExpanded(!promptExpanded)}
-                className={`text-sm text-surface-200 leading-relaxed flex-1 cursor-pointer select-none ${promptExpanded ? '' : 'line-clamp-4'}`}
-                title={promptExpanded ? 'Click para contraer' : 'Click para expandir'}
-              >
-                {asset.prompt || params.prompt || '—'}
-              </p>
-              <button onClick={() => { copyText(asset.prompt || params.prompt || ''); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }}
-                className="p-1 text-surface-500 hover:text-surface-100 flex-shrink-0 mt-0.5">
-                {copiedPrompt ? <Check size={12} className="text-green-600 dark:text-green-400" /> : <Copy size={12} />}
-              </button>
-            </div>
-          </div>
-          <div>
-            <p className="eyebrow mb-1">Model</p>
-            <p className="text-sm text-surface-200 flex items-center gap-1.5">
-              {assetProvider && <span title={assetProvider}><ProviderLogo provider={assetProvider} size={14} /></span>}
-              {modelLabel(asset.modelUsed)}
-            </p>
-          </div>
-          {params.duration != null && (
-            <div>
-              <p className="eyebrow mb-1">Duration</p>
-              <p className="text-sm text-surface-200 flex items-center gap-1"><Clock size={12} /> {params.duration}s</p>
-            </div>
-          )}
-          {params.fps != null && (
-            <div>
-              <p className="eyebrow mb-1">FPS</p>
-              <p className="text-sm text-surface-200">{params.fps}</p>
-            </div>
-          )}
-          {params.resolution && (
-            <div>
-              <p className="eyebrow mb-1">Resolution</p>
-              <p className="text-sm text-surface-200">{params.resolution}</p>
-            </div>
-          )}
-          {params.aspectRatio && (
-            <div>
-              <p className="eyebrow mb-1">Aspect Ratio</p>
-              <p className="text-sm text-surface-200">{params.aspectRatio}</p>
-            </div>
-          )}
-          <div>
-            <p className="eyebrow mb-1">Dimensions</p>
-            <p className="text-sm text-surface-200">{asset.width && asset.height ? `${asset.width}×${asset.height}` : '—'}</p>
-          </div>
-          <div>
-            <p className="eyebrow mb-1">File Size</p>
-            <p className="text-sm text-surface-200">{asset.fileSize ? `${(asset.fileSize / 1024).toFixed(0)} KB` : '—'}</p>
-          </div>
-          <div>
-            <p className="eyebrow mb-1">Created</p>
-            <p className="text-sm text-surface-200">{asset.createdAt ? new Date(asset.createdAt).toLocaleString() : '—'}</p>
-          </div>
-          <div>
-            <p className="eyebrow mb-1">Task ID</p>
-            <p className="text-[11px] font-mono text-surface-400 break-all">{asset.taskId || '—'}</p>
-          </div>
-          <div>
-            <p className="eyebrow mb-1">Tags</p>
-            <TagEditor
-              tags={(asset.tags ? asset.tags.split(',').filter(Boolean) : []).map((t: string) => t.trim())}
-              onChange={async (newTags) => {
-                const api = (window as any).electronAPI
-                if (!api?.assets?.updateTags) return
-                const updated = await api.assets.updateTags(asset.id, newTags)
-                if (updated) onAssetChange(updated)
-              }}
-            />
-          </div>
-          {isSeedanceDraft(asset, params) && (
-            <div className="pt-2 border-t border-surface-800">
-              <p className="text-[10px] text-surface-500 mb-1.5">Draft 480p — revisa escena y movimiento, luego genera el final.</p>
-              <DraftFinalizeButton key={asset.id} asset={asset} onOpenFinal={async (id) => { const a = await (window as any).electronAPI?.assets.get(id); if (a) onAssetChange(a) }} onQueued={onDraftFinalQueued} />
-            </div>
-          )}
-          <div className="pt-2 border-t border-surface-800 grid grid-cols-2 gap-1.5">
-            {/* 2 columns: Recreate | Save as, Reference | Show in folder, Delete full width */}
-            <button onClick={onRecreate} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300">
-              <RotateCcw size={12} /> Recreate
-            </button>
-            <button onClick={handleSaveAs} disabled={saveState === 'saving'} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-              {saveState === 'done' ? <Check size={12} className="text-green-600 dark:text-green-400" /> : saveState === 'saving' ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
-              {saveState === 'done' ? 'Saved' : 'Save as'}
-            </button>
-            {isImage && onAddReference && (
-              <button onClick={onAddReference} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                <ImageIcon size={12} /> Reference
-              </button>
-            )}
-            {isImage && onRemoveBackground && (
-              <button onClick={onRemoveBackground} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                <Eraser size={12} /> Quitar fondo
-              </button>
-            )}
-            {isImage && onAnimate && (
-              <button onClick={onAnimate} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                <Clapperboard size={12} /> Animar
-              </button>
-            )}
-            {isImage && onCreateElement && (
-              <button onClick={onCreateElement} className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5">
-                <Box size={12} /> Crear elemento
-              </button>
-            )}
-            {isVideo && onAddReference && (
-              <button onClick={onAddReference} className={`btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-accent-400 hover:text-accent-300 ${hasLocalFile ? '' : 'col-span-2'}`}>
-                <Video size={12} /> Reference
-              </button>
-            )}
-            {hasLocalFile && (
-              <button onClick={() => (window as any).electronAPI?.assets.showInFolder(asset.id)}
-                className={`btn-ghost text-xs w-full justify-center flex items-center gap-1.5 ${isImage || (isVideo && onAddReference) ? '' : 'col-span-2'}`}>
-                <FolderOpen size={12} /> Show in folder
-              </button>
-            )}
-            {confirmDelete ? (
-              <div className="flex items-center gap-2 justify-center col-span-2">
-                <span className="text-[11px] text-surface-400">Confirm delete?</span>
-                <button onClick={() => { onDelete(); setConfirmDelete(false) }}
-                  className="px-2 py-1 rounded-pill bg-red-500/80 text-white text-[10px] font-medium">Yes</button>
-                <button onClick={() => setConfirmDelete(false)}
-                  className="px-2 py-1 rounded-pill bg-ink/10 text-ink text-[10px]">No</button>
-              </div>
-            ) : (
-              <button className="btn-ghost text-xs w-full justify-center flex items-center gap-1.5 text-red-600 dark:text-red-400 col-span-2" onClick={() => setConfirmDelete(true)}>
-                <Trash2 size={12} /> Delete
-              </button>
-            )}
-          </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
