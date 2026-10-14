@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppStore, type Page } from '../stores/app-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { WorkspaceSelector } from './WorkspaceSelector'
-import { RestartToUpdateButton } from './RestartToUpdateButton'
+import { TitleBarSlot } from './TitleBar'
 import type { LucideIcon } from 'lucide-react'
 import {
   Sparkles,
@@ -13,9 +13,9 @@ import {
   AudioLines,
   Mic,
   KeyRound,
-  ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import {
   Sidebar,
   SidebarContent,
@@ -176,19 +176,6 @@ export function AppSidebar() {
       variant="sidebar"
       className="[&>[data-sidebar=sidebar]]:relative [&>[data-sidebar=sidebar]]:bg-sidebar/95 border-r border-sidebar-border/70 backdrop-blur-xl"
     >
-      {/* Sidebar collapse button */}
-      <div className="absolute -right-[15px] top-3.5 z-40">
-        <SidebarTrigger
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="flex h-[26px] w-[26px] items-center justify-center rounded-full border border-surface-700/80 bg-surface-900/95 text-surface-400 shadow-md backdrop-blur transition-all hover:scale-110 hover:bg-surface-800 hover:text-surface-100 cursor-pointer"
-        >
-          <ChevronRight
-            size={13}
-            className={cn('transition-transform duration-200', !collapsed && 'rotate-180')}
-          />
-        </SidebarTrigger>
-      </div>
-
       <SidebarHeader>
         {collapsed ? (
           <WorkspaceSelector collapsed />
@@ -247,9 +234,17 @@ export function AppSidebar() {
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
-          <RestartToUpdateButton collapsed={collapsed} />
         </SidebarMenu>
       </SidebarFooter>
+
+      <TitleBarSlot side="start">
+        <SidebarTrigger
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="h-7 w-7 rounded-[6px] text-ink-muted hover:bg-surface-800 hover:text-ink [&_svg]:size-4"
+        >
+          {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+        </SidebarTrigger>
+      </TitleBarSlot>
     </Sidebar>
   )
 }

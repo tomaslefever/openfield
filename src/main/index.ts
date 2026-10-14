@@ -61,6 +61,10 @@ async function createWindow() {
     title: 'Openfield',
     backgroundColor: windowBackground(),
     show: false,
+    // Custom title bar (renderer TitleBar.tsx): hides the native caption and, on Windows/Linux,
+    // its min/max/close buttons. macOS keeps the traffic lights, centered in the 36px bar.
+    titleBarStyle: 'hidden',
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 14, y: 12 } } : {}),
     icon: appIcon && !appIcon.isEmpty() ? appIcon : iconPath,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
@@ -75,6 +79,10 @@ async function createWindow() {
   }
 
   mainWindow.once('ready-to-show', () => mainWindow?.show())
+
+  const sendMaximized = () => mainWindow?.webContents.send('window:maximized', mainWindow.isMaximized())
+  mainWindow.on('maximize', sendMaximized)
+  mainWindow.on('unmaximize', sendMaximized)
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)

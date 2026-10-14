@@ -14,8 +14,11 @@ import {
   Video,
   Search,
   ArrowUpDown,
+  KeyRound,
+  Settings,
 } from 'lucide-react'
 import { useWorkspaceStore } from '../stores/workspace-store'
+import type { Page } from '../stores/app-store'
 import { srcUrl } from '../services/file-url'
 
 const PRESET_COLORS = [
@@ -26,7 +29,7 @@ const PRESET_COLORS = [
 type SortOption = 'updated' | 'created' | 'name_asc' | 'name_desc' | 'assets'
 type FilterOption = 'all' | 'has_assets' | 'empty'
 
-export function WorkspaceHubPage() {
+export function WorkspaceHubPage({ onOpenPage }: { onOpenPage?: (page: Page) => void }) {
   const { workspaces, activeId, load, create, rename, duplicate, remove, enterWorkspace } = useWorkspaceStore()
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newName, setNewName] = useState('')
@@ -177,17 +180,39 @@ export function WorkspaceHubPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => {
-              setNewName('')
-              setSelectedColor(PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)])
-              setShowCreateModal(true)
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-pill bg-accent-600 hover:bg-accent-500 text-on-accent font-medium text-sm transition-all active:scale-[0.98] self-start sm:self-auto"
-          >
-            <Plus size={16} />
-            <span>Nuevo Workspace</span>
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            {onOpenPage && (
+              <>
+                <button
+                  onClick={() => onOpenPage('providers')}
+                  className="flex items-center gap-2 px-3.5 py-2.5 rounded-pill bg-surface-900/90 border border-surface-800 hover:bg-surface-800 text-surface-200 font-medium text-sm transition-colors"
+                  title="Providers"
+                >
+                  <KeyRound size={15} />
+                  <span>Providers</span>
+                </button>
+                <button
+                  onClick={() => onOpenPage('settings')}
+                  className="flex items-center gap-2 px-3.5 py-2.5 rounded-pill bg-surface-900/90 border border-surface-800 hover:bg-surface-800 text-surface-200 font-medium text-sm transition-colors"
+                  title="Settings"
+                >
+                  <Settings size={15} />
+                  <span>Settings</span>
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => {
+                setNewName('')
+                setSelectedColor(PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)])
+                setShowCreateModal(true)
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-pill bg-accent-600 hover:bg-accent-500 text-on-accent font-medium text-sm transition-all active:scale-[0.98]"
+            >
+              <Plus size={16} />
+              <span>Nuevo Workspace</span>
+            </button>
+          </div>
         </div>
 
         {/* Controls Bar: Search, Filter Chips & Sorting */}

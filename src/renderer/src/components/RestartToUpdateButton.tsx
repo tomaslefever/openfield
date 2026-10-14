@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import { SidebarMenuItem, SidebarMenuButton, useSidebar } from './ui/sidebar'
 import { cn } from '@/lib/utils'
 
-interface RestartToUpdateButtonProps {
-  collapsed?: boolean
-}
-
-export function RestartToUpdateButton({ collapsed: propCollapsed }: RestartToUpdateButtonProps) {
-  const sidebar = useSidebar()
-  const collapsed = propCollapsed !== undefined ? propCollapsed : sidebar.state === 'collapsed'
-
+/** Compact update pill for the window title bar; hidden unless an update is downloading or ready */
+export function RestartToUpdateButton() {
   const [status, setStatus] = useState<'idle' | 'checking' | 'downloading' | 'downloaded'>('idle')
   const [downloadProgress, setDownloadProgress] = useState<number>(0)
   const [version, setVersion] = useState<string | null>(null)
@@ -130,53 +123,32 @@ export function RestartToUpdateButton({ collapsed: propCollapsed }: RestartToUpd
       : 'Downloading update...'
 
   return (
-    <SidebarMenuItem className={collapsed ? 'flex justify-center' : ''}>
-      <SidebarMenuButton
-        tooltip={tooltipText}
-        onClick={handleRestart}
-        disabled={!isDownloaded}
-        className={cn(
-          'relative gap-3 rounded-[8px] text-[13.5px] font-medium transition-all cursor-pointer',
-          collapsed ? '!size-10 !p-0 justify-center' : 'px-2.5 py-2',
-          isDownloaded
-            ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 hover:text-emerald-300 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.15)] active:scale-[0.98]'
-            : 'bg-accent-500/10 text-accent-400 border border-accent-500/20 cursor-wait'
-        )}
-      >
-        <div className="relative flex items-center justify-center shrink-0">
-          <RefreshCw
-            size={16}
-            className={cn(
-              'shrink-0 transition-transform',
-              !isDownloaded ? 'animate-spin text-accent-400' : 'text-emerald-400'
-            )}
-          />
-          {isDownloaded && collapsed && (
-            <span className="absolute -top-1 -right-1 flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-            </span>
-          )}
-        </div>
-
-        {!collapsed && (
-          <div className="flex items-center justify-between flex-1 min-w-0">
-            <span className="truncate">
-              {isDownloaded
-                ? 'Restart to Update'
-                : downloadProgress > 0
-                  ? `Updating... ${downloadProgress}%`
-                  : 'Downloading update...'}
-            </span>
-            {isDownloaded && (
-              <span className="flex h-2 w-2 relative flex-shrink-0 ml-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-            )}
-          </div>
-        )}
-      </SidebarMenuButton>
-    </SidebarMenuItem>
+    <button
+      type="button"
+      title={tooltipText}
+      onClick={handleRestart}
+      disabled={!isDownloaded}
+      className={cn(
+        'app-no-drag flex h-6 items-center gap-1.5 rounded-pill border px-2.5 text-[11.5px] font-medium transition-colors',
+        isDownloaded
+          ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 hover:text-emerald-300 active:scale-[0.98]'
+          : 'cursor-wait border-hairline bg-surface-900 text-ink-muted'
+      )}
+    >
+      <RefreshCw size={12} className={cn('shrink-0', !isDownloaded && 'animate-spin')} />
+      <span className="whitespace-nowrap">
+        {isDownloaded
+          ? 'Restart to Update'
+          : downloadProgress > 0
+            ? `Updating... ${downloadProgress}%`
+            : 'Downloading update...'}
+      </span>
+      {isDownloaded && (
+        <span className="relative flex h-1.5 w-1.5 shrink-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        </span>
+      )}
+    </button>
   )
 }

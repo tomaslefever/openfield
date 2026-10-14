@@ -159,6 +159,7 @@ const electronAPI = {
     maximize: () => ipcRenderer.invoke('window:maximize'),
     close: () => ipcRenderer.invoke('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    platform: process.platform,
   },
   on: (channel: string, callback: (...args: any[]) => void) => {
     const validChannels = [
@@ -172,6 +173,7 @@ const electronAPI = {
       'export:progress', 'export:complete', 'export:error',
       'error', 'notification',
       'update:status', 'update:progress',
+      'window:maximized',
     ];
     if (validChannels.includes(channel)) {
       const subscription = (_event: any, ...args: any[]) => callback(...args);

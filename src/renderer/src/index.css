@@ -14,6 +14,9 @@
   :root {
     color-scheme: light;
 
+    /* Custom window title bar (TitleBar.tsx); fixed panels offset by it */
+    --titlebar-height: 36px;
+
     --surface-50: 10 10 10;
     --surface-100: 26 26 26;
     --surface-200: 51 51 51;
@@ -156,6 +159,17 @@
 
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-surface-600;
+  }
+}
+
+/* Window dragging for the custom title bar: anything clickable inside a drag area needs no-drag */
+@layer utilities {
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+
+  .app-no-drag {
+    -webkit-app-region: no-drag;
   }
 }
 
