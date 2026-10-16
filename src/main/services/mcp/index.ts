@@ -155,7 +155,7 @@ function getTools(): McpTool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          service: { type: 'string', description: 'Service name: "kie", "fal", "replicate", "machgen" or "apimart"' },
+          service: { type: 'string', description: 'Service name: "kie", "fal", "replicate", "machgen", "apimart" or "klingai"' },
           type: { type: 'string', enum: ['image', 'video', 'audio'], description: 'Optional model type filter' },
         },
         required: ['service'],

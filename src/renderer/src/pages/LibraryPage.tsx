@@ -574,6 +574,7 @@ export function LibraryPage() {
       const api = (window as any).electronAPI
       const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
       const isApimartModel = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
+      const isKlingModel = params?.provider === 'klingai' || params?.model?.startsWith('klingai/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen') || params?.model?.includes('MiniMax-H3') || params?.model?.includes('Wan2.2') || params?.model?.includes('LTX-2.3') || params?.model?.includes('Vidu-Q3') || params?.model?.includes('Topaz-')
       const isHiggsfieldModel = params?.provider === 'higgsfield' ||
         params?.model?.startsWith('higgsfield/') ||
@@ -593,7 +594,9 @@ export function LibraryPage() {
         if (!assetSearch.types.video) {
           setAssetSearch({ types: { ...assetSearch.types, video: true } })
         }
-        if (isApimartModel) {
+        if (isKlingModel) {
+          await api?.kling.generate(params)
+        } else if (isApimartModel) {
           await api?.apimart.generate(params)
         } else if (isHiggsfieldModel) {
           await api?.higgsfield.generate(params)

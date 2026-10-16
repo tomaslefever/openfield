@@ -9,6 +9,7 @@ export type ProviderId =
   | 'machgen'
   | 'higgsfield'
   | 'apimart'
+  | 'klingai'
   | 'local'
   | 'deepseek'
   | 'openai'
@@ -61,6 +62,15 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'higgsfieldApiKey',
     keyPlaceholder: 'KEY_ID:KEY_SECRET o API Key (console.higgsfield.ai)',
     helperUrl: 'https://console.higgsfield.ai',
+    category: 'media',
+  },
+  {
+    id: 'klingai',
+    label: 'Kling AI',
+    description: 'API oficial de Kling: Kling 3.0 y 3.0 Turbo (720p / 1080p / 4K)',
+    keyName: 'klingApiKey',
+    keyPlaceholder: 'API Key de Kling (console → API Keys)',
+    helperUrl: 'https://kling.ai/dev/api-key',
     category: 'media',
   },
   {

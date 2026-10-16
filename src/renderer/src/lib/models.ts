@@ -952,6 +952,18 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
     durationMax: 15, durationOptions: ['2', '5', '8', '10', '15'], resolutions: ['720p', '1080p'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
+  // Kling AI official API (https://kling.ai/document-api), prices per second in USD
+  { name: 'Kling 3.0 (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
+    t2vId: 'klingai/kling-3.0', i2vId: 'klingai/kling-3.0', fflfId: 'klingai/kling-3.0',
+    prices: [{ resolution: '720p', cost: 0.084 }, { resolution: '720p-audio', cost: 0.126 }, { resolution: '1080p', cost: 0.112 }, { resolution: '1080p-audio', cost: 0.168 }, { resolution: '4k', cost: 0.42 }],
+    durationMax: 15, durationOptions: ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'], resolutions: ['720p', '1080p', '4k'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling 3.0 Turbo (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
+    t2vId: 'klingai/kling-3.0-turbo', i2vId: 'klingai/kling-3.0-turbo',
+    // Always generates native audio: same rate with or without the sound switch
+    prices: [{ resolution: '720p', cost: 0.112 }, { resolution: '720p-audio', cost: 0.112 }, { resolution: '1080p', cost: 0.14 }, { resolution: '1080p-audio', cost: 0.14 }],
+    durationMax: 15, durationOptions: ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Kling 2.6 (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
     t2vId: 'apimart/kling-v2-6', i2vId: 'apimart/kling-v2-6', fflfId: 'apimart/kling-v2-6',
     prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.09 }],
@@ -1254,7 +1266,7 @@ export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {})
     const secs = Math.ceil(ctx.inputVideoSeconds || 0)
     return model.t2vId?.includes('motion-transfer') && model.durationMax ? Math.min(secs, model.durationMax) : secs
   }
-  if ((model.t2vId?.startsWith('kling-3') || model.t2vId?.startsWith('kling-video/v3')) && ctx.multiSceneSeconds && ctx.multiSceneSeconds.length > 0) {
+  if ((model.t2vId?.startsWith('kling-3') || model.t2vId?.startsWith('kling-video/v3') || model.t2vId?.startsWith('klingai/kling-3')) && ctx.multiSceneSeconds && ctx.multiSceneSeconds.length > 0) {
     return ctx.multiSceneSeconds.reduce((s, x) => s + x, 0)
   }
   return ctx.requestedSeconds || 0

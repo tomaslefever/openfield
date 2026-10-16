@@ -18,6 +18,7 @@ import '../higgsfield-queue'
 import '../machgen-queue'
 import '../replicate-queue'
 import '../apimart-queue'
+import '../kling-queue'
 import {
   type McpTool,
   ToolInputError,
@@ -288,7 +289,7 @@ function adaptPayloadForProvider(provider: QueueProvider, type: string, payload:
 }
 
 const PROVIDER_LABEL: Record<QueueProvider, string> = {
-  openfield: 'Kie.ai', fal: 'fal.ai', higgsfield: 'Higgsfield', machgen: 'MachGen', replicate: 'Replicate', apimart: 'APIMart',
+  openfield: 'Kie.ai', fal: 'fal.ai', higgsfield: 'Higgsfield', machgen: 'MachGen', replicate: 'Replicate', apimart: 'APIMart', klingai: 'Kling AI',
 }
 
 function safeNotify(fn: () => void): void {
@@ -533,7 +534,7 @@ export function getGenerationTools(): McpTool[] {
           prompt: { type: 'string' },
           model: { type: 'string', description: 'Model id from get_service_models. With image references, a "-text-to-image" KIE model is switched to its "-image-to-image" variant automatically.' },
           type: { type: 'string', enum: ['image', 'video'], description: 'Default image' },
-          provider: { type: 'string', enum: ['kie', 'fal', 'replicate', 'machgen', 'apimart', 'higgsfield'], description: 'Optional; inferred from the model id. Pass it when the model came from that service\'s catalog.' },
+          provider: { type: 'string', enum: ['kie', 'fal', 'replicate', 'machgen', 'apimart', 'higgsfield', 'klingai'], description: 'Optional; inferred from the model id. Pass it when the model came from that service\'s catalog.' },
           aspect_ratio: { type: 'string', description: 'e.g. 1:1, 16:9, 9:16, 4:3, 3:4, 21:9' },
           resolution: { type: 'string', description: 'e.g. 1K, 2K, 4K (image) or 720p, 1080p (video)' },
           duration: { type: 'number', minimum: 1, description: 'Video seconds' },
@@ -601,7 +602,7 @@ export function getGenerationTools(): McpTool[] {
           asset_id: { type: 'string', description: ASSET_ID_DESC },
           prompt: { type: 'string', description: 'Replaces the original prompt' },
           model: { type: 'string', description: 'Replaces the model (the provider is re-inferred)' },
-          provider: { type: 'string', enum: ['kie', 'fal', 'replicate', 'machgen', 'apimart', 'higgsfield'] },
+          provider: { type: 'string', enum: ['kie', 'fal', 'replicate', 'machgen', 'apimart', 'higgsfield', 'klingai'] },
           aspect_ratio: { type: 'string' },
           resolution: { type: 'string' },
           duration: { type: 'number', minimum: 1 },

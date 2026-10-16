@@ -243,6 +243,7 @@ function normalizeStage(stage?: number): number {
 
 async function dispatchGeneration(api: any, type: 'video' | 'image' | 'audio', payload: any) {
   const provider = payload?.provider || (
+    payload?.model?.startsWith('klingai/') ? 'klingai' :
     payload?.model?.startsWith('apimart/') ? 'apimart' :
     payload?.model?.startsWith('machgen/') ? 'machgen' :
     payload?.model?.startsWith('higgsfield/') ||
@@ -257,6 +258,9 @@ async function dispatchGeneration(api: any, type: 'video' | 'image' | 'audio', p
     payload?.model?.startsWith('fal-ai/') || payload?.model?.startsWith('minimax/') ? 'fal' :
     payload?.model?.startsWith('prunaai/') ? 'replicate' : 'kie'
   )
+  if (provider === 'klingai' && api?.kling?.generate) {
+    return api.kling.generate(payload)
+  }
   if (provider === 'apimart' && api?.apimart?.generate) {
     return api.apimart.generate(payload)
   }

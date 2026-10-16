@@ -82,6 +82,12 @@ const electronAPI = {
     models: () => ipcRenderer.invoke('apimart:models:list'),
     account: () => ipcRenderer.invoke('apimart:account'),
   },
+  kling: {
+    generate: (params: any) => ipcRenderer.invoke('kling:generate', params),
+    taskStatus: (taskId: string) => ipcRenderer.invoke('kling:task:status', taskId),
+    cancelTask: (taskId: string) => ipcRenderer.invoke('kling:task:cancel', taskId),
+    models: () => ipcRenderer.invoke('kling:models:list'),
+  },
   balances: {
     list: () => ipcRenderer.invoke('balances:list'),
   },
@@ -169,6 +175,7 @@ const electronAPI = {
       'machgen:task:progress', 'machgen:task:completed', 'machgen:task:failed',
       'higgsfield:task:progress', 'higgsfield:task:completed', 'higgsfield:task:failed',
       'apimart:task:progress', 'apimart:task:completed', 'apimart:task:failed',
+      'kling:task:progress', 'kling:task:completed', 'kling:task:failed',
       'assets:changed', 'assets:updated',
       'export:progress', 'export:complete', 'export:error',
       'error', 'notification',

@@ -171,6 +171,25 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
       }
     }
 
+    const klingKey = readSetting('klingApiKey')
+    if (klingKey) {
+      // Kling exposes no plain balance endpoint; a task lookup validates the key
+      let value = 'Conectado'
+      try {
+        const res = await fetch('https://api-singapore.klingai.com/tasks?task_ids=0', {
+          headers: { Authorization: `Bearer ${klingKey.trim()}` },
+        })
+        if (res.status === 401 || res.status === 403) value = 'API Key inválida'
+      } catch {}
+      balances.push({
+        provider: 'klingai',
+        label: 'Kling AI',
+        kind: 'account',
+        value,
+        url: 'https://kling.ai/dev/api-key',
+      })
+    }
+
     const deepseekKey = readSetting('deepseekApiKey')
     if (deepseekKey) {
       try {

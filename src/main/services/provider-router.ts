@@ -4,9 +4,9 @@ import { getFalModel } from './fal/catalog'
 import { getReplicateModel } from './replicate/catalog'
 
 /** Queue providers, as stored in tasks.provider ('openfield' is the KIE queue). */
-export type QueueProvider = 'openfield' | 'fal' | 'higgsfield' | 'machgen' | 'replicate' | 'apimart'
+export type QueueProvider = 'openfield' | 'fal' | 'higgsfield' | 'machgen' | 'replicate' | 'apimart' | 'klingai'
 
-export const QUEUE_PROVIDERS: QueueProvider[] = ['openfield', 'fal', 'higgsfield', 'machgen', 'replicate', 'apimart']
+export const QUEUE_PROVIDERS: QueueProvider[] = ['openfield', 'fal', 'higgsfield', 'machgen', 'replicate', 'apimart', 'klingai']
 
 const HIGGSFIELD_PREFIXES = [
   'higgsfield/', 'higgsfield-ai/', 'flux-pro/', 'xai/grok-imagine', 'marketing-studio/', 'ideogram/v4',
@@ -20,6 +20,7 @@ const REPLICATE_PREFIXES = ['prunaai/', 'philz1337x/', 'black-forest-labs/', 'id
 export function normalizeProvider(name?: string | null): QueueProvider | null {
   const n = (name || '').toLowerCase().replace(/\.ai$/, '')
   if (n === 'kie' || n === 'openfield') return 'openfield'
+  if (n === 'kling') return 'klingai'
   return (QUEUE_PROVIDERS as string[]).includes(n) ? n as QueueProvider : null
 }
 
@@ -31,6 +32,7 @@ export function routeModelToProvider(model: string, providerHint?: string | null
   const explicit = normalizeProvider(providerHint)
   if (explicit) return explicit
   const m = model || ''
+  if (m.startsWith('klingai/')) return 'klingai'
   if (m.startsWith('apimart/') || getApimartModel(m)) return 'apimart'
   if (m.startsWith('machgen/') || m.includes('MachGen') || getMachgenModel(m)) return 'machgen'
   if (HIGGSFIELD_PREFIXES.some(p => m.startsWith(p))) return 'higgsfield'

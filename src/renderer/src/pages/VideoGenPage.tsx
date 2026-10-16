@@ -260,7 +260,9 @@ export function VideoGenPage() {
     const unsubMgFailed = api.on('machgen:task:failed', () => reset())
     const unsubHfComplete = api.on('higgsfield:task:completed', () => reset())
     const unsubHfFailed = api.on('higgsfield:task:failed', () => reset())
-    return () => { unsubComplete?.(); unsubFailed?.(); unsubRpComplete?.(); unsubRpFailed?.(); unsubFalComplete?.(); unsubFalFailed?.(); unsubMgComplete?.(); unsubMgFailed?.(); unsubHfComplete?.(); unsubHfFailed?.() }
+    const unsubKlComplete = api.on('kling:task:completed', () => reset())
+    const unsubKlFailed = api.on('kling:task:failed', () => reset())
+    return () => { unsubComplete?.(); unsubFailed?.(); unsubRpComplete?.(); unsubRpFailed?.(); unsubFalComplete?.(); unsubFalFailed?.(); unsubMgComplete?.(); unsubMgFailed?.(); unsubHfComplete?.(); unsubHfFailed?.(); unsubKlComplete?.(); unsubKlFailed?.() }
   }, [reset])
 
   const handleDelete = useCallback(async (assetId: string) => {
@@ -304,10 +306,13 @@ export function VideoGenPage() {
         params?.model?.startsWith('alibaba/wan-3.0') ||
         params?.model?.startsWith('higgsfield-ai/')
       const isApimartModel = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
+      const isKlingModel = params?.provider === 'klingai' || params?.model?.startsWith('klingai/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen') || params?.model?.includes('MiniMax-H3') || params?.model?.includes('Wan2.2') || params?.model?.includes('LTX-2.3') || params?.model?.includes('Vidu-Q3') || params?.model?.includes('Topaz-')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/')
-      if (isApimartModel) {
+      if (isKlingModel) {
+        await api?.kling.generate(params)
+      } else if (isApimartModel) {
         await api?.apimart.generate(params)
       } else if (isMachgenModel) {
         await api?.machgen.generate(params)

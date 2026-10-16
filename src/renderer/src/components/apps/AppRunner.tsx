@@ -313,6 +313,7 @@ export function AppRunner({ app, onClose }: AppRunnerProps) {
     try {
       if (params.prompt) {
         const isApimart = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
+        const isKling = params?.provider === 'klingai' || params?.model?.startsWith('klingai/')
         const isMachgen = params?.provider === 'machgen' || params?.model?.startsWith('machgen/')
         const isHiggsfield = params?.provider === 'higgsfield' ||
           params?.model?.startsWith('higgsfield/') ||
@@ -327,7 +328,9 @@ export function AppRunner({ app, onClose }: AppRunnerProps) {
           params?.model?.startsWith('marketing-studio/')
         const isFal = params?.provider === 'fal' || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('minimax/')
         const isReplicate = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/')
-        if (isApimart && api?.apimart?.generate) {
+        if (isKling && api?.kling?.generate) {
+          await api.kling.generate(params)
+        } else if (isApimart && api?.apimart?.generate) {
           await api.apimart.generate(params)
         } else if (isMachgen && api?.machgen?.generate) {
           await api.machgen.generate(params)

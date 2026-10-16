@@ -839,7 +839,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const hasVideoRef = refs.some(r => r.mime.startsWith('video/'))
   const hasImageSupport = !!(currentModel.i2iId || currentModel.editId || currentModel.i2vId || currentModel.fflfId || currentModel.t2vId?.includes('genjutsu/motion-transfer'))
   const isKling = !!(currentModel.t2vId?.startsWith('kling') || currentModel.i2vId?.startsWith('kling'))
-  const isKling30 = !!(currentModel.t2vId?.startsWith('kling-3') || currentModel.i2vId?.startsWith('kling-3') || currentModel.t2vId?.includes('kling-video/v3'))
+  const isKling30 = !!(currentModel.t2vId?.startsWith('kling-3') || currentModel.i2vId?.startsWith('kling-3') || currentModel.t2vId?.includes('kling-video/v3') || currentModel.t2vId?.startsWith('klingai/kling-3'))
   const isHiggsfield = currentModel.provider === 'higgsfield'
   const isMarketplace = isHiggsfield && (
     currentModel.t2iId?.includes('marketplace') ||
