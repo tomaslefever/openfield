@@ -85,6 +85,13 @@ function App() {
     }).catch(() => {})
   }, [])
 
+  // The MCP bridge can save, edit or delete prompts of the Prompt Library
+  useEffect(() => {
+    return (window as any).electronAPI?.on?.('prompts:changed', () => {
+      usePromptLibraryStore.getState().loadEntries()
+    })
+  }, [])
+
   // When the active workspace changes, reload workspace-scoped data and reset
   // any in-memory state that belongs to the previous workspace.
   useEffect(() => {

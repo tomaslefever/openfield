@@ -502,6 +502,22 @@ export function runMigrations() {
   // Migration: add custom_prompt_guide column to drama_projects
   try { raw.exec("ALTER TABLE drama_projects ADD COLUMN custom_prompt_guide TEXT DEFAULT ''") } catch {}
 
+  // Migration: prompt library entries get a category and a "when to use" description,
+  // so agents can find them over MCP as references
+  try { raw.exec("ALTER TABLE prompts ADD COLUMN category TEXT DEFAULT ''") } catch {}
+  try { raw.exec("ALTER TABLE prompts ADD COLUMN description TEXT DEFAULT ''") } catch {}
+  // ...plus the model families and piece types it is written for (JSON arrays)
+  try { raw.exec("ALTER TABLE prompts ADD COLUMN models TEXT DEFAULT '[]'") } catch {}
+  try { raw.exec("ALTER TABLE prompts ADD COLUMN types TEXT DEFAULT '[]'") } catch {}
+  // Review verdicts on library prompts, built-in templates included (no FK: built-ins
+  // have no row). Agents prefer approved prompts and never see rejected ones.
+  raw.exec(`CREATE TABLE IF NOT EXISTS prompt_reviews (
+    prompt_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    note TEXT DEFAULT '',
+    updated_at INTEGER NOT NULL
+  )`)
+
   // Migration: add workspace_id column to drama_projects
   try { raw.exec('ALTER TABLE drama_projects ADD COLUMN workspace_id TEXT') } catch {}
   try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_projects_workspace ON drama_projects(workspace_id)') } catch {}

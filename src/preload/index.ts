@@ -123,6 +123,9 @@ const electronAPI = {
   },
   prompts: {
     list: () => ipcRenderer.invoke('prompts:list'),
+    builtin: () => ipcRenderer.invoke('prompts:builtin'),
+    taxonomy: () => ipcRenderer.invoke('prompts:taxonomy'),
+    setReview: (id: string, status: string, note?: string) => ipcRenderer.invoke('prompts:setReview', id, status, note),
     create: (data: any) => ipcRenderer.invoke('prompts:create', data),
     update: (id: string, data: any) => ipcRenderer.invoke('prompts:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('prompts:delete', id),
@@ -177,6 +180,7 @@ const electronAPI = {
       'apimart:task:progress', 'apimart:task:completed', 'apimart:task:failed',
       'kling:task:progress', 'kling:task:completed', 'kling:task:failed',
       'assets:changed', 'assets:updated',
+      'prompts:changed',
       'export:progress', 'export:complete', 'export:error',
       'error', 'notification',
       'update:status', 'update:progress',

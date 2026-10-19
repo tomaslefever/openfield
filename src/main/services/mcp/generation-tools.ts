@@ -10,6 +10,7 @@ import { getActiveWorkspaceId } from '../workspace-service'
 import { getProviderQueue } from '../task-recovery'
 import { normalizeProvider, routeModelToProvider, type QueueProvider } from '../provider-router'
 import { notifyAssetsChanged, notifyAssetUpdated } from '../../ipc/assets'
+import { requireLibraryCheck } from './library-gate'
 import { IMAGE_MODELS } from '../kie/models'
 // Each queue registers itself as a recoverable provider when its module loads
 import '../task-queue'
@@ -83,7 +84,7 @@ function resolveAssetId(id: string): string {
   return row.id
 }
 
-function requireAsset(id: string): any {
+export function requireAsset(id: string): any {
   const resolved = resolveAssetId(id)
   const asset = getAssetManager().getAsset(resolved) as any
   if (!asset) throw new ToolInputError(`Asset '${id}' not found. Use list_assets to find asset ids.`)
@@ -524,6 +525,7 @@ export function getGenerationTools(): McpTool[] {
       title: 'Generate image or video',
       description: [
         'Queue a new image or video generation (uses API credits), like the Playground composer.',
+        'Write the prompt from a prompt-library template (search_prompt_library → get_library_prompt) adapted to the brief; without a recent library check the first call is refused once with the closest templates.',
         'References: pass existing asset ids in reference_asset_ids (images, videos or audio), and/or reuse_references_from to copy every reference and frame of a previous generation ("use the references of the previous image" → reuse_references_from: "latest").',
         'count > 1 queues that many independent variants (e.g. 4 to let the user choose one; then wait_for_tasks with preview: true).',
         'Returns task ids and placeholder asset ids; poll get_task or call wait_for_tasks.',
@@ -551,6 +553,7 @@ export function getGenerationTools(): McpTool[] {
       annotations: GENERATE,
       handler: async (args) => {
         const type = str(args.type, 'image')
+        requireLibraryCheck(str(args.prompt), type === 'video' ? 'video' : 'image', str(args.model))
         const count = Math.floor(num(args.count, 1))
         if (count > 4) throw new ToolInputError('count must be between 1 and 4')
         const provider = routeModelToProvider(str(args.model), optStr(args.provider))

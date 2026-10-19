@@ -26,6 +26,7 @@ import {
 } from './endpoint-inspector'
 import { IMAGE_MODELS, VIDEO_MODELS } from '../kie/models'
 import { getGenerationTools } from './generation-tools'
+import { getPromptLibraryTools } from './prompt-library-tools'
 import {
   type McpTool,
   ToolInputError,
@@ -565,6 +566,9 @@ function getTools(): McpTool[] {
 
     // ─── Library & playground generations ──────────────────────
     ...getGenerationTools(),
+
+    // ─── Prompt library (Openfield templates + the user's saved prompts) ─
+    ...getPromptLibraryTools(),
   ]
 }
 
@@ -809,6 +813,7 @@ export class McpBridgeServer {
               'Service introspection: list_services, list_endpoints, get_endpoint, get_endpoint_example and get_service_models read live capabilities, types and docs from the app.',
               'Resources: endpoint://<service>/<endpoint> (docs), example://<service>/<endpoint> (examples), source://<service>/<endpoint> (source), models://<service> (model catalogs).',
               'Storyboard flow: create_storyboard → create_scenes → generate_scene_image per scene → generate_scene_video (needs the scene image) → create_transition / generate_transition.',
+              'PROMPT LIBRARY FIRST: before writing ANY image or video prompt (generate, storyboard scenes, edits), call search_prompt_library with the kind of piece (ads, character sheet, storyboard, UGC, product, editing…) and the model you will use, then open the best match with get_library_prompt. The templates are researched for visual quality and consistency per model family. Use it as a reference — fill its {{variables}} from the brand, product and request of the user, follow its guidance and rewrite whatever does not fit; never paste it unchanged when the brief differs. For a series (campaign, storyboard, recurring character) start from the character-sheet / consistency templates and repeat the same character and style description in every prompt. Prompts the user approved in review rank first; user-saved prompts (source workspace/global) reflect their own style. generate refuses its first call without a recent library check. When the user likes a result or asks to keep a prompt, save_library_prompt (with {{variables}}, models and types).',
               'Playground / library: list_assets and get_asset find generations and the references each one used; generate creates new images/videos with reference_asset_ids or reuse_references_from (e.g. "latest" = the previous generation); recreate_generation re-runs one with optional overrides; update_assets / delete_assets / import_asset manage the library.',
               'To let the user choose between options: generate with count: 4, then wait_for_tasks with preview: true shows the results numbered #1..#4; use the chosen asset id as a reference next. preview_assets shows any existing assets the same way.',
               'generate, recreate_generation and generate_* spend the user\'s API credits and are async: they return task ids; use wait_for_tasks (or poll get_task) until they complete or fail.',
