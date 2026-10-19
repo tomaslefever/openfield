@@ -69,7 +69,7 @@ export const HIGGSFIELD_ENDPOINT_MAP: Record<string, string> = {
   // Image Models
   'higgsfield-ai/soul/v2/standard': '/higgsfield-ai/soul/v2/standard',
   'higgsfield/soul-image-2': '/higgsfield-ai/soul/v2/standard',
-  'higgsfield-ai/soul/cinema': '/higgsfield-ai/soul/standard',
+  'higgsfield-ai/soul/cinema': '/higgsfield-ai/soul/cinema',
   'higgsfield/soul-2-0/text-to-video': '/higgsfield/cinema-studio/4.0',
   'higgsfield-ai/soul/standard': '/higgsfield-ai/soul/standard',
   'flux-pro/kontext/max/text-to-image': '/flux-pro/kontext/max/text-to-image',

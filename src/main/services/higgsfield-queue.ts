@@ -650,12 +650,15 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
             ...(payload?.seed !== undefined ? { seed: payload.seed } : {}),
           }
         } else {
-          // Soul Image 2.0 / Soul Standard / default
-          if (endpoint.includes('soul/cinema') || endpoint.includes('soul/standard')) {
+          // Soul v1 (soul/standard), Soul Cinema (soul/cinema), Soul Image 2.0 (soul/v2/standard, default)
+          if (endpoint.includes('soul/cinema')) {
+            endpoint = '/higgsfield-ai/soul/cinema'
+          } else if (endpoint.includes('soul/standard') && !endpoint.includes('soul/v2')) {
             endpoint = '/higgsfield-ai/soul/standard'
           } else {
             endpoint = '/higgsfield-ai/soul/v2/standard'
           }
+          const isSoulV1 = endpoint === '/higgsfield-ai/soul/standard'
 
           let resolution: '720p' | '1080p' = '720p'
           const resStr = String(payload?.resolution || '').toLowerCase().trim()
@@ -674,9 +677,12 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
             aspect_ratio,
             resolution,
             enhance_prompt: payload?.enhancePrompt ?? true,
-            ...(firstFrameUrl ? { image_url: firstFrameUrl } : {}),
-            ...(payload?.seed !== undefined ? { seed: payload.seed } : {}),
-            ...(payload?.batchSize ? { batch_size: payload.batchSize } : { batch_size: 1 }),
+            // Only Soul v1 takes an image, as image_reference_url (it guides prompt enhancement)
+            ...(isSoulV1 && firstFrameUrl ? { image_reference_url: firstFrameUrl } : {}),
+            // Cinema and v2 reject an explicit null seed
+            ...(payload?.seed != null ? { seed: payload.seed } : {}),
+            // The API takes 1 or 4, but only images[0] is saved, so a batch of 4 would bill 4 for 1
+            batch_size: 1,
           }
         }
       } else if (isKling) {

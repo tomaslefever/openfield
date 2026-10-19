@@ -83,6 +83,7 @@ const MODEL_NAMES: Record<string, string> = {
   'minimax/h3/text-to-video': 'MiniMax H3',
   'minimax/h3/image-to-video': 'MiniMax H3 I2V',
   'higgsfield-ai/soul/cinema': 'Soul Cinema',
+  'higgsfield-ai/soul/standard': 'Soul v1',
   'higgsfield-ai/soul/v2/standard': 'Soul Image 2.0',
   'flux-pro/kontext/max/text-to-image': 'FLUX.1 Pro',
   'xai/grok-imagine-image-2.0': 'Grok Image 2.0',

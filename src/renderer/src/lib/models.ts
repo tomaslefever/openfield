@@ -303,8 +303,17 @@ export const IMAGE_MODELS: ModelPricing[] = [
     prices: [{ resolution: '720p', cost: 0.030 }, { resolution: '1080p', cost: 0.050 }],
     resolutions: ['720p', '1080p'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
-  { name: 'Soul Cinema (Higgsfield)', category: 'Higgsfield', unit: 'img', provider: 'higgsfield',
+  // docs.higgsfield.ai/docs/models/soul-standard/generate: SOUL v1, selectable style_id/style_strength.
+  // Higgsfield publishes no per-image API price; these are carried over and unverified
+  { name: 'Soul v1 (Higgsfield)', category: 'Higgsfield', unit: 'img', provider: 'higgsfield',
     t2iId: 'higgsfield-ai/soul/standard',
+    prices: [{ resolution: '720p', cost: 0.035 }, { resolution: '1080p', cost: 0.060 }],
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
+  // docs.higgsfield.ai/docs/models/soul-cinema/generate: still images in a fixed cinematic style
+  // (style_id is ignored). Not a video model. Prices unverified, same as Soul v1
+  { name: 'Soul Cinema (Higgsfield)', category: 'Higgsfield', unit: 'img', provider: 'higgsfield',
+    t2iId: 'higgsfield-ai/soul/cinema',
     prices: [{ resolution: '720p', cost: 0.035 }, { resolution: '1080p', cost: 0.060 }],
     resolutions: ['720p', '1080p'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] },
@@ -871,11 +880,6 @@ export const VIDEO_MODELS: ModelPricing[] = [
     supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: 'Image%d', video: 'Video%d', audio: 'Audio%d' },
     aspectRatios: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16'] },
-  { name: 'Soul 2.0 Cinema (Higgsfield)', category: 'Higgsfield', unit: 's', provider: 'higgsfield',
-    t2vId: 'higgsfield-ai/soul/cinema', i2vId: 'higgsfield-ai/soul/cinema',
-    prices: [{ resolution: '720p', cost: 0.12 }],
-    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
-    aspectRatios: ['16:9', '9:16', '1:1'] },
   // Re-skins a source video (motion, camera and timing kept) with 1–8 image references.
   // Billed per second of the source video (min 4 s, trimmed to 30 s), playground rates Oct 2026
   { name: 'Genjutsu Motion Transfer (Higgsfield)', category: 'Higgsfield', unit: 's', provider: 'higgsfield',
