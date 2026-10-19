@@ -119,18 +119,18 @@ function builtinRefDir(): string | null {
   return refDir
 }
 
+/** Bundled reference files only: the library never depends on images hosted elsewhere */
 function builtinReferences(p: BuiltinPrompt): PromptReferenceInfo[] {
   const dir = builtinRefDir()
   const out: PromptReferenceInfo[] = []
   for (const r of p.references || []) {
-    const filePath = r.file && dir ? path.join(dir, r.file) : undefined
-    if (r.file && (!filePath || !fs.existsSync(filePath))) continue
-    if (!r.file && !r.url) continue
-    const name = r.file || r.url!.split('/').pop()!.split('?')[0]
+    if (!r.file || !dir) continue
+    const filePath = path.join(dir, r.file)
+    if (!fs.existsSync(filePath)) continue
     out.push({
-      name,
-      type: /\.(mp4|webm|mov)$/i.test(name) ? 'video' : 'image',
-      ...(filePath ? { path: filePath } : { url: r.url }),
+      name: r.file,
+      type: /\.(mp4|webm|mov)$/i.test(r.file) ? 'video' : 'image',
+      path: filePath,
       caption: r.caption,
       credit: r.credit,
       sourceUrl: r.sourceUrl,
@@ -139,6 +139,16 @@ function builtinReferences(p: BuiltinPrompt): PromptReferenceInfo[] {
     })
   }
   return out
+}
+
+/** Third-party examples are not redistributed: they are listed as links next to the guides */
+function externalExamples(p: BuiltinPrompt): PromptSourceLink[] {
+  return (p.references || [])
+    .filter((r) => !r.file && r.url)
+    .map((r) => ({
+      title: `Ejemplo externo: ${r.caption} — ${r.credit}${r.date ? ` (${r.date})` : ''}`,
+      url: r.sourceUrl || r.url!,
+    }))
 }
 
 // ─── Reviews ──────────────────────────────────────────────────────────────────
@@ -183,7 +193,7 @@ function fromBuiltin(p: BuiltinPrompt, reviews: Reviews): LibraryPrompt {
     durationSeconds: p.durationSeconds,
     referenceCount: references.length,
     references,
-    sources: p.sources || [],
+    sources: [...(p.sources || []), ...externalExamples(p)],
     review: reviews.get(p.id) || PENDING,
   }
 }
@@ -270,23 +280,7 @@ const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4',
 }
 
-const MAX_REMOTE_REF_BYTES = 12 * 1024 * 1024
-
-/** Downloads a source-hosted example image (only when an agent or the user asks for it) */
-async function fetchRemoteRef(url: string): Promise<{ buffer: Buffer; mime: string }> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const mime = (res.headers.get('content-type') || '').split(';')[0].trim()
-  if (!mime.startsWith('image/')) throw new Error(`not an image (${mime || 'unknown type'})`)
-  const buffer = Buffer.from(await res.arrayBuffer())
-  if (buffer.length > MAX_REMOTE_REF_BYTES) throw new Error('image too large')
-  return { buffer, mime }
-}
-
-/**
- * The references with their payload: stored base64 for user prompts; for built-ins the bundled
- * file, or the source-hosted example downloaded on demand (skipped with a warning if it fails).
- */
+/** The references with their payload: stored base64 for user prompts, the bundled files for built-ins */
 export async function getPromptReferences(id: string): Promise<{ refs: PromptReferenceData[]; warnings: string[] }> {
   const builtin = getBuiltinPrompt(id)
   if (!builtin) {
@@ -297,9 +291,8 @@ export async function getPromptReferences(id: string): Promise<{ refs: PromptRef
   const warnings: string[] = []
   for (const r of builtinReferences(builtin)) {
     try {
-      const { buffer, mime } = r.path
-        ? { buffer: await fs.promises.readFile(r.path), mime: MIME_BY_EXT[path.extname(r.name).toLowerCase()] || 'image/jpeg' }
-        : await fetchRemoteRef(r.url!)
+      const buffer = await fs.promises.readFile(r.path!)
+      const mime = MIME_BY_EXT[path.extname(r.name).toLowerCase()] || 'image/jpeg'
       refs.push({ id: r.name, base64: buffer.toString('base64'), mime, type: r.type, name: r.name })
     } catch (err: any) {
       warnings.push(`${r.name}: could not load (${err?.message || err})`)
@@ -387,7 +380,7 @@ export function searchLibraryPrompts(opts: SearchOptions): Array<LibraryPrompt &
     if (qTokens.length) {
       const fields: Array<[string, number]> = [
         [norm(p.name), 5],
-        [norm(`${p.tags.join(' ')} ${p.types.join(' ')} ${p.types.map((t) => PROMPT_TYPES[t] || '').join(' ')}`), 4],
+        [norm(`${p.kind === 'video' ? 'video' : 'image imagen foto'} ${p.tags.join(' ')} ${p.types.join(' ')} ${p.types.map((t) => PROMPT_TYPES[t] || '').join(' ')}`), 4],
         [norm(`${p.category} ${PROMPT_CATEGORIES[p.category as keyof typeof PROMPT_CATEGORIES] || ''}`), 3],
         [norm(`${p.description} ${p.models.join(' ')}`), 2],
         [norm(p.prompt), 1],

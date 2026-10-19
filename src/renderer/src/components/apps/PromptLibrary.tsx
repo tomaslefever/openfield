@@ -3,7 +3,7 @@ import { Plus, Trash2, X, Upload, Image, Video, Search, Copy, Check, FileText, S
 import { usePromptLibraryStore, type PromptEntry, type PromptReference, type BuiltinTemplate } from '../../stores/prompt-library-store'
 import { useAppStore } from '../../stores/app-store'
 import { ImageLibraryPicker } from '../ImageLibraryPicker'
-import { PromptLibraryReview, TagChips, ReviewBadge } from './PromptLibraryReview'
+import { PromptLibraryReview, TagChips, ReviewBadge, KindChip } from './PromptLibraryReview'
 import { fileUrl } from '../../services/file-url'
 import { PromptReferenceViewer } from './PromptReferenceViewer'
 import { builtinViewerImages } from '../../lib/prompt-references'
@@ -241,9 +241,7 @@ function PromptCard({
 
           {/* Kind badge */}
           <div className="absolute top-2 right-2">
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${entry.kind === 'video' ? 'bg-blue-500/20 text-blue-400 border-blue-500/20' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20'}`}>
-              {entry.kind === 'video' ? 'Video' : 'Image'}
-            </span>
+            <KindChip kind={entry.kind} />
           </div>
 
           {entry.references.length > 1 && (
@@ -571,7 +569,7 @@ function TemplateCard({ template, onSave }: { template: BuiltinTemplate; onSave:
       </div>
 
       <p className="text-xs text-surface-400 leading-relaxed">{template.description}</p>
-      <TagChips models={template.models || []} types={template.types || []} taxonomy={taxonomy} />
+      <TagChips kind={template.kind} models={template.models || []} types={template.types || []} taxonomy={taxonomy} />
 
       <button
         onClick={() => setExpanded(v => !v)}
@@ -619,7 +617,7 @@ export function PromptLibrary() {
     addReference, removeReference,
   } = usePromptLibraryStore()
 
-  const [tab, setTab] = useState<'mine' | 'openfield' | 'review'>('mine')
+  const [tab, setTab] = useState<'mine' | 'openfield' | 'review'>('openfield')
   useEffect(() => { loadBuiltins() }, [loadBuiltins])
 
   const [search, setSearch] = useState('')
@@ -720,7 +718,7 @@ export function PromptLibrary() {
         <span className="text-[10px] text-surface-600 whitespace-nowrap">{tab === 'mine' ? filtered.length : tab === 'openfield' ? filteredTemplates.length : entries.length + builtins.length} prompts</span>
 
         <div className="flex items-center gap-1 ml-4">
-          {([['mine', 'Mis prompts'], ['openfield', 'Openfield'], ['review', 'Revisión']] as const).map(([k, label]) => (
+          {([['openfield', 'Openfield'], ['mine', 'Mis prompts'], ['review', 'Revisión']] as const).map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`text-[10px] px-2 py-1 rounded-pill whitespace-nowrap transition-all ${tab === k ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30' : 'bg-surface-800 text-surface-500 border border-surface-700 hover:text-surface-300'}`}>
               {label}
@@ -794,6 +792,7 @@ export function PromptLibrary() {
             <FileText size={48} className="mb-4 opacity-50" />
             <p className="text-sm">No prompts yet</p>
             <button onClick={() => setShowAdd(true)} className="text-xs text-accent-400 hover:text-accent-300 mt-2">Create your first prompt</button>
+            <button onClick={() => setTab('openfield')} className="text-xs text-accent-400 hover:text-accent-300 mt-1">Ver las {builtins.length} plantillas de Openfield</button>
           </div>
         ) : (
           <div className="max-w-7xl mx-auto">

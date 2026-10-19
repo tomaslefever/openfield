@@ -98,7 +98,7 @@ export interface BuiltinReference {
   url?: string
   caption: string
   credit: string
-  sourceUrl: string
+  sourceUrl?: string
   license: string
   /** When the example was published (YYYY-MM-DD or YYYY-MM), so agents and reviewers see how current it is */
   date?: string

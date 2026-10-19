@@ -463,7 +463,27 @@ const CORE_PROMPTS: BuiltinPrompt[] = [
   },
 ]
 
-export const BUILTIN_PROMPTS: BuiltinPrompt[] = [...RESEARCH_PROMPTS, ...CORE_PROMPTS]
+/**
+ * Every template ships with a reference Openfield generated from it (Nano Banana 2.1, 1K) in
+ * resources/prompt-library/gen-<id>.jpg, so the library is complete offline and in every release.
+ */
+function withGeneratedReference(p: BuiltinPrompt): BuiltinPrompt {
+  return {
+    ...p,
+    references: [
+      {
+        file: `gen-${p.id.replace(/^of:/, '')}.jpg`,
+        caption: 'Referencia generada por Openfield a partir de esta plantilla (Nano Banana 2.1, 1K)',
+        credit: 'Openfield',
+        license: 'Openfield',
+        date: '2026-10-19',
+      },
+      ...(p.references || []),
+    ],
+  }
+}
+
+export const BUILTIN_PROMPTS: BuiltinPrompt[] = [...RESEARCH_PROMPTS, ...CORE_PROMPTS].map(withGeneratedReference)
 
 const BY_ID = new Map(BUILTIN_PROMPTS.map((p) => [p.id, p]))
 

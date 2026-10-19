@@ -36,10 +36,24 @@ const STATUS_LABEL: Record<ReviewStatus | 'all', string> = {
   all: 'Todos',
 }
 
-export function TagChips({ models, types, taxonomy }: { models: string[]; types: string[]; taxonomy: PromptTaxonomy | null }) {
-  if (!models.length && !types.length) return null
+/** Image or video: the first thing to know about a prompt */
+export function KindChip({ kind }: { kind: 'image' | 'video' }) {
+  return kind === 'video' ? (
+    <span className="text-[9px] px-1.5 py-0.5 rounded-pill font-semibold flex items-center gap-1 bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30">
+      <Video size={9} /> Video
+    </span>
+  ) : (
+    <span className="text-[9px] px-1.5 py-0.5 rounded-pill font-semibold flex items-center gap-1 bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/30">
+      <Image size={9} /> Imagen
+    </span>
+  )
+}
+
+export function TagChips({ kind, models, types, taxonomy }: { kind?: 'image' | 'video'; models: string[]; types: string[]; taxonomy: PromptTaxonomy | null }) {
+  if (!kind && !models.length && !types.length) return null
   return (
     <div className="flex flex-wrap gap-1">
+      {kind && <KindChip kind={kind} />}
       {types.map(t => (
         <span key={`t-${t}`} className="text-[9px] px-1.5 py-0.5 rounded-pill bg-accent-500/10 text-accent-400 border border-accent-500/20">
           {taxonomy?.types[t] || t}
@@ -101,12 +115,12 @@ function ReviewRow({ item, taxonomy }: { item: ReviewItem; taxonomy: PromptTaxon
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-surface-100">{item.name}</p>
           <span className="text-[9px] px-1.5 py-0.5 rounded-pill bg-surface-800 text-surface-500 border border-surface-700">
-            {item.source === 'openfield' ? 'Openfield' : 'Mío'} · {item.kind === 'video' ? 'video' : 'imagen'}
+            {item.source === 'openfield' ? 'Openfield' : 'Mío'}
           </span>
           <ReviewBadge status={status} />
         </div>
         <p className="text-xs text-surface-400 leading-relaxed">{item.description}</p>
-        <TagChips models={item.models} types={item.types} taxonomy={taxonomy} />
+        <TagChips kind={item.kind} models={item.models} types={item.types} taxonomy={taxonomy} />
 
         <button onClick={() => setOpen(v => !v)} className="text-[10px] text-accent-400 hover:text-accent-300 flex items-center gap-1 self-start">
           {open ? <ChevronUp size={10} /> : <ChevronDown size={10} />} {open ? 'Ocultar prompt' : 'Ver prompt'}

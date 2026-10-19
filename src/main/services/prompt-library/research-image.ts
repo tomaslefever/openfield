@@ -42,8 +42,6 @@ const GOOGLE_DOCS = 'https://ai.google.dev/gemini-api/docs/image-generation'
 const GOOGLE_LICENSE = 'CC BY 4.0 (Google AI for Developers)'
 const DEEPMIND_PAGE = 'https://deepmind.google/models/gemini-image/flash/'
 const DEEPMIND_LICENSE = '© Google; enlazado desde la página oficial'
-const PICO = (n: number, file = 'output.jpg') => `https://raw.githubusercontent.com/PicoTrex/Awesome-Nano-Banana-images/main/images/case${n}/${file}`
-const PICO_LICENSE = 'Repo: Apache-2.0 / CC BY 4.0 (en conflicto); imagen de un post de terceros'
 const EVO = (path: string) => `https://raw.githubusercontent.com/EvoLinkAI/awesome-gpt-image-2-API-and-Prompts/main/images/${path}/output.jpg`
 const EVO_LICENSE = 'Repo: CC0 1.0; imagen de un post de terceros'
 const YOUMIND_LICENSE = 'Repo: CC BY 4.0; recopilado de la comunidad'
