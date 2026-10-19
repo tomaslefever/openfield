@@ -66,11 +66,15 @@ export const HIGGSFIELD_ENDPOINT_MAP: Record<string, string> = {
   'higgsfield/minimax-h3/reference-to-video': '/minimax/h3/reference-to-video',
   'higgsfield/minimax-h3': '/minimax/h3/text-to-video',
 
+  // Cinema Studio 4.0 (one endpoint for text- and reference-to-video). soul-2-0 is the old
+  // "Soul 2.0 Cinema" video id
+  'higgsfield/cinema-studio/4.0': '/higgsfield/cinema-studio/4.0',
+  'higgsfield/soul-2-0/text-to-video': '/higgsfield/cinema-studio/4.0',
+
   // Image Models
   'higgsfield-ai/soul/v2/standard': '/higgsfield-ai/soul/v2/standard',
   'higgsfield/soul-image-2': '/higgsfield-ai/soul/v2/standard',
   'higgsfield-ai/soul/cinema': '/higgsfield-ai/soul/cinema',
-  'higgsfield/soul-2-0/text-to-video': '/higgsfield/cinema-studio/4.0',
   'higgsfield-ai/soul/standard': '/higgsfield-ai/soul/standard',
   'flux-pro/kontext/max/text-to-image': '/flux-pro/kontext/max/text-to-image',
   'higgsfield/flux-pro': '/flux-pro/kontext/max/text-to-image',

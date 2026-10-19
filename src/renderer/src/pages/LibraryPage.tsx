@@ -82,6 +82,7 @@ const MODEL_NAMES: Record<string, string> = {
   'alibaba/wan-3.0-prime/reference-to-video': 'Wan 3.0 Prime Ref',
   'minimax/h3/text-to-video': 'MiniMax H3',
   'minimax/h3/image-to-video': 'MiniMax H3 I2V',
+  'higgsfield/cinema-studio/4.0': 'Cinema Studio 4.0',
   'higgsfield-ai/soul/cinema': 'Soul Cinema',
   'higgsfield-ai/soul/standard': 'Soul v1',
   'higgsfield-ai/soul/v2/standard': 'Soul Image 2.0',

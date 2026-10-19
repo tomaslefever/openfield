@@ -880,6 +880,18 @@ export const VIDEO_MODELS: ModelPricing[] = [
     supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: 'Image%d', video: 'Video%d', audio: 'Audio%d' },
     aspectRatios: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16'] },
+  // docs.higgsfield.ai/docs/models/cinema-studio-4/generate: one endpoint, text-to-video without
+  // references and reference-to-video with any (up to 30 images, 10 videos, 10 audio, 50 total).
+  // The product formerly listed as "Soul 2.0 Cinema". Price unverified: Higgsfield publishes no
+  // API rate; $0.12/s is the console listing from modelos_plataformas_catastro.csv (Jan 2026)
+  { name: 'Cinema Studio 4.0 (Higgsfield)', category: 'Higgsfield', unit: 's', provider: 'higgsfield',
+    t2vId: 'higgsfield/cinema-studio/4.0', refId: 'higgsfield/cinema-studio/4.0',
+    prices: [{ resolution: '480p', cost: 0.12 }, { resolution: '720p', cost: 0.12 }],
+    durationMax: 30, durationOptions: secondsRange(4, 30), resolutions: ['480p', '720p'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    maxVideoRefs: 10,
+    refTags: { image: '<<<image_%d>>>', video: '<<<video_%d>>>', audio: '<<<audio_%d>>>' },
+    aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] },
   // Re-skins a source video (motion, camera and timing kept) with 1–8 image references.
   // Billed per second of the source video (min 4 s, trimmed to 30 s), playground rates Oct 2026
   { name: 'Genjutsu Motion Transfer (Higgsfield)', category: 'Higgsfield', unit: 's', provider: 'higgsfield',
