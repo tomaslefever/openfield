@@ -370,7 +370,7 @@ export function registerAssetsHandlers({ handle }: IpcContext) {
     const results = []
     for (const fp of filePaths) {
       const ext = fp.toLowerCase().split('.').pop() || ''
-      const videoExts = ['mp4', 'webm', 'mov', 'avi', 'mkv']
+      const videoExts = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'mpeg', 'mpg'] // importFile reclassifies MP3s saved as .mpeg
       const audioExts = ['mp3', 'wav', 'ogg', 'flac']
       let type: 'image' | 'video' | 'audio' = 'image'
       if (videoExts.includes(ext)) type = 'video'

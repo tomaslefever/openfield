@@ -4,6 +4,7 @@ import * as crypto from 'crypto'
 import { getRawDb, getAssetsDir } from '../db'
 import { getActiveWorkspaceId, workspaceAssetSubDir, workspaceAssetsDir, ensureWorkspaceDirs, listWorkspaces } from './workspace-service'
 import { redactPayload } from './payload-redact'
+import { ffmpegBinary } from './bundled-binaries'
 
 function stripForStorage(payload: any): any {
   if (!payload || typeof payload !== 'object') return payload
@@ -144,11 +145,16 @@ export class AssetManager {
     const ws = workspaceId || getActiveWorkspaceId()
     await this.ensureDirectories(ws)
     const id = crypto.randomUUID()
-    const ext = path.extname(filePath)
-    const fileName = `${id}${ext}`
-    const destPath = `${this.getSubDir(type, ws)}/${fileName}`
     const stat = await fs.stat(filePath)
     const buffer = await fs.readFile(filePath)
+    let ext = path.extname(filePath)
+    // An MP3 saved as .mpeg/.mpg is audio, not an MPEG video (see importBase64)
+    if (/^\.mpe?g$/i.test(ext) && looksLikeMp3(buffer)) {
+      type = 'audio'
+      ext = '.mp3'
+    }
+    const fileName = `${id}${ext}`
+    const destPath = `${this.getSubDir(type, ws)}/${fileName}`
     const contentHash = crypto.createHash('sha256').update(buffer).digest('hex')
     await fs.writeFile(destPath, buffer)
 
@@ -156,6 +162,7 @@ export class AssetManager {
       '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
       '.webp': 'image/webp', '.gif': 'image/gif',
       '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+      '.mpeg': 'video/mpeg', '.mpg': 'video/mpeg',
       '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
     }
 
@@ -196,6 +203,11 @@ export class AssetManager {
     if (!effectiveMime || effectiveMime === 'application/octet-stream' || effectiveMime === '') {
       if (MIME_BY_EXT[nameExt]) effectiveMime = MIME_BY_EXT[nameExt]
     }
+    // Browsers report video/mpeg for any .mpeg/.mpg file, but MP3s often travel with that
+    // extension (e.g. "voice.mp3.mpeg"). An MP3 header means audio, whatever the name says.
+    if ((effectiveMime === 'video/mpeg' || /^\.mpe?g$/.test(nameExt)) && looksLikeMp3(buffer)) {
+      effectiveMime = 'audio/mpeg'
+    }
     const type: AssetType = effectiveMime.startsWith('video/') ? 'video' : effectiveMime.startsWith('audio/') ? 'audio' : 'image'
 
     // Deduplicate by content within the same workspace: re-importing the same image
@@ -213,7 +225,7 @@ export class AssetManager {
     }
 
     const id = crypto.randomUUID()
-    const ext = effectiveMime.split('/')[1] || 'bin'
+    const ext = EXT_BY_MIME[effectiveMime] || effectiveMime.split('/')[1] || 'bin'
     const destFileName = `${id}.${ext}`
     const destPath = `${this.getSubDir(type, ws)}/${destFileName}`
     await fs.writeFile(destPath, buffer)
@@ -830,6 +842,20 @@ export class AssetManager {
 
 let assetManagerInstance: AssetManager | null = null
 
+// Extensions for mimes whose subtype is not a usable extension (audio/mpeg → .mpeg would
+// read as an MPEG video to anything that goes by the file name).
+const EXT_BY_MIME: Record<string, string> = {
+  'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/x-wav': 'wav', 'audio/wave': 'wav',
+  'video/quicktime': 'mov', 'video/x-matroska': 'mkv',
+}
+
+// ID3 tag, or an MPEG audio frame header (11 sync bits, layer bits non-zero).
+function looksLikeMp3(buf: Buffer): boolean {
+  if (buf.length < 3) return false
+  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return true
+  return buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0 && (buf[1] & 0x06) !== 0
+}
+
 // Whether images should be converted to WebP on save (setting, default ON)
 export function saveImagesAsWebp(): boolean {
   try {
@@ -840,8 +866,7 @@ export function saveImagesAsWebp(): boolean {
 
 async function convertImageToWebp(inputPath: string): Promise<string | null> {
   try {
-    const ffmpegStatic = require('ffmpeg-static')
-    const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
+    const ffmpegPath = ffmpegBinary()
     const outPath = inputPath.replace(/\.[^.]+$/, '') + '.webp'
     await new Promise<void>((resolve, reject) => {
       const { spawn } = require('child_process')
@@ -873,8 +898,7 @@ export async function ensureImageWebp(filePath: string, mimeType: string, force 
 
 export async function ensurePlayableVideo(inputPath: string): Promise<{ path: string; size: number }> {
   try {
-    const ffmpegStatic = require('ffmpeg-static')
-    const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
+    const ffmpegPath = ffmpegBinary()
     const os = require('os')
     const pathMod = require('path')
     const tmpPath = pathMod.join(os.tmpdir(), `openfield-transcode-${crypto.randomUUID()}.mp4`)
@@ -939,8 +963,7 @@ export async function ensurePlayableVideo(inputPath: string): Promise<{ path: st
 // the file is structurally decodable (corruption/truncation makes it fail).
 async function isVideoPlayable(filePath: string): Promise<boolean> {
   try {
-    const ffmpegStatic = require('ffmpeg-static')
-    const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
+    const ffmpegPath = ffmpegBinary()
     const { spawn } = require('child_process')
     return await new Promise<boolean>((resolve) => {
       let settled = false
@@ -958,8 +981,7 @@ async function isVideoPlayable(filePath: string): Promise<boolean> {
 // Returns the video codec name (e.g. "h264", "hevc", "av1") or null if unknown.
 async function getVideoCodec(filePath: string): Promise<string | null> {
   try {
-    const ffmpegStatic = require('ffmpeg-static')
-    const ffmpegPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.path || 'ffmpeg')
+    const ffmpegPath = ffmpegBinary()
     const { spawnSync } = require('child_process')
     const res = spawnSync(ffmpegPath, ['-i', filePath], { encoding: 'utf8', timeout: 30000, windowsHide: true })
     const m = (res.stderr || '').match(/Video:\s*(\w+)/)

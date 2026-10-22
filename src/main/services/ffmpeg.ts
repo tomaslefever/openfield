@@ -7,6 +7,7 @@ import { spawn, execSync } from 'child_process';
 import { getRawDb } from '../db';
 import { getActiveWorkspaceId, workspaceAssetSubDir } from './workspace-service';
 import { resolveAssetFile } from './asset-file';
+import { ffmpegBinary, ffprobeBinary } from './bundled-binaries';
 
 export interface MediaInfo {
   format: string;
@@ -62,15 +63,8 @@ export class FFmpegService {
   private ffprobePath: string;
 
 constructor(ffmpegPath?: string) {
-    try {
-      const ffmpegStatic = require('ffmpeg-static');
-      const ffprobeStatic = require('ffprobe-static');
-      this.ffmpegPath = ffmpegPath || (typeof ffmpegStatic === 'string' ? ffmpegStatic : ffmpegStatic?.path) || 'ffmpeg';
-      this.ffprobePath = (typeof ffprobeStatic === 'string' ? ffprobeStatic : ffprobeStatic?.path) || 'ffprobe';
-    } catch {
-      this.ffmpegPath = ffmpegPath || 'ffmpeg';
-      this.ffprobePath = 'ffprobe';
-    }
+    this.ffmpegPath = ffmpegPath || ffmpegBinary();
+    this.ffprobePath = ffprobeBinary();
   }
 
   /** Path of the bundled ffmpeg binary (for services that spawn it directly, e.g. thumbnails) */
