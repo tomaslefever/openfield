@@ -3,6 +3,7 @@ import { registerSettingsHandlers } from './settings'
 import { registerAssetsHandlers } from './assets'
 import { registerOpenfieldHandlers } from './openfield'
 import { registerProjectsHandlers } from './projects'
+import { registerCaptionsHandlers } from './captions'
 import { registerElementsHandlers } from './elements'
 import { registerStoryboardHandlers } from './storyboard'
 import { registerFfmpegHandlers } from './ffmpeg'
@@ -20,6 +21,7 @@ import { registerBalancesHandlers } from './balances'
 import { registerElevenLabsHandlers } from './elevenlabs'
 import { registerApimartHandlers } from './apimart'
 import { registerKlingHandlers } from './kling'
+import { registerPrunaHandlers } from './pruna'
 import { registerUpdaterHandlers } from './updater'
 import { registerWorkspacesHandlers } from './workspaces'
 import { registerPromptsHandlers } from './prompts'
@@ -31,6 +33,7 @@ export function registerIpcHandlers() {
   registerAssetsHandlers(ctx)
   registerOpenfieldHandlers(ctx)
   registerProjectsHandlers(ctx)
+  registerCaptionsHandlers(ctx)
   registerElementsHandlers(ctx)
   registerStoryboardHandlers(ctx)
   registerFfmpegHandlers(ctx)
@@ -48,6 +51,7 @@ export function registerIpcHandlers() {
   registerElevenLabsHandlers(ctx)
   registerApimartHandlers(ctx)
   registerKlingHandlers(ctx)
+  registerPrunaHandlers(ctx)
   registerUpdaterHandlers(ctx)
   registerWorkspacesHandlers(ctx)
   registerPromptsHandlers(ctx)

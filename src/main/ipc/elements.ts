@@ -54,17 +54,21 @@ export function registerElementsHandlers({ raw, handle }: IpcContext) {
     const video = await storeField(data.videoRef ?? data.video_ref, data.videoAssetId || data.video_asset_id || '', 'video/mp4', 'element-video.mp4')
     const hdri = await storeField(data.hdriRef ?? data.hdri_ref, data.hdriAssetId || data.hdri_asset_id || '', 'image/png', 'element-hdri.png')
 
-    let refAssetIds: string[] = Array.isArray(data.referenceAssetIds) ? [...data.referenceAssetIds]
-      : Array.isArray(data.reference_asset_ids) ? [...data.reference_asset_ids]
-        : []
-    const refUrls: string[] = []
+    const givenIds: string[] | null = Array.isArray(data.referenceAssetIds) ? data.referenceAssetIds
+      : Array.isArray(data.reference_asset_ids) ? data.reference_asset_ids : null
     const refImgs = data.referenceImages ?? data.reference_images ?? []
+    // Aligned mode: givenIds[i] is the asset already backing refImgs[i] (or '' if new),
+    // so references inherited from existing assets are not imported a second time
+    const aligned = !!givenIds && Array.isArray(refImgs) && givenIds.length === refImgs.length
+    const refAssetIds: string[] = aligned ? [] : [...(givenIds || [])]
+    const refUrls: string[] = []
     if (Array.isArray(refImgs)) {
-      for (const r of refImgs) {
+      for (let i = 0; i < refImgs.length; i++) {
+        const r = refImgs[i]
         if (typeof r !== 'string' || !r) continue
         const b64 = extractBase64(r)
         if (b64) {
-          const aid = await persist(b64, 'image/png', 'element-ref.png')
+          const aid = (aligned && givenIds![i]) || await persist(b64, 'image/png', 'element-ref.png')
           if (aid && !refAssetIds.includes(aid)) refAssetIds.push(aid)
         } else {
           refUrls.push(r)

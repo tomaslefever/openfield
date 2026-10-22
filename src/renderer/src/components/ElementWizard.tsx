@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { X, Check, Wand2 } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { X, Check, Wand2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
-import { useElementsStore, type ElementKind, KIND_CONFIG, b64Src } from '../stores/elements-store'
-import { ELEMENT_PROPERTIES, KIND_HINTS, KIND_ICONS, KIND_ORDER, withProperty } from '../lib/element-config'
+import { useElementsStore, type ElementKind, type MediaRef, KIND_CONFIG, MAX_REFERENCES, b64Src } from '../stores/elements-store'
+import { KIND_HINTS, KIND_ICONS, KIND_ORDER } from '../lib/element-config'
+import { filesToRefs } from '../lib/element-references'
 
 interface Props {
   onClose: () => void
@@ -13,7 +14,81 @@ interface Props {
     imageAssetId?: string
     prompt?: string
     name?: string
+    /** References inherited from the source asset (the ones it was generated with) */
+    referenceImages?: MediaRef[]
   }
+}
+
+function ReferencesField({ refs, onChange }: { refs: MediaRef[]; onChange: (refs: MediaRef[]) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [over, setOver] = useState(false)
+  const full = refs.length >= MAX_REFERENCES
+
+  const add = (added: MediaRef[]) => {
+    const room = MAX_REFERENCES - refs.length
+    if (added.length > room) toast.message(`Un elemento admite ${MAX_REFERENCES} referencias`, { description: `Se añadieron ${Math.max(0, room)}.` })
+    if (room > 0 && added.length) onChange([...refs, ...added.slice(0, room)])
+  }
+
+  return (
+    <div
+      onDragOver={(e) => { if (!full) { e.preventDefault(); setOver(true) } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={async (e) => {
+        e.preventDefault()
+        setOver(false)
+        if (!full) add(await filesToRefs(Array.from(e.dataTransfer.files || []), 'image'))
+      }}
+      className={`rounded-xl transition-shadow ${over ? 'ring-1 ring-ink ring-offset-4 ring-offset-canvas' : ''}`}
+    >
+      <div className="flex items-baseline gap-2 mb-2">
+        <p className="eyebrow">Referencias</p>
+        <span className="font-mono text-eyebrow text-ink-subtle">{refs.length}/{MAX_REFERENCES}</span>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        {refs.map((r, i) => (
+          <div key={r.assetId || i} className="group relative size-14 rounded-lg overflow-hidden bg-surface-soft border border-hairline">
+            <img src={b64Src(r.base64)} alt="" className="w-full h-full object-cover" />
+            <button
+              type="button"
+              onClick={() => onChange(refs.filter((_, j) => j !== i))}
+              className="absolute top-1 right-1 size-5 rounded-full bg-canvas/90 text-ink flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+              title="Quitar"
+              aria-label={`Quitar referencia ${i + 1}`}
+            >
+              <X size={10} />
+            </button>
+          </div>
+        ))}
+        {!full && (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="size-14 rounded-lg border border-dashed border-surface-700 text-ink-subtle hover:text-ink hover:border-surface-500 flex items-center justify-center transition-colors"
+            title="Subir imágenes"
+            aria-label="Subir referencias"
+          >
+            <Plus size={14} />
+          </button>
+        )}
+      </div>
+      <p className="text-meta text-ink-subtle mt-2">
+        {refs.length > 0 ? 'Se guardan en el moodboard del elemento.' : 'Opcional: estilo, vestuario o paleta. Sube o arrastra imágenes.'}
+      </p>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={async (e) => {
+          const files = Array.from(e.target.files || [])
+          e.target.value = ''
+          add(await filesToRefs(files, 'image'))
+        }}
+      />
+    </div>
+  )
 }
 
 export function PropertySelector({
@@ -91,18 +166,14 @@ export function PropertySelector({
 
 export function ElementWizard({ onClose, onCreated, initialData }: Props) {
   const addElement = useElementsStore((s) => s.addElement)
-  const [step, setStep] = useState(0)
   const [kind, setKind] = useState<ElementKind | null>(null)
   const [name, setName] = useState(initialData?.name || '')
-  const [properties, setProperties] = useState<Record<string, string>>({})
+  // The prompt is the element's whole definition: looks, outfit, style, lighting
+  const [prompt, setPrompt] = useState(initialData?.prompt || '')
+  const [refs, setRefs] = useState<MediaRef[]>(() => (initialData?.referenceImages || []).slice(0, MAX_REFERENCES))
 
   const canContinue = !!kind && !!name.trim()
   const canGenerate = !!onCreated && !initialData?.imageBase64 && !initialData?.imageAssetId
-
-  const handleKindSelect = (k: ElementKind) => {
-    if (k !== kind) setProperties({})
-    setKind(k)
-  }
 
   const handleCreate = (generate: boolean) => {
     if (!kind || !name.trim()) return
@@ -113,10 +184,10 @@ export function ElementWizard({ onClose, onCreated, initialData }: Props) {
       tags: [],
       imageBase64: initialData?.imageBase64 || '',
       imageAssetId: initialData?.imageAssetId || '',
-      prompt: initialData?.prompt || '',
+      prompt: prompt.trim(),
       voiceId: '',
-      referenceImages: [],
-      referenceAssetIds: [],
+      referenceImages: refs.map((r) => r.base64),
+      referenceAssetIds: refs.map((r) => r.assetId || ''),
       poseRef: '',
       poseAssetId: '',
       poseTaskId: '',
@@ -125,8 +196,8 @@ export function ElementWizard({ onClose, onCreated, initialData }: Props) {
       videoAssetId: '',
       hdriRef: '',
       hdriAssetId: '',
-      style: properties['style'] || '',
-      properties,
+      style: '',
+      properties: {},
     })
     toast.success(`Elemento "${name.trim()}" creado`)
     onClose()
@@ -139,10 +210,8 @@ export function ElementWizard({ onClose, onCreated, initialData }: Props) {
         {/* Header */}
         <div className="flex items-start justify-between px-6 pt-6 pb-4">
           <div>
-            <p className="eyebrow">Nuevo elemento · {step + 1}/2</p>
-            <h2 className="text-title-lg text-ink mt-1">
-              {step === 0 ? '¿Qué quieres crear?' : `Atributos de ${name.trim() || (kind ? KIND_CONFIG[kind].label : '')}`}
-            </h2>
+            <p className="eyebrow">Nuevo elemento</p>
+            <h2 className="text-title-lg text-ink mt-1">¿Qué quieres crear?</h2>
           </div>
           <button onClick={onClose} className="btn-icon" aria-label="Cerrar">
             <X size={15} />
@@ -151,8 +220,7 @@ export function ElementWizard({ onClose, onCreated, initialData }: Props) {
 
         {/* Body */}
         <div className="px-6 pb-6">
-          {step === 0 && (
-            <div className="space-y-5">
+          <div className="space-y-5 max-h-[70vh] overflow-y-auto -mr-2 pr-2">
               {(initialData?.imageBase64 || initialData?.imageAssetId) && (
                 <div className="flex items-center gap-3 p-2 pr-3 bg-surface-soft border border-hairline rounded-xl">
                   <div className="size-12 rounded-lg overflow-hidden bg-surface-800 flex-shrink-0">
@@ -162,9 +230,7 @@ export function ElementWizard({ onClose, onCreated, initialData }: Props) {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="eyebrow">Render principal</p>
-                    <p className="text-meta text-ink-muted truncate mt-0.5">
-                      {initialData?.prompt || 'Imagen asignada al render principal'}
-                    </p>
+                    <p className="text-meta text-ink-muted truncate mt-0.5">Imagen asignada al render principal</p>
                   </div>
                 </div>
               )}
@@ -177,7 +243,7 @@ export function ElementWizard({ onClose, onCreated, initialData }: Props) {
                     <button
                       key={k}
                       type="button"
-                      onClick={() => handleKindSelect(k)}
+                      onClick={() => setKind(k)}
                       className={`relative flex flex-col items-start gap-6 p-3 rounded-xl border text-left transition-colors ${
                         selected
                           ? 'bg-accent-600 border-accent-600 text-on-accent'
@@ -204,48 +270,39 @@ export function ElementWizard({ onClose, onCreated, initialData }: Props) {
                   placeholder="Ej. Detective Rivas"
                   className="input-field"
                   autoFocus
-                  onKeyDown={(e) => { if (e.key === 'Enter' && canContinue) setStep(1) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && canContinue) handleCreate(false) }}
                 />
               </div>
-            </div>
-          )}
 
-          {step === 1 && kind && (
-            <div className="space-y-5 max-h-[420px] overflow-y-auto -mr-2 pr-2">
-              {ELEMENT_PROPERTIES[kind].map((prop) => (
-                <PropertySelector
-                  key={prop.key}
-                  label={prop.label}
-                  options={prop.options}
-                  value={properties[prop.key] || ''}
-                  onChange={(v) => setProperties((p) => withProperty(p, prop.key, v))}
+              <div>
+                <label className="eyebrow mb-2 block" htmlFor="element-prompt">Prompt</label>
+                <textarea
+                  id="element-prompt"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe el elemento: rasgos, vestuario, estilo, luz…"
+                  rows={5}
+                  className="input-field resize-y min-h-[96px] leading-relaxed"
                 />
-              ))}
-            </div>
-          )}
+              </div>
+
+              <ReferencesField refs={refs} onChange={setRefs} />
+          </div>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-hairline">
-          <button onClick={step === 0 ? onClose : () => setStep(0)} className="btn-ghost">
-            {step === 0 ? 'Cancelar' : 'Atrás'}
-          </button>
-          {step === 0 ? (
-            <button onClick={() => setStep(1)} disabled={!canContinue} className="btn-primary">
-              Siguiente
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              {canGenerate && (
-                <button onClick={() => handleCreate(true)} disabled={!canContinue} className="btn-secondary flex items-center gap-1.5">
-                  <Wand2 size={13} /> Crear y generar
-                </button>
-              )}
-              <button onClick={() => handleCreate(false)} disabled={!canContinue} className="btn-primary">
-                Crear elemento
+          <button onClick={onClose} className="btn-ghost">Cancelar</button>
+          <div className="flex items-center gap-2">
+            {canGenerate && (
+              <button onClick={() => handleCreate(true)} disabled={!canContinue} className="btn-secondary flex items-center gap-1.5">
+                <Wand2 size={13} /> Crear y generar
               </button>
-            </div>
-          )}
+            )}
+            <button onClick={() => handleCreate(false)} disabled={!canContinue} className="btn-primary">
+              Crear elemento
+            </button>
+          </div>
         </div>
       </div>
     </div>

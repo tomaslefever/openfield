@@ -1,20 +1,9 @@
-import * as fs from 'fs'
 import { getRawDb } from '../db'
-import { resolveAssetFile } from '../services/asset-file'
 
 export function readSetting(key: string): any {
   const row = getRawDb().prepare('SELECT value FROM settings WHERE key = ?').get(key) as any
   if (!row || !row.value) return null
   try { return JSON.parse(row.value) } catch { return row.value }
-}
-
-function fileToBase64(assetId?: string | null): string {
-  const file = resolveAssetFile(assetId)
-  if (!file) return ''
-  try {
-    return fs.readFileSync(file.path).toString('base64')
-  } catch {}
-  return ''
 }
 
 export function requireApiKey(): string {
@@ -29,6 +18,15 @@ export function requireApiKey(): string {
   return key
 }
 
+/**
+ * Element row → API shape. Media is NOT inlined here: an element's image, pose, video, HDRI
+ * and references live as binary assets (the *AssetId columns) and the renderer loads the
+ * ones it needs asynchronously (elements-store → assets:readBase64). Reading every file
+ * synchronously in this mapper blocked the main process for the whole list on each load
+ * and shipped the same bytes twice over IPC. The legacy inline columns (image_base64,
+ * pose_ref, video_ref, hdri_ref, reference_images) are passed through for rows that
+ * predate asset-backed media.
+ */
 export function rowToElement(row: any) {
   const imageAssetId = row.imageAssetId ?? row.image_asset_id ?? ''
   const poseAssetId = row.poseAssetId ?? row.pose_asset_id ?? ''
@@ -44,19 +42,19 @@ export function rowToElement(row: any) {
     kind: row.kind,
     description: row.description || '',
     tags: safeJson(row.tags, []),
-    imageBase64: row.image_base64 || fileToBase64(imageAssetId),
+    imageBase64: row.image_base64 || row.imageBase64 || '',
     imageAssetId,
     prompt: row.prompt || '',
     voiceId: row.voiceId ?? row.voice_id ?? '',
-    referenceImages: storedRefs.length > 0 ? storedRefs : refAssetIds.map(fileToBase64).filter(Boolean),
+    referenceImages: storedRefs,
     referenceAssetIds: refAssetIds,
-    poseRef: row.poseRef ?? row.pose_ref ?? fileToBase64(poseAssetId),
+    poseRef: row.poseRef ?? row.pose_ref ?? '',
     poseAssetId,
     poseTaskId: row.poseTaskId ?? row.pose_task_id ?? '',
     moodboardTaskId: row.moodboardTaskId ?? row.moodboard_task_id ?? '',
-    videoRef: row.videoRef ?? row.video_ref ?? fileToBase64(videoAssetId),
+    videoRef: row.videoRef ?? row.video_ref ?? '',
     videoAssetId,
-    hdriRef: row.hdriRef ?? row.hdri_ref ?? fileToBase64(hdriAssetId),
+    hdriRef: row.hdriRef ?? row.hdri_ref ?? '',
     hdriAssetId,
     style: row.style || '',
     properties: safeJson(row.properties, {}),

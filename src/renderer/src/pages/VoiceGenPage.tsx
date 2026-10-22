@@ -1,11 +1,13 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { VoiceGenView } from '../components/voice/VoiceGenView'
+import { VoiceDesignPanel } from '../components/voice/VoiceDesignPanel'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { getAudioKind } from '../lib/audio'
 
 export function VoiceGenPage() {
   const [audioStatus, setAudioStatus] = useState<{ status: string; message: string; pct: number } | null>(null)
   const [audioError, setAudioError] = useState('')
+  const [tab, setTab] = useState<'generate' | 'design'>('generate')
 
   const { assets, reset, hasMore, loadingMore, loadMore, sentinelRef } = usePagedAssets({ type: 'audio', pageSize: 20, excludeUploads: true })
   const voiceAssets = useMemo(() => assets.filter((a: any) => getAudioKind(a) === 'voice'), [assets])
@@ -105,7 +107,20 @@ export function VoiceGenPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <VoiceGenView
+      <div className="flex items-center gap-1 px-4 pt-3 shrink-0" role="tablist">
+        {([['generate', 'Generar voz'], ['design', 'Diseñar voz']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`px-3 py-1.5 rounded-pill text-xs font-medium transition-colors ${tab === id ? 'bg-surface-800 text-ink' : 'text-surface-400 hover:text-ink hover:bg-surface-800/60'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'design' ? <VoiceDesignPanel onSaved={reset} /> : <VoiceGenView
         onGenerate={handleGenerate}
         voiceAssets={voiceAssets}
         hasMore={hasMore}
@@ -117,7 +132,7 @@ export function VoiceGenPage() {
         statusPct={audioStatus?.pct || 0}
         errorMessage={audioError}
         onClearError={() => setAudioError('')}
-      />
+      />}
     </div>
   )
 }

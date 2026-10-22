@@ -73,6 +73,11 @@ constructor(ffmpegPath?: string) {
     }
   }
 
+  /** Path of the bundled ffmpeg binary (for services that spawn it directly, e.g. thumbnails) */
+  getBinaryPath(): string {
+    return this.ffmpegPath;
+  }
+
   async probe(inputPath: string): Promise<MediaInfo> {
     return new Promise((resolve, reject) => {
       const args = [

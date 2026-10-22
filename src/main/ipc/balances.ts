@@ -190,6 +190,25 @@ export function registerBalancesHandlers({ handle }: IpcContext) {
       })
     }
 
+    const prunaKey = readSetting('prunaApiKey')
+    if (prunaKey) {
+      // P-API has no balance endpoint; a status lookup of an unknown id validates the key
+      let value = 'Conectado'
+      try {
+        const res = await fetch('https://api.pruna.ai/v1/predictions/status/openfield-key-check', {
+          headers: { apikey: prunaKey.trim() },
+        })
+        if (res.status === 401 || res.status === 403) value = 'API Key inválida'
+      } catch {}
+      balances.push({
+        provider: 'pruna',
+        label: 'Pruna',
+        kind: 'account',
+        value,
+        url: 'https://dashboard.pruna.ai',
+      })
+    }
+
     const deepseekKey = readSetting('deepseekApiKey')
     if (deepseekKey) {
       try {

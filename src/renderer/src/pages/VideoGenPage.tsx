@@ -38,7 +38,14 @@ const MODEL_NAMES: Record<string, string> = {
   'gemini-omni-video': 'Gemini Omni 1.1 Flash',
   'prunaai/p-video-avatar': 'P-Video Avatar',
   'prunaai/p-video': 'P-Video',
+  'prunaai/p-video-2': 'P-Video 2',
+  'prunaai/p-video-2-pro': 'P-Video 2 Pro',
+  'prunaai/p-video-2-pro-reference': 'P-Video 2 Pro',
+  'pruna/p-video-2': 'P-Video 2',
+  'pruna/p-video-2-pro': 'P-Video 2 Pro',
+  'pruna/p-video-2-pro-reference': 'P-Video 2 Pro',
   'philz1337x/crystal-video-upscaler': 'Crystal Upscaler',
+  'sync/lipsync-2-pro': 'Lipsync 2 Pro',
   'minimax-h3/text-to-video': 'MiniMax H3',
   'minimax-h3/image-to-video': 'MiniMax H3',
   'minimax-h3/reference-to-video': 'MiniMax H3',
@@ -103,6 +110,9 @@ const MODEL_NAMES: Record<string, string> = {
   'machgen/Vidu-Q3': 'Vidu-Q3',
   'machgen/Vidu-Q3-Pro-Fast/i2v': 'Vidu-Q3-Pro-Fast',
   'machgen/Vidu-Q3-Pro-Fast': 'Vidu-Q3-Pro-Fast',
+  'machgen/Vidu-Q4-Preview/ref': 'Vidu-Q4-Preview',
+  'machgen/Vidu-Q4-Preview/i2v': 'Vidu-Q4-Preview',
+  'machgen/Vidu-Q4-Preview': 'Vidu-Q4-Preview',
   'machgen/Alibaba-Wan-3.0/t2v': 'Alibaba-Wan-3.0',
   'machgen/Alibaba-Wan-3.0/i2v': 'Alibaba-Wan-3.0',
   'machgen/Alibaba-Wan-3.0/fflf': 'Alibaba-Wan-3.0',
@@ -262,7 +272,9 @@ export function VideoGenPage() {
     const unsubHfFailed = api.on('higgsfield:task:failed', () => reset())
     const unsubKlComplete = api.on('kling:task:completed', () => reset())
     const unsubKlFailed = api.on('kling:task:failed', () => reset())
-    return () => { unsubComplete?.(); unsubFailed?.(); unsubRpComplete?.(); unsubRpFailed?.(); unsubFalComplete?.(); unsubFalFailed?.(); unsubMgComplete?.(); unsubMgFailed?.(); unsubHfComplete?.(); unsubHfFailed?.(); unsubKlComplete?.(); unsubKlFailed?.() }
+    const unsubPrComplete = api.on('pruna:task:completed', () => reset())
+    const unsubPrFailed = api.on('pruna:task:failed', () => reset())
+    return () => { unsubComplete?.(); unsubFailed?.(); unsubRpComplete?.(); unsubRpFailed?.(); unsubFalComplete?.(); unsubFalFailed?.(); unsubMgComplete?.(); unsubMgFailed?.(); unsubHfComplete?.(); unsubHfFailed?.(); unsubKlComplete?.(); unsubKlFailed?.(); unsubPrComplete?.(); unsubPrFailed?.() }
   }, [reset])
 
   const handleDelete = useCallback(async (assetId: string) => {
@@ -307,11 +319,14 @@ export function VideoGenPage() {
         params?.model?.startsWith('higgsfield-ai/')
       const isApimartModel = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
       const isKlingModel = params?.provider === 'klingai' || params?.model?.startsWith('klingai/')
+      const isPrunaModel = params?.provider === 'pruna' || params?.model?.startsWith('pruna/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen') || params?.model?.includes('MiniMax-H3') || params?.model?.includes('Wan2.2') || params?.model?.includes('LTX-2.3') || params?.model?.includes('Vidu-Q3') || params?.model?.includes('Topaz-')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/')
       if (isKlingModel) {
         await api?.kling.generate(params)
+      } else if (isPrunaModel) {
+        await api?.pruna.generate(params)
       } else if (isApimartModel) {
         await api?.apimart.generate(params)
       } else if (isMachgenModel) {

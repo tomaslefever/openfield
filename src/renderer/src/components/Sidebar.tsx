@@ -13,6 +13,7 @@ import {
   AudioLines,
   Mic,
   KeyRound,
+  GalleryHorizontalEnd,
   BookText,
   PanelLeftClose,
   PanelLeftOpen,
@@ -36,6 +37,7 @@ const NAV_ITEMS: { page: Page; label: string; icon: LucideIcon }[] = [
   { page: 'music', label: 'Music Generation', icon: AudioLines },
   { page: 'elements', label: 'Elements', icon: Shapes },
   { page: 'contentStudio', label: 'Content Studio', icon: Clapperboard },
+  { page: 'montage', label: 'Timeline', icon: GalleryHorizontalEnd },
   { page: 'promptLibrary', label: 'Prompt Library', icon: BookText },
 ]
 

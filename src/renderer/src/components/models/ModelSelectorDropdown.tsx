@@ -198,7 +198,7 @@ export function ModelSelectorDropdown({
         const costDisplay =
           kind === 'llm'
             ? ''
-            : m.provider === 'replicate' || m.provider === 'fal' || m.provider === 'machgen' || m.provider === 'higgsfield' || m.provider === 'apimart' || m.provider === 'klingai'
+            : m.provider === 'replicate' || m.provider === 'fal' || m.provider === 'machgen' || m.provider === 'higgsfield' || m.provider === 'apimart' || m.provider === 'klingai' || m.provider === 'pruna'
             ? `$${cost.toFixed(3)}/${m.unit === 's' ? 's' : 'img'}`
             : `${Math.round(cost * 200)} cr`
 

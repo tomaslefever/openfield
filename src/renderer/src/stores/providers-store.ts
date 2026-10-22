@@ -10,6 +10,7 @@ export type ProviderId =
   | 'higgsfield'
   | 'apimart'
   | 'klingai'
+  | 'pruna'
   | 'local'
   | 'deepseek'
   | 'openai'
@@ -71,6 +72,15 @@ export const PROVIDER_DEFS: ProviderDef[] = [
     keyName: 'klingApiKey',
     keyPlaceholder: 'API Key de Kling (console → API Keys)',
     helperUrl: 'https://kling.ai/dev/api-key',
+    category: 'media',
+  },
+  {
+    id: 'pruna',
+    label: 'Pruna',
+    description: 'API oficial de Pruna (P-API): P-Video 2 y P-Video 2 Pro con referencias',
+    keyName: 'prunaApiKey',
+    keyPlaceholder: 'API Key de Pruna (dashboard → API Keys)',
+    helperUrl: 'https://dashboard.pruna.ai',
     category: 'media',
   },
   {

@@ -518,6 +518,18 @@ export function runMigrations() {
     updated_at INTEGER NOT NULL
   )`)
 
+  // Migration: narrator voice, kept apart from the characters' voices
+  try { raw.exec("ALTER TABLE drama_projects ADD COLUMN narrator_voice_id TEXT DEFAULT ''") } catch {}
+  // Migration: who voices the dialogue ('eleven' TTS or the video model itself)
+  try { raw.exec("ALTER TABLE drama_projects ADD COLUMN voice_source TEXT DEFAULT 'eleven'") } catch {}
+
+  // Stage sign-offs for agent-driven Content Studio runs. A table of its own (no FK): saving a
+  // project rewrites its drama_projects row with INSERT OR REPLACE, which would drop extra columns.
+  raw.exec(`CREATE TABLE IF NOT EXISTS drama_stage_approvals (
+    project_id TEXT NOT NULL, stage TEXT NOT NULL, approved_at INTEGER NOT NULL, note TEXT,
+    PRIMARY KEY (project_id, stage)
+  )`)
+
   // Migration: add workspace_id column to drama_projects
   try { raw.exec('ALTER TABLE drama_projects ADD COLUMN workspace_id TEXT') } catch {}
   try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_projects_workspace ON drama_projects(workspace_id)') } catch {}

@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Search, Trash2, Star, Cloud, CheckSquare, Square, Loader, AlertCircle, X, FolderOpen, Clock, Tag, RefreshCw, Inbox, Upload, AudioLines, Play, Pause, Image as ImageIcon, Video, Eraser, Clapperboard, Box, Archive, LayoutGrid } from 'lucide-react'
+import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { Search, Trash2, Star, Cloud, CheckSquare, Square, Loader, AlertCircle, X, FolderOpen, Clock, Tag, RefreshCw, Inbox, Upload, Image as ImageIcon, Video, Eraser, Clapperboard, Box, Archive, LayoutGrid } from 'lucide-react'
 import { toast } from 'sonner'
-import { srcUrl, thumbUrl } from '../services/file-url'
+import { srcUrl, fileUrl, posterUrl } from '../services/file-url'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { useGridFlip } from '../hooks/useGridFlip'
 import { useAppStore } from '../stores/app-store'
@@ -12,6 +13,8 @@ import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal'
 import { BulkTagModal } from '../components/ui/BulkTagModal'
 import { ImageGeneration } from '../components/agents/image-generation'
 import { ElementWizard } from '../components/ElementWizard'
+import { referencesFromAsset } from '../lib/element-references'
+import type { MediaRef } from '../stores/elements-store'
 import { copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
 import { getAudioKind } from '../lib/audio'
@@ -98,6 +101,12 @@ const MODEL_NAMES: Record<string, string> = {
   'gemini-omni-video': 'Gemini Omni 1.1 Flash',
   'prunaai/p-video-avatar': 'P-Video Avatar',
   'prunaai/p-video': 'P-Video',
+  'prunaai/p-video-2': 'P-Video 2',
+  'prunaai/p-video-2-pro': 'P-Video 2 Pro',
+  'prunaai/p-video-2-pro-reference': 'P-Video 2 Pro',
+  'pruna/p-video-2': 'P-Video 2',
+  'pruna/p-video-2-pro': 'P-Video 2 Pro',
+  'pruna/p-video-2-pro-reference': 'P-Video 2 Pro',
   'minimax-h3/text-to-video': 'MiniMax H3',
   'minimax-h3/image-to-video': 'MiniMax H3',
   'minimax-h3/reference-to-video': 'MiniMax H3',
@@ -162,6 +171,9 @@ const MODEL_NAMES: Record<string, string> = {
   'machgen/Vidu-Q3': 'Vidu-Q3',
   'machgen/Vidu-Q3-Pro-Fast/i2v': 'Vidu-Q3-Pro-Fast',
   'machgen/Vidu-Q3-Pro-Fast': 'Vidu-Q3-Pro-Fast',
+  'machgen/Vidu-Q4-Preview/ref': 'Vidu-Q4-Preview',
+  'machgen/Vidu-Q4-Preview/i2v': 'Vidu-Q4-Preview',
+  'machgen/Vidu-Q4-Preview': 'Vidu-Q4-Preview',
   'machgen/Alibaba-Wan-3.0/t2v': 'Alibaba-Wan-3.0',
   'machgen/Alibaba-Wan-3.0/i2v': 'Alibaba-Wan-3.0',
   'machgen/Alibaba-Wan-3.0/fflf': 'Alibaba-Wan-3.0',
@@ -230,6 +242,201 @@ function modelLabel(model: string | undefined): string {
   return cleanModelName(MODEL_NAMES[model] || model)
 }
 
+// ─── Grid cards ─────────────────────────────────────────────────────────────────
+// Memoized: grid-wide state (hover, selection, durations) re-renders only the card it touches.
+// Thumbnails come from main already downscaled to the render scale in Settings and fade in
+// once decoded; a video card shows a poster frame and only mounts a <video> while hovered.
+
+function formatDuration(secs: number) {
+  if (!isFinite(secs) || secs <= 0) return ''
+  const s = Math.round(secs)
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+interface AssetCardActions {
+  click: (e: React.MouseEvent, asset: any) => void
+  toggleSelect: (id: string, shift: boolean) => void
+  toggleFavorite: (id: string) => void
+  remove: (id: string) => void
+  dragStart: (e: React.DragEvent, asset: any) => void
+  dragEnd: () => void
+  duration: (id: string, secs: number) => void
+}
+
+function ImageThumb({ src }: { src: string }) {
+  const scale = useAppStore((s) => s.gridRenderScale)
+  const url = fileUrl(src, { thumb: true, scale })
+  const [loaded, setLoaded] = useState(false)
+  const imgRef = useRef<HTMLImageElement>(null)
+  useEffect(() => {
+    setLoaded(false)
+    const el = imgRef.current
+    if (el?.complete && el.naturalWidth > 0) setLoaded(true)
+  }, [url])
+  return (
+    <img
+      ref={imgRef}
+      src={url}
+      alt=""
+      draggable={false}
+      loading="lazy"
+      decoding="async"
+      onLoad={() => setLoaded(true)}
+      className={`w-full h-full object-cover select-none transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+    />
+  )
+}
+
+function VideoThumb({ src, assetId, onDuration }: { src: string; assetId: string; onDuration: (id: string, secs: number) => void }) {
+  const scale = useAppStore((s) => s.gridRenderScale)
+  const [hover, setHover] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  if (/^https?:/i.test(src)) {
+    // Cloud-only asset (not downloaded yet): no poster can be rendered, stream its metadata
+    return (
+      <video
+        src={srcUrl(src)}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        draggable={false}
+        className="w-full h-full object-cover select-none"
+        onMouseEnter={(e) => { e.currentTarget.play().catch(() => {}) }}
+        onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0 }}
+        onLoadedMetadata={(e) => onDuration(assetId, e.currentTarget.duration)}
+      />
+    )
+  }
+  return (
+    <div className="relative w-full h-full" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <img
+        src={posterUrl(src, scale)}
+        alt=""
+        draggable={false}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        className={`w-full h-full object-cover select-none transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+      />
+      {hover && (
+        <video
+          src={srcUrl(src)}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover select-none"
+          onLoadedMetadata={(e) => onDuration(assetId, e.currentTarget.duration)}
+        />
+      )}
+    </div>
+  )
+}
+
+const AssetCard = memo(function AssetCard({ asset, selected, dragging, duration, actions }: {
+  asset: any
+  selected: boolean
+  dragging: boolean
+  duration?: number
+  actions: AssetCardActions
+}) {
+  const src: string | null = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
+  const isError = !!asset.filePath?.startsWith('__error__')
+  const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
+  const cardParams = useMemo(() => {
+    try { return JSON.parse(asset.parameters || '{}') || {} } catch { return {} }
+  }, [asset.parameters])
+  const storedDuration = Number(asset.duration) > 0 ? Number(asset.duration) : (Number(cardParams.duration) > 0 ? Number(cardParams.duration) : null)
+  const dur = duration ?? storedDuration
+  const res = asset.type === 'video' && cardParams.resolution ? String(cardParams.resolution) : null
+  const isDraft = res != null && isSeedanceDraft(asset, cardParams)
+  return (
+    <div
+      data-asset-card={asset.id}
+      className={`card group relative overflow-hidden p-0 cursor-pointer aspect-square ${dragging ? 'opacity-40 scale-[0.98]' : ''}`}
+      draggable={!isError && !!src}
+      onDragStart={(e) => actions.dragStart(e, asset)}
+      onDragEnd={actions.dragEnd}
+      onClick={(e) => actions.click(e, asset)}
+    >
+      <div className="w-full h-full bg-surface-800 flex items-center justify-center overflow-hidden">
+        {src ? (
+          asset.type === 'video'
+            ? <VideoThumb src={src} assetId={asset.id} onDuration={actions.duration} />
+            : <ImageThumb src={src} />
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center gap-1.5 text-red-600 dark:text-red-400 p-3 text-center w-full h-full">
+            <AlertCircle size={20} className="flex-shrink-0" />
+            <span className="text-[10px] text-red-600/80 dark:text-red-400/80 line-clamp-3 leading-tight">{asset.filePath?.replace('__error__:', '')}</span>
+            <RetryGenerationButton assetId={asset.id} />
+          </div>
+        ) : isLoading ? (
+          <ImageGeneration
+            status="generating"
+            size="fill"
+            showStatus={false}
+            prompt={undefined}
+            resolution={undefined}
+            className="w-full h-full"
+          />
+        ) : (
+          <div className="text-surface-600 text-sm">No preview</div>
+        )}
+      </div>
+      {!isLoading && ((asset.type === 'video' && dur != null) || res) && (
+        <div className="absolute bottom-2 left-2 flex items-center gap-1 z-10">
+          {asset.type === 'video' && dur != null && (
+            <div className="bg-black/60 rounded px-1.5 py-0.5 text-[9px] text-white/90 font-medium flex items-center gap-1">
+              <Clock size={9} /> {formatDuration(dur)}
+            </div>
+          )}
+          {res && (
+            <div
+              className={isDraft
+                ? 'bg-amber-400 rounded px-1.5 py-0.5 text-[9px] text-amber-950 font-semibold'
+                : 'bg-black/60 rounded px-1.5 py-0.5 text-[9px] text-white/90 font-medium'}
+              title={isDraft ? 'Draft de Seedance 2.5' : undefined}
+            >
+              {res}
+            </div>
+          )}
+        </div>
+      )}
+      {!isLoading && (
+        <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+          {!asset.localPath && asset.filePath?.startsWith('http') && (
+            <div className="bg-black/60 rounded-md p-1">
+              <Cloud size={12} className="text-blue-400" />
+            </div>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); actions.toggleFavorite(asset.id) }}
+            title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
+            className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+          >
+            <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
+          </button>
+        </div>
+      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); actions.toggleSelect(asset.id, e.shiftKey) }}
+        className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${selected ? 'opacity-100 bg-accent-500 text-on-accent' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
+      >
+        {selected ? <CheckSquare size={16} /> : <Square size={16} />}
+      </button>
+      <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 z-10">
+        <button onClick={(e) => { e.stopPropagation(); actions.remove(asset.id) }} className="p-1.5 rounded-full bg-black/50 text-white hover:text-red-400 transition-colors">
+          <Trash2 size={12} />
+        </button>
+      </div>
+    </div>
+  )
+})
+
 export function LibraryPage() {
   const setPage = useAppStore((s) => s.setPage)
   const composerPayload = useAppStore((s) => s.composerPayload)
@@ -285,13 +492,9 @@ export function LibraryPage() {
     }
   }, [])
   const [durations, setDurations] = useState<Record<string, number>>({})
-  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null)
-  const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map())
   const { gridRef, capture, fadeOut, animate } = useGridFlip()
   const dragStartedRef = useRef(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
-
-  useEffect(() => { setPlayingAudioId(null) }, [activeWorkspaceId])
 
   const registerDuration = useCallback((id: string, d: number) => {
     if (!isFinite(d) || d <= 0) return
@@ -302,26 +505,6 @@ export function LibraryPage() {
     })
   }, [])
 
-  const toggleAudioPlay = (id: string) => {
-    const el = audioRefs.current.get(id)
-    if (!el) return
-    if (el.paused) {
-      audioRefs.current.forEach((a, aid) => { if (aid !== id && !a.paused) a.pause() })
-      el.currentTime = 0
-      el.play().catch(() => {})
-      setPlayingAudioId(id)
-    } else {
-      el.pause()
-      setPlayingAudioId(null)
-    }
-  }
-
-  const formatDuration = (secs: number) => {
-    if (!isFinite(secs) || secs <= 0) return ''
-    const s = Math.round(secs)
-    if (s < 60) return `${s}s`
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-  }
 
   const refreshOrphans = useCallback(async () => {
     try {
@@ -422,34 +605,6 @@ export function LibraryPage() {
   }
 
 
-  // Hover-play for videos (same behavior as VideoGen)
-  const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map())
-  const getVideoEl = (id: string) => videoRefs.current.get(id) || document.querySelector(`[data-video-id="${id}"]`) as HTMLVideoElement | null
-  const playTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-  const playAttemptsRef = useRef<Map<string, number>>(new Map())
-
-  const handleMouseEnter = (id: string) => {
-    const el = getVideoEl(id)
-    if (!el) return
-    el.currentTime = 0
-    el.muted = true
-    el.play().catch(() => {})
-    playAttemptsRef.current.set(id, 0)
-    const interval = setInterval(() => {
-      const attempts = playAttemptsRef.current.get(id) || 0
-      if (attempts >= 25) { clearInterval(interval); playTimerRef.current.delete(id); playAttemptsRef.current.delete(id); return }
-      playAttemptsRef.current.set(id, attempts + 1)
-      if (el.paused && el.readyState >= 2) { el.play().catch(() => {}) }
-    }, 500)
-    playTimerRef.current.set(id, interval)
-  }
-  const handleMouseLeave = (id: string) => {
-    const el = getVideoEl(id)
-    if (el) { el.pause(); el.currentTime = 0 }
-    const timer = playTimerRef.current.get(id)
-    if (timer) { clearInterval(timer); playTimerRef.current.delete(id) }
-    playAttemptsRef.current.delete(id)
-  }
 
   const resetRef = useRef(reset)
   resetRef.current = reset
@@ -548,6 +703,64 @@ export function LibraryPage() {
     })
   }, [assets])
 
+  // Card callbacks stay referentially stable (the cards are memoized) and read the latest
+  // handlers through a ref.
+  const latestRef = useRef({ assets, selectedIds, toggleSelect, handleToggleFavorite, handleDelete })
+  latestRef.current = { assets, selectedIds, toggleSelect, handleToggleFavorite, handleDelete }
+  const cardActions = useMemo<AssetCardActions>(() => ({
+    click: (e, asset) => {
+      if (dragStartedRef.current) return
+      if (e.shiftKey) latestRef.current.toggleSelect(asset.id, true)
+      else setSelectedAsset(asset)
+    },
+    toggleSelect: (id, shift) => latestRef.current.toggleSelect(id, shift),
+    toggleFavorite: (id) => { void latestRef.current.handleToggleFavorite(id) },
+    remove: (id) => { void latestRef.current.handleDelete(id) },
+    dragStart: (e, asset) => {
+      const { assets: all, selectedIds: sel } = latestRef.current
+      const draggedAssets = sel.has(asset.id) && sel.size > 1 ? all.filter((a: any) => sel.has(a.id)) : [asset]
+      e.dataTransfer.setData('application/x-openfield-assets', JSON.stringify(draggedAssets))
+      e.dataTransfer.setData('application/x-openfield-asset', JSON.stringify(asset))
+      e.dataTransfer.setData('text/plain', asset.id)
+      e.dataTransfer.effectAllowed = 'copy'
+      dragStartedRef.current = true
+      setDraggingId(asset.id)
+    },
+    dragEnd: () => {
+      setDraggingId(null)
+      setTimeout(() => { dragStartedRef.current = false }, 100)
+    },
+    duration: registerDuration,
+  }), [registerDuration])
+
+  // Row virtualization: only the rows in (and just around) the viewport exist in the DOM, so a
+  // long session does not pile up hundreds of <img>/<video> elements as pages load.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [gridWidth, setGridWidth] = useState(0)
+  useEffect(() => {
+    const el = gridRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w) setGridWidth(w)
+    })
+    ro.observe(el)
+    setGridWidth(el.clientWidth)
+    return () => ro.disconnect()
+  }, [gridRef])
+  const gridGap = gridCols >= 7 ? 8 : 16
+  const cardSize = gridWidth > 0 ? Math.max(1, (gridWidth - gridGap * (gridCols - 1)) / gridCols) : 220
+  const rowHeight = cardSize + gridGap
+  const rowCount = Math.ceil(assets.length / gridCols)
+  const rowVirtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 2,
+  })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { rowVirtualizer.measure() }, [rowHeight])
+
   const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
 
   useEffect(() => {
@@ -572,9 +785,10 @@ export function LibraryPage() {
   const handleGenerate = useCallback(async (params: any) => {
     try {
       const api = (window as any).electronAPI
-      const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
+      const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pruna/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
       const isApimartModel = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
       const isKlingModel = params?.provider === 'klingai' || params?.model?.startsWith('klingai/')
+      const isPrunaModel = params?.provider === 'pruna' || params?.model?.startsWith('pruna/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen') || params?.model?.includes('MiniMax-H3') || params?.model?.includes('Wan2.2') || params?.model?.includes('LTX-2.3') || params?.model?.includes('Vidu-Q3') || params?.model?.includes('Topaz-')
       const isHiggsfieldModel = params?.provider === 'higgsfield' ||
         params?.model?.startsWith('higgsfield/') ||
@@ -596,6 +810,8 @@ export function LibraryPage() {
         }
         if (isKlingModel) {
           await api?.kling.generate(params)
+        } else if (isPrunaModel) {
+          await api?.pruna.generate(params)
         } else if (isApimartModel) {
           await api?.apimart.generate(params)
         } else if (isHiggsfieldModel) {
@@ -643,14 +859,14 @@ export function LibraryPage() {
     }
   }, [reset, assetSearch.types, setAssetSearch])
 
+  // References from the library go in by asset: the composer reads images itself and videos
+  // stay on disk (the queue uploads them from the asset file, never as base64 over IPC).
   const handleBulkAddToComposer = useCallback(async () => {
-    const api = (window as any).electronAPI
-    const files = await api?.assets.readBase64(Array.from(selectedIds))
-    if (files && files.length > 0) {
-      composerRef.current?.addRefs(files.map((f: any) => ({ base64: f.base64, mime: f.mime })))
-    }
+    const picked = assets.filter((a: any) => selectedIds.has(a.id))
+    const missing = Array.from(selectedIds).filter((id) => !picked.some((a: any) => a.id === id))
+    await composerRef.current?.addAssets?.([...picked, ...missing])
     clearSelection()
-  }, [selectedIds, clearSelection])
+  }, [assets, selectedIds, clearSelection])
 
   const handleBulkDelete = useCallback(async () => {
     const api = (window as any).electronAPI
@@ -765,7 +981,7 @@ export function LibraryPage() {
     setSelectedAsset(null)
   }
 
-  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string; assetId?: string } | null>(null)
+  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string; assetId?: string; refs: MediaRef[] } | null>(null)
   const [copiedAssetId, setCopiedAssetId] = useState<string | null>(null)
 
   const handleCopyImage = useCallback(async (asset: any) => {
@@ -785,33 +1001,13 @@ export function LibraryPage() {
     }
   }, [])
 
-  const handleAddImageReference = useCallback(async (asset: any) => {
+  const handleAddReference = useCallback(async (asset: any) => {
     if (!asset) return
     try {
-      const api = (window as any).electronAPI
-      const results = await api?.assets.readBase64([asset.id])
-      const b64 = results?.[0]?.base64 || ''
-      const mime = results?.[0]?.mime || 'image/png'
-      if (!b64) return
-      composerRef.current?.addRefs([{ base64: b64, mime }])
+      await composerRef.current?.addAssets?.([asset])
       setSelectedAsset(null)
     } catch (err) {
-      console.error('Image reference failed:', err)
-    }
-  }, [])
-
-  const handleAddVideoReference = useCallback(async (asset: any) => {
-    if (!asset) return
-    try {
-      const api = (window as any).electronAPI
-      const results = await api?.assets.readBase64([asset.id])
-      const b64 = results?.[0]?.base64 || ''
-      const mime = results?.[0]?.mime || 'video/mp4'
-      if (!b64) return
-      composerRef.current?.addRefs([{ base64: b64, mime }])
-      setSelectedAsset(null)
-    } catch (err) {
-      console.error('Video reference failed:', err)
+      console.error('Reference failed:', err)
     }
   }, [])
 
@@ -861,12 +1057,12 @@ export function LibraryPage() {
     if (!asset) return
     try {
       const api = (window as any).electronAPI
-      const results = await api?.assets.readBase64([asset.id])
+      const [results, refs] = await Promise.all([api?.assets.readBase64([asset.id]), referencesFromAsset(asset)])
       const b64 = results?.[0]?.base64 || ''
       const assetId = asset.id
       setSelectedAsset(null)
       setTimeout(() => {
-        setCreatingFromAsset({ base64: b64, prompt: asset.prompt || '', assetId })
+        setCreatingFromAsset({ base64: b64, prompt: asset.prompt || '', assetId, refs })
       }, 100)
     } catch (err) {
       console.error('Failed to create element:', err)
@@ -1042,7 +1238,7 @@ export function LibraryPage() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-28">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-28">
         <div>
           {activeOrphans && activeOrphans.count > 0 && (
             <div className="block-cream mb-3 flex items-center gap-3 pl-4 pr-2 py-2 rounded-2xl">
@@ -1061,149 +1257,31 @@ export function LibraryPage() {
             </div>
           )}
 
-          <div
-            ref={gridRef}
-            className={`grid ${gridCols >= 7 ? 'gap-2' : 'gap-4'}`}
-            style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
-          >
-            {assets.map((asset: any) => {
-              const isSel = selectedIds.has(asset.id)
-              const src = asset.localPath || (asset.filePath && !asset.filePath.startsWith('__error__') ? asset.filePath : null)
-              const isError = asset.filePath?.startsWith('__error__')
-              const isLoading = !asset.localPath && asset.modelUsed && asset.modelUsed !== 'import' && !isError
-              const cardParams = (() => { try { return JSON.parse(asset.parameters || '{}') || {} } catch { return {} } })()
-              const dur = durations[asset.id] ?? cardParams.duration ?? null
-              const res = asset.type === 'video' && cardParams.resolution ? String(cardParams.resolution) : null
-              const isDraft = res != null && isSeedanceDraft(asset, cardParams)
+          <div ref={gridRef} className="relative" style={{ height: rowVirtualizer.getTotalSize() }}>
+            {rowVirtualizer.getVirtualItems().map((row) => {
+              const start = row.index * gridCols
+              const rowAssets = assets.slice(start, start + gridCols)
               return (
                 <div
-                  key={asset.id}
-                  data-asset-card={asset.id}
-                  className={`card group relative overflow-hidden p-0 cursor-pointer aspect-square ${draggingId === asset.id ? 'opacity-40 scale-[0.98]' : ''}`}
-                  draggable={!isError && !!src}
-                  onDragStart={(e) => {
-                    const draggedAssets = isSel && selectedIds.size > 1
-                      ? assets.filter((a: any) => selectedIds.has(a.id))
-                      : [asset]
-                    e.dataTransfer.setData('application/x-openfield-assets', JSON.stringify(draggedAssets))
-                    e.dataTransfer.setData('application/x-openfield-asset', JSON.stringify(asset))
-                    e.dataTransfer.setData('text/plain', asset.id)
-                    e.dataTransfer.effectAllowed = 'copy'
-                    dragStartedRef.current = true
-                    setDraggingId(asset.id)
+                  key={row.key}
+                  className="absolute left-0 top-0 w-full grid"
+                  style={{
+                    transform: `translateY(${row.start}px)`,
+                    height: cardSize,
+                    gap: gridGap,
+                    gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
                   }}
-                  onDragEnd={() => {
-                    setDraggingId(null)
-                    setTimeout(() => { dragStartedRef.current = false }, 100)
-                  }}
-                  onClick={(e) => {
-                    if (dragStartedRef.current) return
-                    if (e.shiftKey) { toggleSelect(asset.id, true) } else { setSelectedAsset(asset) }
-                  }}
-                  onMouseEnter={asset.type === 'video' ? () => handleMouseEnter(asset.id) : undefined}
-                  onMouseLeave={asset.type === 'video' ? () => handleMouseLeave(asset.id) : undefined}
                 >
-                  <div className="w-full h-full bg-surface-800 flex items-center justify-center overflow-hidden">
-                    {src ? (
-                      asset.type === 'video' ? (
-                        <video
-                          ref={(el) => { if (el) { videoRefs.current.set(asset.id, el); el.muted = true } else videoRefs.current.delete(asset.id) }}
-                          data-video-id={asset.id}
-                          src={srcUrl(src)}
-                          draggable={false}
-                          className="w-full h-full object-cover select-none"
-                          preload="auto"
-                          loop
-                          playsInline
-                          onLoadedMetadata={(e) => registerDuration(asset.id, (e.target as HTMLVideoElement).duration)}
-                        />
-                      ) : asset.type === 'audio' ? (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-2 px-2 bg-gradient-to-br from-surface-800/50 to-surface-900/50">
-                          <AudioLines size={26} className={playingAudioId === asset.id ? 'text-accent-400' : 'text-surface-500'} />
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleAudioPlay(asset.id) }}
-                            className="w-9 h-9 rounded-full bg-accent-500/20 text-accent-300 hover:bg-accent-500/35 flex items-center justify-center transition-colors"
-                            title={playingAudioId === asset.id ? 'Pause' : 'Play'}
-                          >
-                            {playingAudioId === asset.id ? <Pause size={15} /> : <Play size={15} />}
-                          </button>
-                          <audio
-                            ref={(el) => { if (el) audioRefs.current.set(asset.id, el); else audioRefs.current.delete(asset.id) }}
-                            src={srcUrl(src)}
-                            preload="metadata"
-                            onLoadedMetadata={(e) => registerDuration(asset.id, (e.target as HTMLAudioElement).duration)}
-                            onEnded={() => { if (playingAudioId === asset.id) setPlayingAudioId(null) }}
-                            className="hidden"
-                          />
-                        </div>
-                      ) : (
-                        <img src={thumbUrl(src)} draggable={false} alt="" className="w-full h-full object-cover select-none" loading="lazy" decoding="async" />
-                      )
-                    ) : isError ? (
-                      <div className="flex flex-col items-center justify-center gap-1.5 text-red-600 dark:text-red-400 p-3 text-center w-full h-full">
-                        <AlertCircle size={20} className="flex-shrink-0" />
-                        <span className="text-[10px] text-red-600/80 dark:text-red-400/80 line-clamp-3 leading-tight">{asset.filePath?.replace('__error__:', '')}</span>
-                        <RetryGenerationButton assetId={asset.id} />
-                      </div>
-                    ) : isLoading ? (
-                      <ImageGeneration
-                        status="generating"
-                        size="fill"
-                        showStatus={false}
-                        prompt={undefined}
-                        resolution={undefined}
-                        className="w-full h-full"
-                      />
-                    ) : (
-                      <div className="text-surface-600 text-sm">No preview</div>
-                    )}
-                  </div>
-                  {!isLoading && (((asset.type === 'video' || asset.type === 'audio') && dur != null) || res) && (
-                    <div className="absolute bottom-2 left-2 flex items-center gap-1 z-10">
-                      {(asset.type === 'video' || asset.type === 'audio') && dur != null && (
-                        <div className="bg-black/60 rounded px-1.5 py-0.5 text-[9px] text-white/90 font-medium flex items-center gap-1">
-                          <Clock size={9} /> {formatDuration(dur)}
-                        </div>
-                      )}
-                      {res && (
-                        <div
-                          className={isDraft
-                            ? 'bg-amber-400 rounded px-1.5 py-0.5 text-[9px] text-amber-950 font-semibold'
-                            : 'bg-black/60 rounded px-1.5 py-0.5 text-[9px] text-white/90 font-medium'}
-                          title={isDraft ? 'Draft de Seedance 2.5' : undefined}
-                        >
-                          {res}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {!isLoading && (
-                    <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
-                      {!asset.localPath && asset.filePath?.startsWith('http') && (
-                        <div className="bg-black/60 rounded-md p-1">
-                          <Cloud size={12} className="text-blue-400" />
-                        </div>
-                      )}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleToggleFavorite(asset.id) }}
-                        title={asset.isFavorite ? 'Remove favorite' : 'Add to favorites'}
-                        className={`p-1 rounded-md transition-colors ${asset.isFavorite ? 'text-amber-400 bg-black/60' : 'text-white/80 bg-black/60 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
-                      >
-                        <Star size={12} fill={asset.isFavorite ? 'currentColor' : 'none'} />
-                      </button>
-                    </div>
-                  )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleSelect(asset.id, e.shiftKey) }}
-                    className={`absolute top-2 left-2 z-10 p-0.5 rounded transition-all ${isSel ? 'opacity-100 bg-accent-500 text-on-accent' : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:bg-black/70'}`}
-                  >
-                    {isSel ? <CheckSquare size={16} /> : <Square size={16} />}
-                  </button>
-                  <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 z-10">
-                    <button onClick={(e) => { e.stopPropagation(); handleDelete(asset.id) }} className="p-1.5 rounded-full bg-black/50 text-white hover:text-red-400 transition-colors">
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
+                  {rowAssets.map((asset: any) => (
+                    <AssetCard
+                      key={asset.id}
+                      asset={asset}
+                      selected={selectedIds.has(asset.id)}
+                      dragging={draggingId === asset.id}
+                      duration={durations[asset.id]}
+                      actions={cardActions}
+                    />
+                  ))}
                 </div>
               )
             })}
@@ -1278,12 +1356,12 @@ export function LibraryPage() {
           onCopyImage={() => handleCopyImage(selectedAsset)}
           copiedImage={copiedAssetId === selectedAsset.id}
           actions={selectedAsset.type === 'image' ? [
-            { icon: ImageIcon, label: 'Referencia', onClick: () => handleAddImageReference(selectedAsset) },
+            { icon: ImageIcon, label: 'Referencia', onClick: () => handleAddReference(selectedAsset) },
             { icon: Eraser, label: 'Quitar fondo', onClick: () => handleRemoveBackground(selectedAsset) },
             { icon: Clapperboard, label: 'Animar', onClick: () => handleAnimate(selectedAsset) },
             { icon: Box, label: 'Crear elemento', onClick: () => handleCreateElement(selectedAsset) },
           ] : selectedAsset.type === 'video' ? [
-            { icon: Video, label: 'Referencia', onClick: () => handleAddVideoReference(selectedAsset) },
+            { icon: Video, label: 'Referencia', onClick: () => handleAddReference(selectedAsset) },
           ] : []}
           onDraftFinalQueued={() => resetRef.current()}
           onUpscaleQueued={() => resetRef.current()}
@@ -1296,6 +1374,7 @@ export function LibraryPage() {
             imageBase64: creatingFromAsset.base64,
             imageAssetId: creatingFromAsset.assetId,
             prompt: creatingFromAsset.prompt,
+            referenceImages: creatingFromAsset.refs,
           }}
           onClose={() => setCreatingFromAsset(null)}
         />

@@ -16,8 +16,18 @@ import {
   CONTENT_TYPES_CONFIG,
   getMasterSystemPrompt,
 } from '../lib/content-type-prompts'
+import {
+  prepareTtsLine,
+  stripAudioTags,
+  supportsAudioTags,
+  dialogueWritingDirective,
+  buildKeyframePrompt,
+  buildVideoPrompt,
+  type PromptRef,
+  type PromptCharacter,
+} from '../lib/drama-prompts'
 import { useWorkspaceStore } from './workspace-store'
-import { useProvidersStore, isModelConfigured } from './providers-store'
+import { useProvidersStore, isModelConfigured, getConfiguredProviderIds } from './providers-store'
 import { toast } from 'sonner'
 
 export interface GenerationHistoryItem {
@@ -114,41 +124,47 @@ export interface DramaShot {
   updatedAt?: string
 }
 
+export type VoiceSource = 'eleven' | 'video'
+
 export interface ParsedDialogueTurn {
   speaker: string
   text: string
   voiceId?: string
+  isNarrator?: boolean
 }
 
-export function cleanTextForTts(text: string): string {
+/** ElevenLabs premade voices: the narrator and the characters start on different voices */
+export const DEFAULT_NARRATOR_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb'
+export const DEFAULT_CHARACTER_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'
+
+/** The narrator / voice-over is not a character: "Narrador", "Locutor", "V.O.", "Narrador (V.O.)"... An empty speaker counts as narration */
+export function isNarratorName(name?: string): boolean {
+  const s = (name || '').toLowerCase().replace(/[()[\].]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!s) return true
+  return /^(?:narrador|narradora|locutor|locutora|narrator|voiceover|voice over|voz en off|en off|off|v o|vo)(?: (?:v o|vo|voz en off|en off|off))?$/.test(s)
+}
+
+/** ElevenLabs voice ids are 20 chars; shorter ids belong to other TTS providers */
+function elevenVoiceOr(voiceId: string | undefined, fallback: string): string {
+  return voiceId && voiceId.length > 15 ? voiceId : fallback
+}
+
+/**
+ * Spoken text for TTS: drops a leading speaker prefix ("Carlos:", "Narrador -") and stage directions.
+ * With audioTags (Eleven v4/v3) English [tags] stay and Spanish (cues) become v4 tags.
+ */
+export function cleanTextForTts(text: string, audioTags = false): string {
   if (!text) return ''
-  let cleaned = text.trim()
-
-  // 1. Remove bracketed/parenthesized stage directions or tone tags
-  cleaned = cleaned.replace(/\((?:susurrando|gritando|enojado|triste|alegre|serio|pausa|llorando|riendo|agitado|v\.o\.|locutor|voz en off|off|en off|acento [^)]+|tono [^)]+|[\w\s]{1,25})\)/gi, (match) => {
-    return match.length <= 30 ? '' : match
-  })
-  cleaned = cleaned.replace(/\[(?:susurrando|gritando|enojado|triste|alegre|serio|pausa|llorando|riendo|agitado|v\.o\.|locutor|voz en off|off|en off|acento [^\]]+|tono [^\]]+|[\w\s]{1,25})\]/gi, (match) => {
-    return match.length <= 30 ? '' : match
-  })
-
-  // 2. Remove leading speaker prefix e.g. "Carlos:", "[Carlos]", "Ana - ", "Narrador: "
-  cleaned = cleaned.replace(/^(?:\[[^\]]+\]|[A-ZÁÉÍÓÚÑa-záéíóúñ0-9_ ]{1,30}[:\-–—])\s*/i, '')
-
-  // 3. Remove outer surrounding quotes if present
-  cleaned = cleaned.replace(/^["“'«](.*)["”'»]$/s, '$1')
-
-  // 4. Normalize multiple whitespaces
-  cleaned = cleaned.replace(/\s+/g, ' ').trim()
-
-  return cleaned
+  const withoutSpeaker = text.trim().replace(/^[A-ZÁÉÍÓÚÑa-záéíóúñ0-9_ ]{1,30}[:\-–—]\s*/i, '')
+  return prepareTtsLine(withoutSpeaker, audioTags)
 }
 
 export function parseDialogueTurns(
   dialogueText: string,
   defaultSpeaker: string = '',
   characters: DramaCharacter[] = [],
-  defaultVoiceId: string = ''
+  defaultVoiceId: string = '',
+  narratorVoiceId: string = defaultVoiceId
 ): ParsedDialogueTurn[] {
   if (!dialogueText || !dialogueText.trim()) return []
 
@@ -157,33 +173,39 @@ export function parseDialogueTurns(
 
   const charMap = new Map<string, DramaCharacter>()
   for (const c of characters) {
-    charMap.set(c.name.toLowerCase().trim(), c)
+    if (!isNarratorName(c.name)) charMap.set(c.name.toLowerCase().trim(), c)
   }
 
-  const isNarrator = (s: string) => !s || /^(?:narrador|narradora|locutor|locutora|v\.o\.|voz en off|off|voiceover|narrator)$/i.test(s.trim())
-
   for (const line of lines) {
-    const match = line.match(/^(?:\[([^\]]+)\]|([^:\-–—]+)[:\-–—])\s*["“'«]?(.*?)["”'»]?$/i)
-    if (match) {
+    // "Nombre: texto" or "[Nombre] texto"; a bracket is a speaker only when it names one (else it is an audio tag)
+    const match = line.match(/^(?:\[([^\]]+)\]|([^:\-–—[\]]{1,40}?)\s*[:\-–—])\s*(.*)$/)
+    const known = (n: string) => charMap.has(n.toLowerCase().trim()) || isNarratorName(n)
+    const bracketIsSpeaker = !!match?.[1] && known(match[1])
+    // "Te lo dije: no vuelvas" is a sentence, "Creador UGC: ..." is a speaker
+    const prefixIsSpeaker = !!match?.[2] && (known(match[2]) || /^[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*(?: [A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ.]*){0,2}$/.test(match[2].trim()))
+    if (match && (prefixIsSpeaker || bracketIsSpeaker)) {
       const speakerRaw = (match[1] || match[2] || '').trim()
       const textRaw = (match[3] || '').trim()
       if (textRaw) {
-        const foundChar = !isNarrator(speakerRaw) ? charMap.get(speakerRaw.toLowerCase()) : undefined
-        const voiceId = foundChar?.voiceId || defaultVoiceId
+        const narrator = isNarratorName(speakerRaw)
+        const foundChar = !narrator ? charMap.get(speakerRaw.toLowerCase()) : undefined
         turns.push({
           speaker: foundChar ? foundChar.name : speakerRaw,
-          text: cleanTextForTts(textRaw),
-          voiceId,
+          text: prepareTtsLine(textRaw, true),
+          voiceId: narrator ? narratorVoiceId : (foundChar?.voiceId || defaultVoiceId),
+          isNarrator: narrator,
         })
         continue
       }
     }
 
-    const foundChar = !isNarrator(defaultSpeaker) ? charMap.get((defaultSpeaker || '').toLowerCase().trim()) : undefined
+    const narrator = isNarratorName(defaultSpeaker)
+    const foundChar = !narrator ? charMap.get((defaultSpeaker || '').toLowerCase().trim()) : undefined
     turns.push({
       speaker: foundChar ? foundChar.name : (defaultSpeaker || 'Narrador (V.O.)'),
-      text: cleanTextForTts(line),
-      voiceId: foundChar?.voiceId || defaultVoiceId,
+      text: prepareTtsLine(line, true),
+      voiceId: narrator ? narratorVoiceId : (foundChar?.voiceId || defaultVoiceId),
+      isNarrator: narrator,
     })
   }
 
@@ -244,6 +266,7 @@ function normalizeStage(stage?: number): number {
 async function dispatchGeneration(api: any, type: 'video' | 'image' | 'audio', payload: any) {
   const provider = payload?.provider || (
     payload?.model?.startsWith('klingai/') ? 'klingai' :
+    payload?.model?.startsWith('pruna/') ? 'pruna' :
     payload?.model?.startsWith('apimart/') ? 'apimart' :
     payload?.model?.startsWith('machgen/') ? 'machgen' :
     payload?.model?.startsWith('higgsfield/') ||
@@ -260,6 +283,9 @@ async function dispatchGeneration(api: any, type: 'video' | 'image' | 'audio', p
   )
   if (provider === 'klingai' && api?.kling?.generate) {
     return api.kling.generate(payload)
+  }
+  if (provider === 'pruna' && api?.pruna?.generate) {
+    return api.pruna.generate(payload)
   }
   if (provider === 'apimart' && api?.apimart?.generate) {
     return api.apimart.generate(payload)
@@ -335,9 +361,82 @@ function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
-const DEFAULT_IMAGE_MODEL = IMAGE_MODELS.find(m => m.t2iId === 'seedream/5-pro-text-to-image' || m.t2iId === 'seedream-5-pro-text-to-image') || IMAGE_MODELS[0]
+const isNanoBanana21 = (m: ModelPricing) => /nano[- ]banana[- ]2\.1/i.test(m.name)
+const isNanoBananaPro = (m: ModelPricing) => /nano[- ]banana[- ]pro/i.test(m.name)
+
+/** The model matching `match` on the first configured provider, in the Providers order */
+function firstConfiguredImageModel(match: (m: ModelPricing) => boolean): ModelPricing | undefined {
+  try {
+    const ids = getConfiguredProviderIds(useProvidersStore.getState().configuredProviders)
+    for (const id of ids) {
+      const found = IMAGE_MODELS.find((m) => match(m) && (m.provider || 'kie') === id)
+      if (found) return found
+    }
+  } catch {}
+  return undefined
+}
+
+/** Nano Banana 2.1 by default; Nano Banana Pro of the first configured provider when no provider offers 2.1 */
+export const getDefaultImageModel = (): ModelPricing =>
+  firstConfiguredImageModel(isNanoBanana21) ||
+  firstConfiguredImageModel(isNanoBananaPro) ||
+  IMAGE_MODELS.find(isNanoBanana21) ||
+  IMAGE_MODELS[0]
+
+/** Generates with `model`; if Nano Banana 2.1 is refused, retries on Nano Banana Pro of the first configured provider */
+async function dispatchImage(api: any, model: ModelPricing, build: (model: ModelPricing) => any) {
+  let failure: unknown
+  try {
+    const task = await dispatchGeneration(api, 'image', build(model))
+    if (typeof task === 'string' ? task : (task?.taskId || task?.id)) return task
+  } catch (err) {
+    failure = err
+  }
+  const fallback = isNanoBanana21(model) ? firstConfiguredImageModel(isNanoBananaPro) : undefined
+  if (!fallback) {
+    if (failure) throw failure
+    return undefined
+  }
+  console.warn(`[DramaStore] ${model.name} failed, retrying with ${fallback.name}:`, failure)
+  toast.info(`${model.name} no respondió: usando ${fallback.name}`)
+  return dispatchGeneration(api, 'image', build(fallback))
+}
+
+const DEFAULT_IMAGE_MODEL = getDefaultImageModel()
+
+/** The shot's people: on-screen speakers first (in speaking order), then the rest of its cast */
+function shotCast(
+  state: { characters: DramaCharacter[]; narratorVoiceId?: string },
+  shot: DramaShot
+): { charsInShot: DramaCharacter[]; speakers: string[]; turns: ParsedDialogueTurn[] } {
+  const turns = parseDialogueTurns(shot.dialogueText || '', shot.dialogueSpeaker, state.characters)
+  const byName = (n: string) => state.characters.find((c) => c.name.toLowerCase().trim() === n.toLowerCase().trim())
+  const speakerChars: DramaCharacter[] = []
+  for (const t of turns) {
+    const c = t.isNarrator ? undefined : byName(t.speaker)
+    if (c && !speakerChars.includes(c)) speakerChars.push(c)
+  }
+  const rest = state.characters.filter(
+    (c) => (shot.characterNames || []).includes(c.name) && !isNarratorName(c.name) && !speakerChars.includes(c)
+  )
+  return { charsInShot: [...speakerChars, ...rest], speakers: speakerChars.map((c) => c.name), turns }
+}
+
+function toPromptRef(r: { refType?: string; name?: string }): PromptRef {
+  const role = r.refType === 'character' || r.refType === 'scenario' || r.refType === 'prop' ? r.refType : 'frame'
+  return { role, name: r.name || '' }
+}
+
+function promptCharacter(c: DramaCharacter, refs: PromptRef[]): PromptCharacter {
+  return {
+    name: c.name,
+    role: c.role,
+    visualPrompt: c.visualPrompt,
+    hasRef: refs.some((r) => r.role === 'character' && r.name === c.name),
+  }
+}
 const DEFAULT_VIDEO_MODEL = VIDEO_MODELS.find(m => m.t2vId === 'kling-3.0/video') || VIDEO_MODELS[0]
-const DEFAULT_VOICE_MODEL = AUDIO_MODELS.find(m => m.t2aId === 'elevenlabs/text-to-speech-multilingual-v2') || AUDIO_MODELS[0]
+const DEFAULT_VOICE_MODEL = AUDIO_MODELS.find(m => m.t2aId === 'eleven_v4') || AUDIO_MODELS[0]
 export const getDefaultLlmModel = (): ModelPricing => {
   try {
     const configured = useProvidersStore.getState().configuredProviders
@@ -389,6 +488,10 @@ interface ShortDramaState {
   setVideoGenBatchSize: (size: number) => void
   voiceModel: ModelPricing
   voiceId: string
+  /** Narrator / voice-over voice, kept apart from the characters' voices */
+  narratorVoiceId: string
+  /** 'eleven': ElevenLabs voices drive every shot (consistent); 'video': the video model voices each shot */
+  voiceSource: VoiceSource
 
   script: string
   logline: string
@@ -415,6 +518,8 @@ interface ShortDramaState {
   setImageModel: (model: ModelPricing, resolution?: string) => void
   setVideoModel: (model: ModelPricing, resolution?: string, duration?: number) => void
   setVoiceModel: (model: ModelPricing, voiceId?: string) => void
+  setNarratorVoice: (voiceId: string) => void
+  setVoiceSource: (source: VoiceSource) => void
   setScript: (script: string) => void
 
   updateCharacter: (id: string, data: Partial<DramaCharacter>) => void
@@ -705,6 +810,8 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
   videoGenBatchSize: 2,
   voiceModel: DEFAULT_VOICE_MODEL,
   voiceId: 'male-qn-qingse',
+  narratorVoiceId: DEFAULT_NARRATOR_VOICE_ID,
+  voiceSource: 'eleven',
 
   script: '',
   logline: '',
@@ -782,6 +889,12 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
             videoDuration: proj.videoDuration || 5,
             voiceModel: audM,
             voiceId: proj.voiceId || 'male-qn-qingse',
+            // Older projects cast the narrator as a character: reuse that voice
+            narratorVoiceId:
+              proj.narratorVoiceId ||
+              (proj.characters || []).find((c: DramaCharacter) => isNarratorName(c.name) && c.voiceId?.length > 15)?.voiceId ||
+              DEFAULT_NARRATOR_VOICE_ID,
+            voiceSource: proj.voiceSource === 'video' ? 'video' : 'eleven',
             script: proj.scriptText || '',
             characters: proj.characters || [],
             scenarios: proj.scenarios || [],
@@ -821,6 +934,10 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
       visualStyle: initialData?.visualStyle || config.defaultVisualStyle,
       aspectRatio: initialData?.aspectRatio || config.defaultAspectRatio,
       shotsCount: typeof initialData?.shotsCount === 'number' ? initialData.shotsCount : config.defaultShotsCount,
+      voiceModel: initialData?.voiceModel || DEFAULT_VOICE_MODEL,
+      narratorVoiceId: initialData?.narratorVoiceId || DEFAULT_NARRATOR_VOICE_ID,
+      voiceSource: initialData?.voiceSource || 'eleven',
+      imageModel: initialData?.imageModel || getDefaultImageModel(),
       currentStage: 1,
       script: '',
       logline: '',
@@ -884,6 +1001,8 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
           videoDuration: state.videoDuration,
           voiceModel: state.voiceModel.t2aId || state.voiceModel.name,
           voiceId: state.voiceId,
+          narratorVoiceId: state.narratorVoiceId,
+          voiceSource: state.voiceSource,
           scriptText: state.script,
           finalVideoAssetId: state.finalVideo.assetId,
           finalVideoPath: state.finalVideo.localPath,
@@ -987,6 +1106,16 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
       voiceModel: model,
       voiceId: voiceId || s.voiceId,
     }))
+    get().saveCurrentProject()
+  },
+
+  setNarratorVoice: (voiceId) => {
+    set({ narratorVoiceId: voiceId })
+    get().saveCurrentProject()
+  },
+
+  setVoiceSource: (source) => {
+    set({ voiceSource: source })
     get().saveCurrentProject()
   },
 
@@ -1175,7 +1304,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
         tone,
         visualStyle: style,
         customPromptGuide: state.customPromptGuide,
-      })
+      }) + dialogueWritingDirective(state.voiceSource)
 
       const shotsText = shotsCount > 0
         ? `Cantidad requerida de escenas/tomas: ${shotsCount}`
@@ -1224,7 +1353,10 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
       }
 
       // Populate store with breakdown
-      const characters: DramaCharacter[] = (breakdown.characters || []).map((c: any) => ({
+      // The narrator has its own voice in stage 4; it is never cast as a character
+      const characters: DramaCharacter[] = (breakdown.characters || [])
+        .filter((c: any) => !(c?.name && isNarratorName(c.name)))
+        .map((c: any) => ({
         id: uid(),
         name: c.name || 'Personaje',
         role: c.role || 'Rol',
@@ -1293,7 +1425,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
           sceneNumber: sceneNum,
           shotNumber: shotNum,
           cameraMovement: sh.cameraMovement || 'Plano Medio',
-          characterNames: Array.isArray(sh.characterNames) ? sh.characterNames : [],
+          characterNames: Array.isArray(sh.characterNames) ? sh.characterNames.filter((n: string) => !isNarratorName(n)) : [],
           scenarioName: sh.scenarioName || scenarios[0]?.name || 'Escena',
           propNames: Array.isArray(sh.propNames) ? sh.propNames : [],
           actionPrompt: sh.actionPrompt || '',
@@ -1361,7 +1493,7 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
           propNames: [],
           actionPrompt: pendingAction.trim(),
           dialogueText: pendingDialogue.trim(),
-          dialogueSpeaker: pendingSpeaker.trim() || (state.characters[0]?.name || 'Locutor'),
+          dialogueSpeaker: pendingSpeaker.trim() || 'Narrador',
           estimatedDuration: finalDur,
           keyframePrompt: `${pendingAction.trim()}, cinematic lighting, 8k`,
           videoStatus: 'idle',
@@ -1714,12 +1846,12 @@ export const useShortDramaStore = create<ShortDramaState>((set, get) => ({
         charPrompt = `${basePose}, ${charPrompt}`
       }
       const prompt = `${charPrompt}${styleSuffix}`
-      const payload = buildImagePayload(state.imageModel, prompt, {
-        aspectRatio: '1:1',
-        resolution: state.imageResolution,
-      })
-
-      const task = await dispatchTracked(charId, () => dispatchGeneration(api, 'image', payload))
+      const task = await dispatchTracked(charId, () =>
+        dispatchImage(api, state.imageModel, (model) => buildImagePayload(model, prompt, {
+          aspectRatio: '1:1',
+          resolution: state.imageResolution,
+        })),
+      )
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -1810,12 +1942,12 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         scnPrompt = `${scnPrompt}, empty environment, completely unpopulated, no people, no humans`
       }
       const prompt = `${scnPrompt}${styleSuffix}`
-      const payload = buildImagePayload(state.imageModel, prompt, {
-        aspectRatio: state.aspectRatio,
-        resolution: state.imageResolution,
-      })
-
-      const task = await dispatchTracked(scenarioId, () => dispatchGeneration(api, 'image', payload))
+      const task = await dispatchTracked(scenarioId, () =>
+        dispatchImage(api, state.imageModel, (model) => buildImagePayload(model, prompt, {
+          aspectRatio: state.aspectRatio,
+          resolution: state.imageResolution,
+        })),
+      )
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -1912,12 +2044,12 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         propPrompt = `${propPrompt}, isolated product shot on clean plain neutral grey studio background, studio lighting, centered, macro photography, no humans, no hands, no people`
       }
       const prompt = `${propPrompt}${styleSuffix}`
-      const payload = buildImagePayload(state.imageModel, prompt, {
-        aspectRatio: '1:1',
-        resolution: state.imageResolution,
-      })
-
-      const task = await dispatchTracked(propId, () => dispatchGeneration(api, 'image', payload))
+      const task = await dispatchTracked(propId, () =>
+        dispatchImage(api, state.imageModel, (model) => buildImagePayload(model, prompt, {
+          aspectRatio: '1:1',
+          resolution: state.imageResolution,
+        })),
+      )
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -2021,23 +2153,16 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         refType?: string
       }> = []
 
+      // Everyone who speaks on screen travels as a reference, speakers first in speaking order
+      const { charsInShot, speakers } = shotCast(state, shot)
+      const scnInShot = state.scenarios.find((s) => s.name === shot.scenarioName)
+      const propsInShot = state.props.filter((p) => (shot.propNames || []).includes(p.name))
+
       // If customParams.imageRefs is explicitly passed (even if empty []), respect it directly
       if (customParams && 'imageRefs' in customParams) {
         imageRefs = customParams.imageRefs ? [...customParams.imageRefs] : []
       } else {
-        // 1. Gather all linked characters, scenario, props, and dialogue speaker
-        const charsInShot = state.characters.filter((c) => (shot.characterNames || []).includes(c.name))
-        const speakerChar = state.characters.find(
-          (c) => (shot.dialogueSpeaker || '').toLowerCase().trim() === c.name.toLowerCase().trim()
-        )
-        if (speakerChar && !charsInShot.some((c) => c.id === speakerChar.id)) {
-          charsInShot.unshift(speakerChar)
-        }
-
-        const scnInShot = state.scenarios.find((s) => s.name === shot.scenarioName)
-        const propsInShot = state.props.filter((p) => (shot.propNames || []).includes(p.name))
-
-        // Characters first (speaker first)
+        // Characters first (speakers first)
         for (const char of charsInShot) {
           if (char.imageAssetId || char.imageUrl) {
             imageRefs.push({
@@ -2092,61 +2217,40 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic photorealis
         }
       }
 
-      // 3. Build prompt: if customParams.prompt is provided or shot has a customized keyframePrompt, use it directly
+      // 3. Prompt: an explicit prompt goes as is; otherwise the Landking structure binds each attached image to its element
       let fullPrompt = customParams?.prompt
       if (!fullPrompt) {
-        if (shot.keyframePrompt && shot.keyframePrompt.trim()) {
-          fullPrompt = shot.keyframePrompt.trim()
-        } else {
-          const promptParts: string[] = []
-
-          // Camera framing for opening frame
-          if (shot.cameraMovement && shot.cameraMovement.trim()) {
-            promptParts.push(`Camera: ${shot.cameraMovement.trim()}`)
-          }
-
-          // Exact initial frame (Frame 0) composition description
-          const initialFrameText = (shot.actionPrompt || 'Cinematic dramatic opening shot').trim()
-          promptParts.push(`Initial Frame (Frame 0): ${initialFrameText}`)
-
-          // Environment
-          const scnInShot = state.scenarios.find((s) => s.name === shot.scenarioName)
-          if (scnInShot && (scnInShot.visualPrompt || scnInShot.name)) {
-            promptParts.push(`Environment: ${scnInShot.name}${scnInShot.visualPrompt ? ` (${scnInShot.visualPrompt})` : ''}`)
-          }
-
-          // Props / Key objects visible in frame
-          const propsInShot = state.props.filter((p) => (shot.propNames || []).includes(p.name))
-          if (propsInShot.length > 0) {
-            const propDescriptions = propsInShot
-              .map((p) => `${p.name}${p.visualPrompt || p.description ? ` (${p.visualPrompt || p.description})` : ''}`)
-              .join(', ')
-            promptParts.push(`Key Objects: ${propDescriptions}`)
-          }
-
-          // Visual style & cinematic quality
-          const styleSuffix = state.visualStyle
-            ? `${state.visualStyle} style, cinematic lighting, 8k resolution, highly detailed, masterwork composition`
-            : 'cinematic lighting, 8k resolution, highly detailed, masterwork composition'
-          promptParts.push(styleSuffix)
-
-          // Audio/Ambient directive: Diegetic SFX allowed, strictly NO music (music is inserted in final assembly)
-          promptParts.push('ambient diegetic sound effects (SFX), foley audio, strictly no background music, no soundtrack, no musical score')
-
-          fullPrompt = promptParts.join(', ')
-        }
+        const promptRefs = imageRefs.map(toPromptRef)
+        const frameText = (shot.keyframePrompt || '').trim() || [
+          (shot.actionPrompt || 'Cinematic opening shot').trim(),
+          propsInShot.length ? `Key objects in frame: ${propsInShot.map((p) => `<${p.name}>`).join(', ')}.` : '',
+        ].filter(Boolean).join(' ')
+        fullPrompt = buildKeyframePrompt({
+          model: targetModel,
+          refs: promptRefs,
+          camera: shot.keyframePrompt?.trim() ? undefined : shot.cameraMovement,
+          frame: frameText,
+          characters: charsInShot.map((c) => promptCharacter(c, promptRefs)),
+          speakers,
+          location: scnInShot && {
+            name: scnInShot.name,
+            visualPrompt: scnInShot.visualPrompt,
+            hasRef: promptRefs.some((r) => r.role === 'scenario' && r.name === scnInShot.name),
+          },
+          visualStyle: state.visualStyle,
+        })
       }
 
-      const payload = buildImagePayload(targetModel, fullPrompt, {
-        aspectRatio: customParams?.aspectRatio || state.aspectRatio,
-        resolution: customParams?.resolution || state.imageResolution,
-        imageRefs: imageRefs.length > 0 ? imageRefs : undefined,
-        imageRefAssetId: imageRefs[0]?.assetId,
-        imageBase64: customParams?.imageBase64 || imageRefs[0]?.base64,
-        imageUrl: customParams?.imageUrl || imageRefs[0]?.imageUrl,
-      })
-
-      const task = await dispatchTracked(`kf:${shotId}`, () => dispatchGeneration(api, 'image', payload))
+      const task = await dispatchTracked(`kf:${shotId}`, () =>
+        dispatchImage(api, targetModel, (model) => buildImagePayload(model, fullPrompt, {
+          aspectRatio: customParams?.aspectRatio || state.aspectRatio,
+          resolution: customParams?.resolution || state.imageResolution,
+          imageRefs: imageRefs.length > 0 ? imageRefs : undefined,
+          imageRefAssetId: imageRefs[0]?.assetId,
+          imageBase64: customParams?.imageBase64 || imageRefs[0]?.base64,
+          imageUrl: customParams?.imageUrl || imageRefs[0]?.imageUrl,
+        })),
+      )
       const taskId = typeof task === 'string' ? task : (task?.taskId || task?.id)
 
       if (taskId) {
@@ -2193,14 +2297,17 @@ CRITICAL RULES:
 1. Focus strictly on what is visible at the very opening moment (Frame 0).
 2. If the scene describes an action where a character starts alone before another character enters, describe ONLY that initial character and starting composition. Do NOT include characters who enter later in the scene.
 3. Include camera angle/framing, lighting, character pose/expression at frame 0, environmental details, strictly incorporating the visual style: "${state.visualStyle || 'Cinematic, 8k, photorealistic'}".
-4. Output ONLY the English prompt text directly, without quotes, markdown, or commentary.`
+4. Name every character, location and object with its tag exactly as given (e.g. <Ana>, <Cafetería>): their reference images are attached and bound to those tags, so describe position, pose, expression and action, not their faces.
+5. Whoever speaks in this shot has a natural, closed-mouth expression, about to speak. When two or more people talk, place each one clearly in frame (left/right, foreground/background).
+6. Output ONLY the English prompt text directly, without quotes, markdown, section headers or commentary.`
 
     const userContent = `Scene Action: ${shot.actionPrompt}
 Camera Movement: ${shot.cameraMovement}
-Dialogue / Locution: ${shot.dialogueText ? `${shot.dialogueSpeaker}: "${shot.dialogueText}"` : 'None'}
+Dialogue / Locution: ${shot.dialogueText ? `${shot.dialogueSpeaker}: "${stripAudioTags(shot.dialogueText)}"` : 'None'}
 Environment: ${scnInShot ? `${scnInShot.name} - ${scnInShot.visualPrompt}` : shot.scenarioName || 'Cinematic environment'}
-Characters involved in scene: ${charsInShot.map((c) => `${c.name} (${c.visualPrompt || ''})`).join(', ') || 'None'}
-Objects: ${propsInShot.map((p) => p.name).join(', ') || 'None'}
+Characters involved in scene: ${charsInShot.map((c) => `<${c.name}> (${c.visualPrompt || ''})`).join(', ') || 'None'}
+Location tag: ${scnInShot ? `<${scnInShot.name}>` : 'None'}
+Objects: ${propsInShot.map((p) => `<${p.name}>`).join(', ') || 'None'}
 Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photorealistic'}`
 
     const res = await api.openfield.agentChat({
@@ -2233,6 +2340,11 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
     const shot = state.shots.find((s) => s.id === shotId)
     const effectiveDialogue = (customDialogueText !== undefined ? customDialogueText : shot?.dialogueText) || ''
     if (!shot || !effectiveDialogue.trim() || shot.audioStatus === 'generating') return
+    // With video-model voices the clip speaks for itself: no TTS track
+    if (state.voiceSource === 'video') {
+      if (customDialogueText !== undefined) get().updateShot(shotId, { dialogueText: customDialogueText })
+      return
+    }
 
     if (customDialogueText !== undefined && customDialogueText !== shot.dialogueText) {
       get().updateShot(shotId, { dialogueText: customDialogueText, audioStatus: 'generating', audioTaskId: undefined })
@@ -2244,58 +2356,73 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
     try {
       const api = (window as any).electronAPI
       const speakerRaw = (shot.dialogueSpeaker || '').trim()
-      const isNarratorSpeaker =
-        !speakerRaw ||
-        /^(?:narrador|narradora|locutor|locutora|v\.o\.|voz en off|off|voiceover|narrator)$/i.test(speakerRaw)
+      const isNarratorSpeaker = isNarratorName(speakerRaw)
 
       const speakerChar = !isNarratorSpeaker
         ? state.characters.find(
             (c) => c.name.toLowerCase().trim() === speakerRaw.toLowerCase()
           )
         : undefined
-      const defaultVoiceId = speakerChar?.voiceId || state.voiceId || '21m00Tcm4TlvDq8ikWAM'
+      const narratorVoiceId = state.narratorVoiceId || DEFAULT_NARRATOR_VOICE_ID
+      const characterVoiceId = speakerChar?.voiceId || state.voiceId || DEFAULT_CHARACTER_VOICE_ID
+      const defaultVoiceId = isNarratorSpeaker ? narratorVoiceId : characterVoiceId
 
-      // Parse dialogue turns (detects multiple speakers if present)
+      // Parse dialogue turns (detects multiple speakers if present); narrator turns take the narrator voice
       const parsedTurns = parseDialogueTurns(
         effectiveDialogue,
         shot.dialogueSpeaker,
         state.characters,
-        defaultVoiceId
+        characterVoiceId,
+        narratorVoiceId
       )
 
       const hasElevenVoice =
         state.characters.some((c) => c.voiceId && c.voiceId.length > 15) ||
-        (defaultVoiceId && defaultVoiceId.length > 15)
+        narratorVoiceId.length > 15 ||
+        defaultVoiceId.length > 15
       const isElevenLabs =
         state.voiceModel.provider === 'elevenlabs' ||
         (api?.elevenlabs?.generate && hasElevenVoice)
 
       if (isElevenLabs) {
         try {
-          const modelId = state.voiceModel.t2aId || state.voiceModel.name || 'eleven_multilingual_v2'
+          const modelId = state.voiceModel.t2aId || state.voiceModel.name || 'eleven_v4'
+          // Voices from other providers can't be used here: fall back to the default narrator / character voice
+          const turnVoice = (t?: ParsedDialogueTurn) =>
+            (t?.isNarrator ?? isNarratorSpeaker)
+              ? elevenVoiceOr(t?.voiceId || narratorVoiceId, DEFAULT_NARRATOR_VOICE_ID)
+              : elevenVoiceOr(t?.voiceId || characterVoiceId, DEFAULT_CHARACTER_VOICE_ID)
           let asset: any
 
           // If there are 2 or more dialogue turns with assigned voice IDs, use native text-to-dialogue
           if (parsedTurns.length >= 2 && api?.elevenlabs?.generateDialogue) {
-            const dialogueModel = modelId.startsWith('eleven_') ? modelId : 'eleven_v3'
-            asset = await api.elevenlabs.generateDialogue({
-              inputs: parsedTurns.map((t) => ({
-                text: cleanTextForTts(t.text),
-                voiceId: t.voiceId || defaultVoiceId,
-              })),
-              model: dialogueModel,
-            })
+            // Eleven v4 and v3 do multi-speaker dialogue natively and read [audio tags]
+            const dialogueModel = modelId.startsWith('eleven_') ? modelId : 'eleven_v4'
+            const inputsFor = (model: string) => parsedTurns.map((t) => ({
+              text: prepareTtsLine(t.text, supportsAudioTags(model)),
+              voiceId: turnVoice(t),
+            }))
+            try {
+              asset = await api.elevenlabs.generateDialogue({ inputs: inputsFor(dialogueModel), model: dialogueModel })
+            } catch (dialogueErr) {
+              // Text-to-dialogue may not accept every TTS model: retry with v3
+              if (dialogueModel === 'eleven_v3') throw dialogueErr
+              console.warn(`[DramaStore] Dialogue failed with ${dialogueModel}, retrying with eleven_v3:`, dialogueErr)
+              asset = await api.elevenlabs.generateDialogue({ inputs: inputsFor('eleven_v3'), model: 'eleven_v3' })
+            }
           } else if (api?.elevenlabs?.generate) {
-            const singleVoiceId = parsedTurns[0]?.voiceId || defaultVoiceId
+            const singleVoiceId = turnVoice(parsedTurns[0])
+            const singleModel = modelId.startsWith('eleven_') ? modelId : 'eleven_v4'
+            const tags = supportsAudioTags(singleModel)
             // For single-voice generation, combine all spoken turns without character prefix headers
             const singlePrompt = parsedTurns.length > 0
-              ? parsedTurns.map((t) => cleanTextForTts(t.text)).filter(Boolean).join(' ')
-              : cleanTextForTts(effectiveDialogue)
+              ? parsedTurns.map((t) => prepareTtsLine(t.text, tags)).filter(Boolean).join(' ')
+              : cleanTextForTts(effectiveDialogue, tags)
 
             asset = await api.elevenlabs.generate({
               voiceId: singleVoiceId,
               prompt: singlePrompt,
-              model: modelId.startsWith('eleven_') ? modelId : 'eleven_multilingual_v2',
+              model: singleModel,
             })
           }
 
@@ -2319,7 +2446,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
 
       // KIE / Generic Openfield TTS flow
       const cleanPrompt = parsedTurns.length > 0
-        ? parsedTurns.map((t) => cleanTextForTts(t.text)).filter(Boolean).join(' ')
+        ? parsedTurns.map((t) => stripAudioTags(t.text)).filter(Boolean).join(' ')
         : cleanTextForTts(effectiveDialogue)
 
       const payload = buildAudioPayload(state.voiceModel, cleanPrompt, { voiceId: defaultVoiceId })
@@ -2344,6 +2471,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
   },
 
   generateAllVoices: async (onlyMissing = false) => {
+    if (get().voiceSource === 'video') return
     const shots = get().shots
     for (const shot of shots) {
       if (onlyMissing && shot.audioStatus === 'completed' && (shot.audioUrl || shot.audioLocalPath)) continue
@@ -2384,63 +2512,21 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
 
     try {
       const api = (window as any).electronAPI
-      const inputMode = customParams?.inputMode || shot.videoInputMode || 'ff'
+      const requestedMode = customParams?.inputMode || shot.videoInputMode || 'ff'
       const targetModel = customParams?.model || state.videoModel
 
-      // 1. Gather all linked characters and speaker
-      const charsInShot = state.characters.filter((c) => (shot.characterNames || []).includes(c.name))
+      // 1. The shot's people: on-screen speakers first, in speaking order
+      const { charsInShot, speakers, turns } = shotCast(state, shot)
       const propsInShot = state.props.filter((p) => (shot.propNames || []).includes(p.name))
-      const speakerChar = state.characters.find(
-        (c) => (shot.dialogueSpeaker || '').toLowerCase().trim() === c.name.toLowerCase().trim()
-      )
-      if (speakerChar && !charsInShot.some((c) => c.id === speakerChar.id)) {
-        charsInShot.unshift(speakerChar)
-      }
+      const scenario = state.scenarios.find((sc) => sc.name === shot.scenarioName)
 
-      let prompt = customParams?.prompt
-      if (!prompt) {
-        const promptParts: string[] = []
-        if (shot.videoPrompt?.trim()) {
-          // The user's motion prompt replaces camera movement + action
-          promptParts.push(shot.videoPrompt.trim())
-        } else {
-          const cameraMov = customParams?.cameraMovement || shot.cameraMovement
-          if (cameraMov && cameraMov.trim()) {
-            promptParts.push(cameraMov.trim())
-          }
-          if (shot.actionPrompt && shot.actionPrompt.trim()) {
-            promptParts.push(shot.actionPrompt.trim())
-          }
-        }
-        if (customParams?.cameraShot) promptParts.push(customParams.cameraShot)
-        if (customParams?.cameraLens) promptParts.push(customParams.cameraLens)
-        if (customParams?.cameraLevel) promptParts.push(customParams.cameraLevel)
-        if (customParams?.lighting) promptParts.push(customParams.lighting)
-        if (customParams?.filmLook) promptParts.push(customParams.filmLook)
-
-        if (shot.dialogueText && shot.dialogueText.trim()) {
-          const speaker = shot.dialogueSpeaker ? shot.dialogueSpeaker.trim() : 'Narrator (V.O.)'
-          const isVO = /v\.?o\.?|off|narrad|voz en off/i.test(speaker)
-          if (isVO) {
-            promptParts.push(`voice-over narration (V.O.): [${speaker}]: "${shot.dialogueText.trim()}", dramatic pacing, atmospheric cinematic visual tone aligned with voiceover`)
-          } else {
-            promptParts.push(`character ${speaker} speaking dialogue: "${shot.dialogueText.trim()}", expressive lipsync motion, realistic mouth movement while talking`)
-          }
-        }
-
-        if (charsInShot.length > 0) {
-          const charDescs = charsInShot.map((c) => `${c.name} (${c.visualPrompt || ''})`).join(', ')
-          promptParts.push(`featuring: ${charDescs}`)
-        }
-
-        if (state.visualStyle && state.visualStyle.trim()) {
-          promptParts.push(`${state.visualStyle.trim()} style, consistent visual aesthetic`)
-        }
-
-        promptParts.push('cinematic video, high quality motion, realistic flow')
-        promptParts.push('diegetic sound effects (SFX), foley ambience, natural speech, strictly no background music, no soundtrack, no musical score, no bgm')
-        prompt = promptParts.join(', ')
-      }
+      // Several voices in one shot: send everyone as a tagged reference so each line lands on the right face
+      const multiVoice = speakers.length >= 2
+      const inputMode =
+        multiVoice && (requestedMode === 'ff' || requestedMode === 't2v') && targetModel.refId && !customParams?.imageRefs
+          ? 'ref'
+          : requestedMode
+      const useElevenVoices = state.voiceSource === 'eleven'
 
       // First Frame Handling
       let firstFrameBase64 = customParams?.firstFrameBase64
@@ -2488,16 +2574,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
       // Image References Handling for Reference Mode
       let imageRefs = customParams?.imageRefs || []
       if (inputMode === 'ref' && imageRefs.length === 0) {
-        // Ingredients: the shot's frame, then linked characters, location and props
-        if (shot.keyframeAssetId || shot.keyframeUrl) {
-          imageRefs.push({
-            assetId: shot.keyframeAssetId,
-            url: shot.keyframeUrl,
-            name: `Toma ${shot.order}`,
-            mime: 'image/png',
-            refType: 'image',
-          })
-        }
+        // Ingredients: characters (speakers first), location, props, then the shot's frame as its FIRST FRAME LOOK
         for (const char of charsInShot) {
           if (char.imageAssetId || char.imageUrl) {
             imageRefs.push({
@@ -2509,7 +2586,6 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
             })
           }
         }
-        const scenario = state.scenarios.find((sc) => sc.name === shot.scenarioName)
         if (scenario && (scenario.imageAssetId || scenario.imageUrl)) {
           imageRefs.push({
             assetId: scenario.imageAssetId,
@@ -2529,6 +2605,15 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
               refType: 'prop',
             })
           }
+        }
+        if (shot.keyframeAssetId || shot.keyframeUrl) {
+          imageRefs.push({
+            assetId: shot.keyframeAssetId,
+            url: shot.keyframeUrl,
+            name: `Toma ${shot.order}`,
+            mime: 'image/png',
+            refType: 'image',
+          })
         }
         // Not every provider resolves asset ids: send the bytes along
         const ids = imageRefs.map((r: any) => r.assetId).filter(Boolean)
@@ -2560,7 +2645,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
 
       // Gather audio reference from Storyboard if available
       let audioRefs: Array<{ assetId?: string; audioUrl?: string; base64?: string; mime?: string; name?: string }> = []
-      if (shot.audioAssetId || shot.audioUrl) {
+      if (useElevenVoices && (shot.audioAssetId || shot.audioUrl)) {
         audioRefs.push({
           assetId: shot.audioAssetId,
           audioUrl: shot.audioUrl,
@@ -2581,6 +2666,38 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         }
       }
 
+      // Prompt: an explicit prompt goes as is; otherwise the Landking structure binds every attached file to its element
+      let prompt = customParams?.prompt
+      if (!prompt) {
+        const refsSent = inputMode === 'ref' ? imageRefs.map(toPromptRef) : []
+        const camera = shot.videoPrompt?.trim()
+          ? ''
+          : [customParams?.cameraMovement || shot.cameraMovement, customParams?.cameraShot, customParams?.cameraLens, customParams?.cameraLevel]
+              .filter((x) => x && x.trim())
+              .join(', ')
+        const castInPrompt = charsInShot.filter((c) => !isNarratorName(c.name))
+        prompt = buildVideoPrompt({
+          model: targetModel,
+          refs: refsSent,
+          videoRefCount: videoRefs.length,
+          hasAudio: audioRefs.length > 0 && targetModel.supportsAudioRef !== false,
+          voiceSource: state.voiceSource,
+          pinnedFirstFrame: usesFirstFrame && Boolean(firstFrameAssetId || firstFrameUrl || firstFrameBase64),
+          camera,
+          action: shot.videoPrompt?.trim() || shot.actionPrompt || '',
+          characters: castInPrompt.map((c) => promptCharacter(c, refsSent)),
+          turns: turns.map((t) => ({ speaker: t.speaker, text: t.text, isNarrator: t.isNarrator })),
+          location: scenario && {
+            name: scenario.name,
+            visualPrompt: scenario.visualPrompt,
+            hasRef: refsSent.some((r) => r.role === 'scenario' && r.name === scenario.name),
+          },
+          visualStyle: state.visualStyle,
+          lighting: customParams?.lighting,
+          filmLook: customParams?.filmLook,
+        })
+      }
+
       const payload = buildVideoPayload(targetModel, prompt, {
         aspectRatio: state.aspectRatio,
         resolution: customParams?.resolution || state.videoResolution,
@@ -2592,11 +2709,12 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         lastFrameBase64: inputMode === 'fflf' ? lastFrameBase64 : undefined,
         imageRefs: inputMode === 'ref' && imageRefs.length > 0 ? imageRefs : undefined,
         videoRefs: videoRefs.length > 0 ? videoRefs : undefined,
-        audioAssetId: shot.audioAssetId,
-        audioUrl: shot.audioUrl,
+        audioAssetId: useElevenVoices ? shot.audioAssetId : undefined,
+        audioUrl: useElevenVoices ? shot.audioUrl : undefined,
         audioBase64: audioRefs[0]?.base64,
         audioRefs: audioRefs.length > 0 ? audioRefs : undefined,
-        sound: Boolean(shot.audioAssetId || shot.audioUrl),
+        // Video-model voices: the clip generates its own speech
+        sound: audioRefs.length > 0 || (!useElevenVoices && turns.length > 0),
       })
 
       // If reference mode and imageRefs exist, ensure they're assigned to payload
@@ -2615,7 +2733,7 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
           videoTaskId: taskId,
           videoStatus: 'generating',
           videoProgress: 20,
-          videoInputMode: inputMode,
+          videoInputMode: requestedMode,
         })
         await get().saveCurrentProject()
         get().pollVideoTask(shotId, taskId)
@@ -2732,7 +2850,8 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
         videoPath: s.videoLocalPath,
         videoUrl: s.videoUrl,
         videoAssetId: s.videoAssetId,
-        dialogue: s.dialogueText,
+        // Subtitles carry the spoken words only, never the [audio tags]
+        dialogue: (s.dialogueText || '').split('\n').map(stripAudioTags).filter(Boolean).join('\n'),
         speaker: s.dialogueSpeaker,
         duration: s.estimatedDuration,
       }))

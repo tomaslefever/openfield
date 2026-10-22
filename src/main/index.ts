@@ -16,6 +16,7 @@ import { isBridgeEnabled } from './services/storyboard-service'
 import { initUpdater, checkForUpdates } from './services/updater'
 import { applyNativeTheme, normalizeTheme, windowBackground } from './services/theme'
 import { readSetting } from './ipc/helpers'
+import { registerAssetProtocol } from './services/asset-protocol'
 
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev')
 let mainWindow: BrowserWindow | null = null
@@ -45,7 +46,8 @@ function getAppIconPath() {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'asset',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+    // corsEnabled: crossOrigin media (the Timeline keys video frames in WebGL) must pass CORS
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true, corsEnabled: true },
   },
 ])
 
@@ -187,135 +189,7 @@ app.whenReady().then(async () => {
   if (process.platform === 'win32') {
     app.setAppUserModelId(app.isPackaged ? 'com.openfield.desktop' : process.execPath)
   }
-  // Cache for file reads served over asset:// (thumbnails/grids re-request the same
-  // files often). Keyed by path, invalidated via size+mtime so edits are picked up.
-  const assetCache = new Map<string, { size: number; mtimeMs: number; buffer: Buffer }>()
-  const thumbCache = new Map<string, { size: number; mtimeMs: number; buffer: Buffer }>()
-  const ASSET_CACHE_MAX = 500
-
-  protocol.handle('asset', async (request) => {
-    const decodedUrl = decodeURI(request.url)
-    const filePath = decodedUrl.replace(/^asset:\/\/localhost\//, '').replace(/[?#].*$/, '').replace(/\/+$/, '')
-
-    let isThumb = false
-    let scale = 0.25
-    try {
-      const urlObj = new URL(request.url)
-      isThumb = urlObj.searchParams.get('thumb') === '1'
-      const s = parseFloat(urlObj.searchParams.get('scale') || '0.25')
-      if (!isNaN(s)) scale = Math.min(1, Math.max(0.1, s))
-    } catch {}
-
-    try {
-      const stat = fs.statSync(filePath)
-      const ext = path.extname(filePath).toLowerCase()
-      const mimeTypes: Record<string, string> = {
-        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-        '.webp': 'image/webp', '.gif': 'image/gif',
-        '.mp4': 'video/mp4', '.webm': 'video/webm',
-        '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
-        '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac',
-        '.opus': 'audio/opus',
-      }
-      const mime = mimeTypes[ext] || 'application/octet-stream'
-      const isMedia = ext === '.mp4' || ext === '.webm' || ext === '.mp3' || ext === '.wav' || ext === '.ogg' || ext === '.m4a' || ext === '.aac' || ext === '.flac' || ext === '.opus'
-      const isImage = ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp'
-
-      // Downscaled rendering for grid thumbnails
-      if (isThumb && isImage && scale < 1.0) {
-        const thumbKey = `${filePath}:${scale}`
-        const cachedThumb = thumbCache.get(thumbKey)
-        if (cachedThumb && cachedThumb.mtimeMs === stat.mtimeMs) {
-          return new Response(cachedThumb.buffer as unknown as BodyInit, {
-            headers: {
-              'Content-Type': 'image/jpeg',
-              'Content-Length': String(cachedThumb.buffer.length),
-              'Cache-Control': 'public, max-age=86400',
-            },
-          })
-        }
-
-        try {
-          const img = nativeImage.createFromPath(filePath)
-          if (!img.isEmpty()) {
-            const origSize = img.getSize()
-            const targetW = Math.max(64, Math.round(origSize.width * scale))
-            const targetH = Math.max(64, Math.round(origSize.height * scale))
-            const resized = img.resize({ width: targetW, height: targetH, quality: 'good' })
-            const thumbBuffer = resized.toJPEG(82)
-
-            thumbCache.set(thumbKey, {
-              size: thumbBuffer.length,
-              mtimeMs: stat.mtimeMs,
-              buffer: thumbBuffer,
-            })
-            if (thumbCache.size > ASSET_CACHE_MAX) {
-              const oldestKey = thumbCache.keys().next().value
-              if (oldestKey) thumbCache.delete(oldestKey)
-            }
-
-            return new Response(thumbBuffer as unknown as BodyInit, {
-              headers: {
-                'Content-Type': 'image/jpeg',
-                'Content-Length': String(thumbBuffer.length),
-                'Cache-Control': 'public, max-age=86400',
-              },
-            })
-          }
-        } catch (thumbErr) {
-          console.warn('[asset:thumb] Downscale fallback:', thumbErr)
-        }
-      }
-
-      const rangeHeader = request.headers.get('Range') || request.headers.get('range')
-      if (rangeHeader && isMedia) {
-        const fileSize = stat.size
-        const parts = rangeHeader.replace(/bytes=/, '').split('-')
-        const start = parseInt(parts[0], 10)
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1
-        const chunkSize = Math.max(0, end - start + 1)
-
-        const buffer = Buffer.alloc(chunkSize)
-        const fd = fs.openSync(filePath, 'r')
-        fs.readSync(fd, buffer, 0, chunkSize, start)
-        fs.closeSync(fd)
-
-        return new Response(buffer, {
-          status: 206,
-          headers: {
-            'Content-Type': mime,
-            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-            'Content-Length': String(chunkSize),
-            'Accept-Ranges': 'bytes',
-          },
-        })
-      }
-
-      const cached = !isMedia ? assetCache.get(filePath) : undefined
-      let data: Buffer
-      if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
-        data = cached.buffer
-      } else {
-        data = await fs.promises.readFile(filePath)
-        if (!isMedia) {
-          assetCache.set(filePath, { size: stat.size, mtimeMs: stat.mtimeMs, buffer: data })
-          if (assetCache.size > ASSET_CACHE_MAX) {
-            const oldestKey = assetCache.keys().next().value
-            if (oldestKey) assetCache.delete(oldestKey)
-          }
-        }
-      }
-      const headers: Record<string, string> = {
-        'Content-Type': mime,
-        'Content-Length': String(stat.size),
-      }
-      if (isMedia) headers['Accept-Ranges'] = 'bytes'
-      return new Response(data as unknown as BodyInit, { headers })
-    } catch (err: any) {
-      console.error('[asset] 404:', filePath, err.message)
-      return new Response(null, { status: 404 })
-    }
-  })
+  registerAssetProtocol()
 
   Menu.setApplicationMenu(null)
 

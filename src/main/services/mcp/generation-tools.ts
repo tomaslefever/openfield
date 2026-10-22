@@ -12,6 +12,7 @@ import { normalizeProvider, routeModelToProvider, type QueueProvider } from '../
 import { notifyAssetsChanged, notifyAssetUpdated } from '../../ipc/assets'
 import { requireLibraryCheck } from './library-gate'
 import { IMAGE_MODELS } from '../kie/models'
+import { pVideo2Kind, routePVideo2Model } from '../pruna/inputs'
 // Each queue registers itself as a recoverable provider when its module loads
 import '../task-queue'
 import '../fal-queue'
@@ -20,6 +21,7 @@ import '../machgen-queue'
 import '../replicate-queue'
 import '../apimart-queue'
 import '../kling-queue'
+import '../pruna-queue'
 import {
   type McpTool,
   ToolInputError,
@@ -275,8 +277,11 @@ function modelForReferences(model: string, type: string, payload: any): string {
 function adaptPayloadForProvider(provider: QueueProvider, type: string, payload: any): void {
   payload.type = type
   if (!payload.mode) payload.mode = type
+  // P-Video 2 Pro (Pruna or Replicate) with references runs its -reference variant, which
+  // takes the reference lists as they are
+  if (pVideo2Kind(payload.model)) payload.model = routePVideo2Model(payload.model, payload)
   // Replicate takes a single input image instead of a reference list
-  if (provider === 'replicate' && Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0) {
+  if (provider === 'replicate' && pVideo2Kind(payload.model) !== 'p-video-2-pro-reference' && Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0) {
     const [first] = payload.imageRefs
     if (!payload.imageAssetId && first.assetId) {
       payload.imageAssetId = first.assetId
@@ -290,7 +295,7 @@ function adaptPayloadForProvider(provider: QueueProvider, type: string, payload:
 }
 
 const PROVIDER_LABEL: Record<QueueProvider, string> = {
-  openfield: 'Kie.ai', fal: 'fal.ai', higgsfield: 'Higgsfield', machgen: 'MachGen', replicate: 'Replicate', apimart: 'APIMart', klingai: 'Kling AI',
+  openfield: 'Kie.ai', fal: 'fal.ai', higgsfield: 'Higgsfield', machgen: 'MachGen', replicate: 'Replicate', apimart: 'APIMart', klingai: 'Kling AI', pruna: 'Pruna',
 }
 
 function safeNotify(fn: () => void): void {
@@ -536,8 +541,8 @@ export function getGenerationTools(): McpTool[] {
           prompt: { type: 'string' },
           model: { type: 'string', description: 'Model id from get_service_models. With image references, a "-text-to-image" KIE model is switched to its "-image-to-image" variant automatically.' },
           type: { type: 'string', enum: ['image', 'video'], description: 'Default image' },
-          provider: { type: 'string', enum: ['kie', 'fal', 'replicate', 'machgen', 'apimart', 'higgsfield', 'klingai'], description: 'Optional; inferred from the model id. Pass it when the model came from that service\'s catalog.' },
-          aspect_ratio: { type: 'string', description: 'e.g. 1:1, 16:9, 9:16, 4:3, 3:4, 21:9' },
+          provider: { type: 'string', enum: ['kie', 'fal', 'replicate', 'machgen', 'apimart', 'higgsfield', 'klingai', 'pruna'], description: 'Optional; inferred from the model id. Pass it when the model came from that service\'s catalog.' },
+          aspect_ratio: { type: 'string', description: 'e.g. 1:1, 16:9, 9:16, 4:3, 3:4, 21:9. Seedance 2.5 (MachGen) with a start/end frame only accepts adaptive (the frame sets the framing); any other value is replaced by adaptive.' },
           resolution: { type: 'string', description: 'e.g. 1K, 2K, 4K (image) or 720p, 1080p (video)' },
           duration: { type: 'number', minimum: 1, description: 'Video seconds' },
           reference_asset_ids: { type: 'array', items: { type: 'string' }, description: 'Existing assets to attach as references' },
@@ -605,7 +610,7 @@ export function getGenerationTools(): McpTool[] {
           asset_id: { type: 'string', description: ASSET_ID_DESC },
           prompt: { type: 'string', description: 'Replaces the original prompt' },
           model: { type: 'string', description: 'Replaces the model (the provider is re-inferred)' },
-          provider: { type: 'string', enum: ['kie', 'fal', 'replicate', 'machgen', 'apimart', 'higgsfield', 'klingai'] },
+          provider: { type: 'string', enum: ['kie', 'fal', 'replicate', 'machgen', 'apimart', 'higgsfield', 'klingai', 'pruna'] },
           aspect_ratio: { type: 'string' },
           resolution: { type: 'string' },
           duration: { type: 'number', minimum: 1 },

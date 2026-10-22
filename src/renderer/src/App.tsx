@@ -7,6 +7,7 @@ import { useStoryboardStore } from './stores/storyboard-store'
 import { usePromptLibraryStore } from './stores/prompt-library-store'
 import { useShortDramaStore } from './stores/short-drama-store'
 import { useProvidersStore } from './stores/providers-store'
+import { installContentStudioAgent } from './lib/content-studio-agent'
 import { AppSidebar } from './components/Sidebar'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { ImageGenPage } from './pages/ImageGenPage'
@@ -17,6 +18,7 @@ import { LibraryPage } from './pages/LibraryPage'
 import { ElementsPage } from './pages/ElementsPage'
 import { WorkflowsPage } from './pages/WorkflowsPage'
 import { EditorPage } from './pages/EditorPage'
+import { MontagePage } from './pages/MontagePage'
 import { CinemaStudioPage } from './pages/CinemaStudioPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProvidersPage } from './pages/ProvidersPage'
@@ -46,6 +48,7 @@ const pages: Record<Page, React.FC> = {
   elements: ElementsPage,
   workflows: WorkflowsPage,
   editor: EditorPage,
+  montage: MontagePage,
   cinema: CinemaStudioPage,
   providers: ProvidersPage,
   settings: SettingsPage,
@@ -80,9 +83,20 @@ function App() {
   useEffect(() => {
     useWorkspaceStore.getState().load()
     useProvidersStore.getState().load()
+    installContentStudioAgent()
     ;(window as any).electronAPI?.settings?.get('gridRenderScale').then((scale: any) => {
       if (scale) useAppStore.getState().setGridRenderScale(scale)
     }).catch(() => {})
+  }, [])
+
+  // The MCP bridge can create, rename or switch workspaces: resync and, when
+  // asked, open the workspace it switched to.
+  useEffect(() => {
+    return (window as any).electronAPI?.on?.('workspaces:changed', (payload: { enter?: boolean } = {}) => {
+      useWorkspaceStore.getState().load().then(() => {
+        if (payload?.enter) useWorkspaceStore.setState({ inWorkspace: true })
+      }).catch(() => {})
+    })
   }, [])
 
   // The MCP bridge can save, edit or delete prompts of the Prompt Library

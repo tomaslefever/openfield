@@ -4,9 +4,9 @@ import { getFalModel } from './fal/catalog'
 import { getReplicateModel } from './replicate/catalog'
 
 /** Queue providers, as stored in tasks.provider ('openfield' is the KIE queue). */
-export type QueueProvider = 'openfield' | 'fal' | 'higgsfield' | 'machgen' | 'replicate' | 'apimart' | 'klingai'
+export type QueueProvider = 'openfield' | 'fal' | 'higgsfield' | 'machgen' | 'replicate' | 'apimart' | 'klingai' | 'pruna'
 
-export const QUEUE_PROVIDERS: QueueProvider[] = ['openfield', 'fal', 'higgsfield', 'machgen', 'replicate', 'apimart', 'klingai']
+export const QUEUE_PROVIDERS: QueueProvider[] = ['openfield', 'fal', 'higgsfield', 'machgen', 'replicate', 'apimart', 'klingai', 'pruna']
 
 const HIGGSFIELD_PREFIXES = [
   'higgsfield/', 'higgsfield-ai/', 'flux-pro/', 'xai/grok-imagine', 'marketing-studio/', 'ideogram/v4',
@@ -33,6 +33,8 @@ export function routeModelToProvider(model: string, providerHint?: string | null
   if (explicit) return explicit
   const m = model || ''
   if (m.startsWith('klingai/')) return 'klingai'
+  // Official Pruna API ('prunaai/' ids are the same models on Replicate)
+  if (m.startsWith('pruna/')) return 'pruna'
   if (m.startsWith('apimart/') || getApimartModel(m)) return 'apimart'
   if (m.startsWith('machgen/') || m.includes('MachGen') || getMachgenModel(m)) return 'machgen'
   if (HIGGSFIELD_PREFIXES.some(p => m.startsWith(p))) return 'higgsfield'

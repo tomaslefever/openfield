@@ -10,8 +10,9 @@ import {
   CheckCircle,
   AlertCircle,
   User,
+  Mic,
 } from 'lucide-react'
-import { useShortDramaStore } from '../../../stores/short-drama-store'
+import { useShortDramaStore, isNarratorName, DEFAULT_NARRATOR_VOICE_ID } from '../../../stores/short-drama-store'
 import { ModelSelectorDropdown } from '../../models/ModelSelectorDropdown'
 import { VoiceSelectorDropdown } from '../../voice/VoiceSelectorDropdown'
 import { srcUrl } from '../../../services/file-url'
@@ -22,7 +23,11 @@ export function Stage5Voices() {
     characters,
     voiceModel,
     voiceId,
+    narratorVoiceId,
+    voiceSource,
     setVoiceModel,
+    setNarratorVoice,
+    setVoiceSource,
     updateCharacter,
     updateShot,
     generateShotVoice,
@@ -38,6 +43,11 @@ export function Stage5Voices() {
   const dialogueShots = shots.filter((s) => s.dialogueText && s.dialogueText.trim())
   const isAnyGenerating = dialogueShots.some((s) => s.audioStatus === 'generating')
   const completedCount = dialogueShots.filter((s) => s.audioStatus === 'completed').length
+  // The narrator has its own voice; older projects may still list it as a character
+  const castCharacters = characters.filter((c) => !isNarratorName(c.name))
+  const narratorShots = dialogueShots.filter((s) => isNarratorName(s.dialogueSpeaker))
+  const narratorVoice = narratorVoiceId || DEFAULT_NARRATOR_VOICE_ID
+  const useEleven = voiceSource === 'eleven'
 
   return (
     <div className="flex flex-col h-full overflow-y-auto p-6 space-y-6">
@@ -53,7 +63,7 @@ export function Stage5Voices() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {useEleven && <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-surface-400 font-medium">Motor TTS:</span>
           <ModelSelectorDropdown
             kind="audio"
@@ -73,6 +83,70 @@ export function Stage5Voices() {
             )}
             Sintetizar Todas ({completedCount}/{dialogueShots.length})
           </button>
+        </div>}
+      </div>
+
+      {/* Who voices the dialogue */}
+      <div className="card p-5 border-surface-800 bg-surface-900/40 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h3 className="eyebrow flex items-center gap-1.5">
+            <Volume2 size={13} className="text-accent-400" /> Origen de las voces
+          </h3>
+          <div className="inline-flex rounded-lg border border-surface-800 bg-surface-950/60 p-0.5" role="radiogroup" aria-label="Origen de las voces">
+            {([
+              { id: 'eleven', label: 'ElevenLabs (recomendado)' },
+              { id: 'video', label: 'Modelo de video' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                role="radio"
+                aria-checked={voiceSource === opt.id}
+                onClick={() => setVoiceSource(opt.id)}
+                className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+                  voiceSource === opt.id ? 'bg-accent-500/15 text-accent-400 font-semibold' : 'text-surface-400 hover:text-surface-200'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {useEleven ? (
+          <p className="text-[11px] text-surface-500">
+            Cada voz se sintetiza con ElevenLabs y se envía como referencia de audio al video: el mismo personaje suena igual en todas las tomas.
+          </p>
+        ) : (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+            <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
+            <span>
+              Las voces las genera el modelo de video en cada toma y pueden variar de una toma a otra. Para mantener la consistencia de las voces, lo óptimo es usar ElevenLabs.
+            </span>
+          </p>
+        )}
+      </div>
+
+      {useEleven && <>
+      {/* Narrator Voice (kept apart from the cast) */}
+      <div className="card p-5 border-surface-800 bg-surface-900/40">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="eyebrow flex items-center gap-1.5">
+              <Mic size={13} className="text-accent-400" /> Locutor / Narrador (V.O.)
+            </h3>
+            <p className="text-[11px] text-surface-500 mt-1">
+              Voz en off de las tomas narradas. No es un personaje: no aparece en cámara ni se sincroniza con labios.
+              {' '}{narratorShots.length} {narratorShots.length === 1 ? 'línea narrada' : 'líneas narradas'}.
+            </p>
+          </div>
+          <div className="flex-shrink-0 w-full sm:w-64">
+            <VoiceSelectorDropdown
+              value={narratorVoice}
+              onChange={(vId) => setNarratorVoice(vId)}
+              placeholder="Voz del locutor..."
+              className="w-full"
+            />
+          </div>
         </div>
       </div>
 
@@ -80,15 +154,21 @@ export function Stage5Voices() {
       <div className="card p-5 border-surface-800 bg-surface-900/40">
         <div className="flex items-center justify-between mb-3">
           <h3 className="eyebrow flex items-center gap-1.5">
-            <User size={13} className="text-accent-400" /> Asignación de Voces por Personaje (ElevenLabs / KIE)
+            <User size={13} className="text-accent-400" /> Voces de Personajes (ElevenLabs / KIE)
           </h3>
           <span className="text-[11px] text-surface-500">
-            {characters.length} personajes en la historia
+            {castCharacters.length} personajes en la historia
           </span>
         </div>
 
+        {castCharacters.length === 0 && (
+          <p className="text-[11px] text-surface-500">
+            No hay personajes con diálogo: todas las líneas usan la voz del locutor.
+          </p>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {characters.map((char) => (
+          {castCharacters.map((char) => (
             <div
               key={char.id}
               className="bg-surface-950/60 border border-surface-800 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:border-surface-700 transition-colors"
@@ -113,6 +193,8 @@ export function Stage5Voices() {
         </div>
       </div>
 
+      </>}
+
       {/* Dialogues Table / Cards */}
       <div className="space-y-3">
         <h3 className="eyebrow">
@@ -128,8 +210,8 @@ export function Stage5Voices() {
             {dialogueShots.map((shot) => {
               const isGenerating = shot.audioStatus === 'generating'
               const isCompleted = shot.audioStatus === 'completed' && shot.audioUrl
-              const speakerChar = characters.find((c) => c.name === shot.dialogueSpeaker)
-              const assignedVoiceId = speakerChar?.voiceId || voiceId
+              const isNarratorLine = isNarratorName(shot.dialogueSpeaker)
+              const speakerChar = isNarratorLine ? undefined : castCharacters.find((c) => c.name === shot.dialogueSpeaker)
 
               return (
                 <div
@@ -149,7 +231,11 @@ export function Stage5Voices() {
                         <span className="text-[10px] text-surface-500 italic">
                           ({shot.cameraMovement})
                         </span>
-                        {speakerChar && (
+                        {isNarratorLine ? (
+                          <span className="text-[10px] text-accent-400 bg-accent-500/10 border border-accent-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <Mic size={10} /> Locutor
+                          </span>
+                        ) : speakerChar && (
                           <span className="text-[10px] text-surface-400 bg-surface-900 border border-surface-800 px-1.5 py-0.5 rounded">
                             {speakerChar.role}
                           </span>
@@ -163,7 +249,7 @@ export function Stage5Voices() {
                   </div>
 
                   {/* Audio Player / Action */}
-                  <div className="flex items-center gap-2 flex-shrink-0 w-full md:w-auto justify-end flex-wrap">
+                  {useEleven ? <div className="flex items-center gap-2 flex-shrink-0 w-full md:w-auto justify-end flex-wrap">
                     {isCompleted ? (
                       <div className="flex items-center gap-2">
                         <audio src={srcUrl(shot.audioLocalPath || shot.audioUrl)} controls className="h-8 max-w-[200px]" />
@@ -187,7 +273,9 @@ export function Stage5Voices() {
                       <Sparkles size={12} className="text-accent-400" />
                       {isCompleted ? 'Regenerar' : 'Sintetizar'}
                     </button>
-                  </div>
+                  </div> : (
+                    <span className="text-[10px] text-surface-500 flex-shrink-0">La voz la genera el modelo de video</span>
+                  )}
                 </div>
               )
             })}

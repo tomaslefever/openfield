@@ -26,7 +26,12 @@ import {
 } from './endpoint-inspector'
 import { IMAGE_MODELS, VIDEO_MODELS } from '../kie/models'
 import { getGenerationTools } from './generation-tools'
+import { getContentStudioTools } from './content-studio-tools'
+import { getWorkspaceTools } from './workspace-tools'
 import { getPromptLibraryTools } from './prompt-library-tools'
+import { getTimelineTools } from './timeline-tools'
+import { getVoiceTools } from './voice-tools'
+import { getLayoutTools } from './layout-tools'
 import {
   type McpTool,
   ToolInputError,
@@ -156,7 +161,7 @@ function getTools(): McpTool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          service: { type: 'string', description: 'Service name: "kie", "fal", "replicate", "machgen", "apimart" or "klingai"' },
+          service: { type: 'string', description: 'Service name: "kie", "fal", "replicate", "machgen", "apimart", "klingai" or "pruna"' },
           type: { type: 'string', enum: ['image', 'video', 'audio'], description: 'Optional model type filter' },
         },
         required: ['service'],
@@ -567,8 +572,21 @@ function getTools(): McpTool[] {
     // ─── Library & playground generations ──────────────────────
     ...getGenerationTools(),
 
+    // ─── Content Studio, one approved stage at a time ──────────
+    ...getContentStudioTools(),
+
+    // ─── Workspaces ────────────────────────────────────────────
+    ...getWorkspaceTools(),
+
     // ─── Prompt library (Openfield templates + the user's saved prompts) ─
     ...getPromptLibraryTools(),
+
+    // ─── Timeline (montage editing, live in the Timeline page) ─
+    ...getTimelineTools(),
+    ...getLayoutTools(),
+
+    // ─── Voice lines (ElevenLabs) ───────────────────────────────
+    ...getVoiceTools(),
   ]
 }
 
@@ -810,12 +828,15 @@ export class McpBridgeServer {
             serverInfo: { name: SERVER_NAME, title: 'Openfield Storyboard Bridge', version: SERVER_VERSION },
             instructions: [
               'This is the Openfield AI & Storyboard bridge.',
+              'Workspaces: everything below (library, elements, storyboards, Content Studio) belongs to the active workspace. list_workspaces / get_workspace read them; create_workspace (activate: true to switch to it), update_workspace, set_active_workspace and delete_workspace (permanent, only when the user explicitly asks) manage them.',
               'Service introspection: list_services, list_endpoints, get_endpoint, get_endpoint_example and get_service_models read live capabilities, types and docs from the app.',
               'Resources: endpoint://<service>/<endpoint> (docs), example://<service>/<endpoint> (examples), source://<service>/<endpoint> (source), models://<service> (model catalogs).',
               'Storyboard flow: create_storyboard → create_scenes → generate_scene_image per scene → generate_scene_video (needs the scene image) → create_transition / generate_transition.',
+              'Content Studio (short films, microdramas): use the content_studio_* tools, never generate/import_asset, so the piece is built by the app itself. Stages run in order — script → references → keyframes → voices (ElevenLabs) → videos → final — and each one only opens after the user approved the previous one (content_studio_approve_stage, called only on the user\'s explicit approval). Voices always precede videos: the audio is each video\'s lip-sync reference.',
               'PROMPT LIBRARY FIRST: before writing ANY image or video prompt (generate, storyboard scenes, edits), call search_prompt_library with the kind of piece (ads, character sheet, storyboard, UGC, product, editing…) and the model you will use, then open the best match with get_library_prompt. The templates are researched for visual quality and consistency per model family. Use it as a reference — fill its {{variables}} from the brand, product and request of the user, follow its guidance and rewrite whatever does not fit; never paste it unchanged when the brief differs. For a series (campaign, storyboard, recurring character) start from the character-sheet / consistency templates and repeat the same character and style description in every prompt. Prompts the user approved in review rank first; user-saved prompts (source workspace/global) reflect their own style. generate refuses its first call without a recent library check. When the user likes a result or asks to keep a prompt, save_library_prompt (with {{variables}}, models and types).',
               'Playground / library: list_assets and get_asset find generations and the references each one used; generate creates new images/videos with reference_asset_ids or reuse_references_from (e.g. "latest" = the previous generation); recreate_generation re-runs one with optional overrides; update_assets / delete_assets / import_asset manage the library.',
               'To let the user choose between options: generate with count: 4, then wait_for_tasks with preview: true shows the results numbered #1..#4; use the chosen asset id as a reference next. preview_assets shows any existing assets the same way.',
+              'Timeline (video editing): build montages with the timeline_* tools, never through the UI. timeline_create (aspect 9:16 for vertical) → timeline_add_clips with library asset ids (start/in/out/duration in seconds; omitted start appends) → timeline_update_clip / timeline_split_clip / timeline_remove_clips → timeline_add_captions or timeline_autocaptions (estimate_only first: it spends credits) → timeline_export (job) + timeline_export_status. timeline_get shows every id and time; edits show live in the app Timeline page (timeline_open to bring it up for review or screen recording). There are no transitions.',
               'generate, recreate_generation and generate_* spend the user\'s API credits and are async: they return task ids; use wait_for_tasks (or poll get_task) until they complete or fail.',
             ].join('\n'),
           })

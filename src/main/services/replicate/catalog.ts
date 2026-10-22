@@ -55,6 +55,33 @@ export const REPLICATE_MODELS: ReplicateModelCatalogEntry[] = [
     costPerSecond: 0.02,
     resolutions: ['720p', '1080p'],
   },
+  // Pruna P-2 family (docs.api.pruna.ai/guides/models). No pinned version: runs the latest
+  // through /models/{owner}/{name}/predictions. P-Video 2 Pro and its reference variant are one
+  // model in the UI; the composer routes to -reference when refs are attached.
+  {
+    id: 'prunaai/p-video-2',
+    name: 'P-Video 2',
+    category: 'PrunaAI',
+    type: 'video',
+    costPerSecond: 0.025,
+    resolutions: ['720p', '1080p'],
+  },
+  {
+    id: 'prunaai/p-video-2-pro',
+    name: 'P-Video 2 Pro',
+    category: 'PrunaAI',
+    type: 'video',
+    costPerSecond: 0.035,
+    resolutions: ['480p', '768p'],
+  },
+  {
+    id: 'prunaai/p-video-2-pro-reference',
+    name: 'P-Video 2 Pro',
+    category: 'PrunaAI',
+    type: 'video',
+    costPerSecond: 0.035,
+    resolutions: ['480p', '768p'],
+  },
   {
     id: 'philz1337x/crystal-video-upscaler',
     name: 'Crystal Video Upscaler',
@@ -64,6 +91,8 @@ export const REPLICATE_MODELS: ReplicateModelCatalogEntry[] = [
     costPerSecond: 0.1,
     resolutions: [],
   },
+  // Lipsync: re-syncs the mouth of an existing video to a new audio track (billed per output second)
+  { id: 'sync/lipsync-2-pro', name: 'Lipsync 2 Pro', category: 'Sync', type: 'video', costPerSecond: 0.08325, resolutions: [] },
   // Video models
   { id: 'runway/gen-4.5', name: 'Runway Gen-4.5', category: 'Runway', type: 'video', costPerSecond: 0.10, resolutions: ['720p', '1080p'] },
   { id: 'google/veo-3.1', name: 'Veo 3.1', category: 'Google', type: 'video', costPerSecond: 0.15, resolutions: ['720p', '1080p'] },

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { X, ChevronLeft, ChevronRight, Star, Copy, Check, AlertCircle, RotateCcw, Download, FolderOpen, Trash2, Loader } from 'lucide-react'
 import { srcUrl } from '../../services/file-url'
-import { copyText } from '../../lib/clipboard'
+import { copyText, copyImage, copyImageFromUrl } from '../../lib/clipboard'
 import { getAssetProvider } from '../../lib/models'
 import { Button } from '../ui/button'
 import { TagEditor } from '../ui/TagEditor'
@@ -123,6 +123,7 @@ export function AssetDetailModal({
   const [isDragging, setIsDragging] = useState(false)
   const [refPreview, setRefPreview] = useState<ResolvedRef | null>(null)
   const refPreviewRef = useRef<ResolvedRef | null>(null)
+  const [copiedRef, setCopiedRef] = useState(false)
   const provider = getAssetProvider(asset)
 
   useEffect(() => { zoomRef.current = zoom }, [zoom])
@@ -160,6 +161,26 @@ export function AssetDetailModal({
     } catch (err) {
       console.error('Save as failed:', err)
       setSaveState('idle')
+    }
+  }
+
+  const handleCopyRef = async () => {
+    const ref = refPreview
+    if (!ref?.src) return
+    let ok = false
+    // Library-backed refs go through IPC like "Copiar imagen" (asset:// fetches are cross-origin)
+    if (ref.assetId) {
+      try {
+        const results = await (window as any).electronAPI?.assets.readBase64([ref.assetId])
+        if (results?.[0]?.base64) ok = await copyImage(results[0].base64, results[0].mime || 'image/png')
+      } catch (err) {
+        console.warn('Copy reference via asset failed:', err)
+      }
+    }
+    if (!ok) ok = await copyImageFromUrl(srcUrl(ref.src) || '')
+    if (ok) {
+      setCopiedRef(true)
+      setTimeout(() => setCopiedRef(false), 1500)
     }
   }
 
@@ -316,7 +337,13 @@ export function AssetDetailModal({
 
           {/* Stage toolbar */}
           <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
-            {isReady && isImage && onCopyImage && (
+            {refPreview?.src && refPreview.kind === 'image' && (
+              <button onClick={(e) => { e.stopPropagation(); handleCopyRef() }} title="Copiar referencia" aria-label="Copiar referencia"
+                className={`${STAGE_BTN} ${copiedRef ? '!text-emerald-400' : ''}`}>
+                {copiedRef ? <Check size={15} /> : <Copy size={15} />}
+              </button>
+            )}
+            {!refPreview && isReady && isImage && onCopyImage && (
               <button onClick={(e) => { e.stopPropagation(); onCopyImage() }} title="Copiar imagen" aria-label="Copiar imagen"
                 className={`${STAGE_BTN} ${copiedImage ? '!text-emerald-400' : ''}`}>
                 {copiedImage ? <Check size={15} /> : <Copy size={15} />}

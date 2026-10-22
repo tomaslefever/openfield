@@ -92,7 +92,7 @@ export const PRICE_COMPARISONS: PriceComparison[] = [
     id: 'nano-banana-2.1',
     name: 'Nano Banana 2.1',
     kind: 'image',
-    modelIds: ['nano-banana-2-1', 'google/nano-banana-2.1', 'replicate/google/nano-banana-2.1'],
+    modelIds: ['nano-banana-2-1', 'google/nano-banana-2.1', 'replicate/google/nano-banana-2.1', 'machgen/Nano-Banana-2.1'],
     resolutions: ['1k', '2k', '4k'],
   },
   {

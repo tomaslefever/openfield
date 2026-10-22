@@ -13,6 +13,7 @@ import { ImageLibraryPicker } from './ImageLibraryPicker'
 import {
   IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS, PIXVERSE_T2V_PRICES, PIXVERSE_REF_PRICES,
   calcCost, calcVideoCost, type ModelPricing, cleanModelName, findModelById, SEEDANCE_DRAFT_RES,
+  pVideo2Variant,
 } from '../lib/models'
 import { useProvidersStore, isModelConfigured, PROVIDER_DEFS, hasAnyConfiguredProvider, type ProviderId } from '../stores/providers-store'
 import { srcUrl } from '../services/file-url'
@@ -116,6 +117,10 @@ interface PromptComposerProps {
     voice?: string
     voiceLanguage?: string
     draft?: boolean
+    /** P-Video 2 Pro mode: quality | speed | cost */
+    pvMode?: 'quality' | 'speed' | 'cost'
+    /** P-Video 2 Pro reference: use the single attached audio as the soundtrack */
+    keepAudio?: boolean
     /** Topaz upscale engine (MachGen); omitted = tier default */
     upscaleEngine?: string
   }) => void
@@ -400,6 +405,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
   const [fps, setFps] = useState(30)
   const [batchSize, setBatchSize] = useState(1)
+  const [showBatch, setShowBatch] = useState(false)
   const [imageBase64, setImageBase64] = useState<string | null>(null)
   const [imageMime, setImageMime] = useState<string>('image/png')
   const [refs, setRefs] = useState<Array<{ base64?: string; url?: string; localPath?: string; mime: string; name?: string; refType?: string; duration?: number; assetId?: string }>>(() => initialRefs ? [...initialRefs] : [])
@@ -530,6 +536,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const [replicateLanguage, setReplicateLanguage] = useState('English (US)')
   const [pVideoFps, setPVideoFps] = useState(24)
   const [pVideoDraft, setPVideoDraft] = useState(false)
+  const [pVideoProMode, setPVideoProMode] = useState<'quality' | 'speed' | 'cost'>('speed')
+  const [pVideoKeepAudio, setPVideoKeepAudio] = useState(false)
   const [machgenEnhancePrompt, setMachgenEnhancePrompt] = useState(true)
   const [msPresetId, setMsPresetId] = useState<string>('')
   const [influencerOpts, setInfluencerOpts] = useState<AiInfluencerOpts>(DEFAULT_AI_INFLUENCER_OPTS)
@@ -646,6 +654,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const modelsRef = useRef<HTMLDivElement>(null)
   const ratiosRef = useRef<HTMLDivElement>(null)
   const resRef = useRef<HTMLDivElement>(null)
+  const batchRef = useRef<HTMLDivElement>(null)
   const attachRef = useRef<HTMLDivElement>(null)
   const costRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
@@ -674,6 +683,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (modelsRef.current && !modelsRef.current.contains(e.target as Node)) setShowModels(false)
       if (ratiosRef.current && !ratiosRef.current.contains(e.target as Node)) setShowRatios(false)
       if (resRef.current && !resRef.current.contains(e.target as Node)) setShowRes(false)
+      if (batchRef.current && !batchRef.current.contains(e.target as Node)) setShowBatch(false)
       if (attachRef.current && !attachRef.current.contains(e.target as Node)) setShowAttach(false)
       if (costRef.current && !costRef.current.contains(e.target as Node)) setShowCostInfo(false)
       if (insertRef.current && !insertRef.current.contains(e.target as Node)) setShowInsertMenu(false)
@@ -837,7 +847,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
   const hasImageRef = refs.some(r => r.mime.startsWith('image/'))
   const hasVideoRef = refs.some(r => r.mime.startsWith('video/'))
-  const hasImageSupport = !!(currentModel.i2iId || currentModel.editId || currentModel.i2vId || currentModel.fflfId || currentModel.t2vId?.includes('genjutsu/motion-transfer'))
+  const hasImageSupport = !!(currentModel.i2iId || currentModel.editId || currentModel.i2vId || currentModel.fflfId || currentModel.t2vId?.includes('/motion-transfer/'))
   const isKling = !!(currentModel.t2vId?.startsWith('kling') || currentModel.i2vId?.startsWith('kling'))
   const isKling30 = !!(currentModel.t2vId?.startsWith('kling-3') || currentModel.i2vId?.startsWith('kling-3') || currentModel.t2vId?.includes('kling-video/v3') || currentModel.t2vId?.startsWith('klingai/kling-3'))
   const isHiggsfield = currentModel.provider === 'higgsfield'
@@ -857,8 +867,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   )
   // AI Influencer: fixed 2K 16:9 character sheet driven by a trait catalog (prompt = brief)
   const isAiInfluencer = isHiggsfield && currentModel.t2iId === 'higgsfield/ai-influencer'
-  // Genjutsu Motion Transfer: one source video + 1–8 image refs; length and cost follow the video
-  const isMotionTransfer = isHiggsfield && !!currentModel.t2vId?.includes('genjutsu/motion-transfer')
+  // Genjutsu Motion Transfer (and Light): one source video + 1–8 image refs; length and cost follow the video
+  const isMotionTransfer = isHiggsfield && /genjutsu(-light)?\/motion-transfer/.test(currentModel.t2vId || '')
 
   useEffect(() => {
     if (isMarketplace) {
@@ -898,6 +908,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isPixverseV6 = !!(currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.fflfId?.startsWith('pixverse-v6/'))
   const isGrok = !!(currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/')) || currentModel.extendId?.startsWith('grok-imagine/')
   const isMinimaxH3 = !!(currentModel.t2vId?.startsWith('minimax-h3/') || currentModel.i2vId?.startsWith('minimax-h3/'))
+  // P-Video 2 Pro (Replicate or official Pruna API): one model; any image/video/audio reference
+  // routes to its -reference variant
+  const isPVideo2Pro = pVideo2Variant(currentModel.t2vId) === 'p-video-2-pro'
+  const pVideo2ProRef = isPVideo2Pro && !!(imageBase64 || refs.length > 0 || imageRefEntries.some(e => e.base64))
   // Higgsfield video models with both image-to-video and reference-to-video (Seedance 2.0/2.5,
   // Wan 3.0/Prime, MiniMax H3): attached images are references; the FF toggle opts into I2V.
   const isHiggsfieldRefVideo = isHiggsfield && mode === 'video' && !!currentModel.i2vId && !!currentModel.refId
@@ -987,6 +1001,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (firstFrameBase64 || lastFrameBase64) return 'pixverse-v6/image-to-video'
       if (imageBase64 || hasImageRef || imageRefEntries.some(e => e.base64)) return 'pixverse-v6/reference-to-video'
       return 'pixverse-v6/text-to-video'
+    }
+    if (isPVideo2Pro) {
+      // References win (start/end frames combine with them there); FF/LF alone or text -> base model
+      return pVideo2ProRef ? (currentModel.refId || '') : (currentModel.t2vId || '')
     }
     if (isMinimaxH3 || isHiggsfieldRefVideo) {
       // Single MiniMax H3 model: route by input. FF/LF wins, then video/audio refs, then images, else text-to-video.
@@ -1091,12 +1109,17 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isRefMode = (!!(currentModel.fflfId) && seedanceMode === 'ref') || currentModel.provider === 'fal' || (currentModel.provider === 'machgen' && seedanceMode === 'ref')
   const isOmniHuman = currentModel.t2vId === 'omnihuman-1-5'
   const isReplicate = currentModel.provider === 'replicate'
-  const isPVideo = currentModel.t2vId === 'prunaai/p-video'
+  // P-Video and P-Video 2 share the controls: 1-20 s, 24/48 fps, draft
+  const isPVideo = currentModel.t2vId === 'prunaai/p-video' || pVideo2Variant(currentModel.t2vId) === 'p-video-2'
+  // Official Pruna API: takes the input image like Replicate does, plus the reference lists
+  const isPruna = currentModel.provider === 'pruna'
   const isReplicateAvatar = currentModel.t2vId === 'prunaai/p-video-avatar'
   const hasReplicateAudio = isReplicate && refs.some(r => r.mime.startsWith('audio/'))
   const isFal = currentModel.provider === 'fal'
   const isMachgen = currentModel.provider === 'machgen'
   const isMachgenSeedance25 = isMachgen && mode === 'video' && !!currentModel.t2vId?.startsWith('machgen/Seedance-2.5/')
+  // Seedance 2.5 (MachGen) image-to-video keeps the frame's own framing: the API only accepts 'adaptive'
+  const isSeedance25FrameLocked = isMachgenSeedance25 && isFFLF && !!(firstFrameBase64 || firstFrameUrl || lastFrameBase64 || lastFrameUrl)
   // Topaz upscalers (MachGen): only the source media and the engine matter. Aspect ratio, enhance,
   // FF, sound and camera do not apply; video ones also take no resolution (output height is fixed)
   const isTopaz = isMachgen && currentModel.category === 'Topaz'
@@ -1131,17 +1154,17 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
   // Reset aspect ratio to a supported value when switching to P-Video
   useEffect(() => {
-    if (isPVideo && currentModel.pvAspectRatios?.length && !currentModel.pvAspectRatios.includes(aspectRatio)) {
+    if ((isPVideo || isPVideo2Pro) && currentModel.pvAspectRatios?.length && !currentModel.pvAspectRatios.includes(aspectRatio) && !(pVideo2ProRef && aspectRatio === 'adaptive')) {
       setAspectRatio('16:9')
     }
-  }, [isPVideo, aspectRatio, currentModel?.name])
+  }, [isPVideo, isPVideo2Pro, pVideo2ProRef, aspectRatio, currentModel?.name])
 
   // Reset parameters when switching MachGen models
   useEffect(() => {
-    if (isMachgen && currentModel.aspectRatios?.length && !currentModel.aspectRatios.includes(aspectRatio)) {
+    if (isMachgen && !isSeedance25FrameLocked && currentModel.aspectRatios?.length && !currentModel.aspectRatios.includes(aspectRatio)) {
       setAspectRatio(currentModel.aspectRatios[0] || '16:9')
     }
-  }, [isMachgen, currentModel.name, currentModel.aspectRatios, aspectRatio])
+  }, [isMachgen, isSeedance25FrameLocked, currentModel.name, currentModel.aspectRatios, aspectRatio])
 
   useEffect(() => {
     if (isMachgen && currentModel.resolutions?.length && !currentModel.resolutions.includes(resolution)) {
@@ -1216,6 +1239,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     imageCount: refs.filter(r => r.mime.startsWith('image/')).length,
     inputVideoSeconds: refs.filter(r => r.mime.startsWith('video/')).reduce((s, r) => s + (r.duration || 0), 0),
     batchSize,
+    draft: isPVideo && pVideoDraft,
+    pvMode: isPVideo2Pro ? pVideoProMode : undefined,
   })
 
   // Grok Imagine i2v with a single image: the output ratio follows the image (API behavior),
@@ -1248,9 +1273,12 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     if (mode === 'image') {
       return currentModel.aspectRatios || (isFal && currentModel.falAspectRatios ? currentModel.falAspectRatios : ASPECT_RATIOS)
     }
+    if (isSeedance25FrameLocked) return ['adaptive']
     if ((isMachgen || isHiggsfield) && currentModel.aspectRatios && currentModel.aspectRatios.length > 0) return currentModel.aspectRatios
     if (isWan3) return ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16']
     if (isPVideo) return currentModel.pvAspectRatios || ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1']
+    // 'adaptive' (follow the references) only exists on the reference variant
+    if (isPVideo2Pro) return [...(pVideo2ProRef ? ['adaptive'] : []), ...(currentModel.pvAspectRatios || [])]
     if (isFal) return currentModel.falAspectRatios || ['adaptive', '16:9']
     if (currentModel.t2vId?.startsWith('bytedance/')) return ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', 'adaptive']
     if (currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/')) return ['1:1', '16:9', '21:9', '2:3', '3:2', '3:4', '4:3', '9:16']
@@ -1258,7 +1286,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     if (isMinimaxH3) return ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
     if (currentModel.aspectRatios && currentModel.aspectRatios.length > 0) return currentModel.aspectRatios
     return ['16:9', '9:16']
-  }, [mode, currentModel, isMachgen, isHiggsfield, isWan3, isPVideo, isFal, isMinimaxH3])
+  }, [mode, currentModel, isMachgen, isHiggsfield, isWan3, isPVideo, isPVideo2Pro, pVideo2ProRef, isFal, isMinimaxH3, isSeedance25FrameLocked])
 
   const availableResolutions = useMemo(() => {
     if (currentModel.resolutions && currentModel.resolutions.length > 0) {
@@ -1505,7 +1533,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     if (assets.length === 0) return
     try {
       const api = (window as any).electronAPI
-      const assetIds = assets.map((a: any) => (typeof a === 'string' ? a : a?.id)).filter(Boolean)
+      // Videos never travel as base64: the ref keeps assetId/localPath and every queue uploads
+      // the file from disk (hydratePayloadMedia / resolveSource). Images and audio stay inline.
+      const isVideoAsset = (a: any) => !!a && typeof a === 'object' && (a.type === 'video' || String(a.mimeType || '').startsWith('video/'))
+      const assetIds = assets.filter((a: any) => !isVideoAsset(a)).map((a: any) => (typeof a === 'string' ? a : a?.id)).filter(Boolean)
       const b64Map = new Map<string, { base64: string; mime: string; localPath?: string }>()
       if (assetIds.length > 0 && api?.assets?.readBase64) {
         try {
@@ -2104,7 +2135,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       // Normalize badge terminators (zero-width space, nbsp) so API tags like @image_1 parse cleanly
       .replace(/\u200B/g, '').replace(/\u00A0/g, ' ')
 
-    onGenerate({
+    const generateParams: Parameters<typeof onGenerate>[0] = {
       mode,
       type: mode,
       prompt: finalPrompt,
@@ -2116,11 +2147,14 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       resolution: isSeedanceDraftRes ? '480p' : resolution,
       batchSize,
       // OmniHuman is audio-driven: the audio determines the length, no duration/FPS
-      duration: mode === 'video' && activeId !== 'omnihuman-1-5' && (!isReplicate || isPVideo) ? duration : undefined,
+      duration: mode === 'video' && activeId !== 'omnihuman-1-5' && (!isReplicate || isPVideo || isPVideo2Pro) ? duration : undefined,
       fps: mode === 'video' && activeId !== 'omnihuman-1-5' && (!isReplicate || isPVideo)
         ? (isPVideo ? pVideoFps : (hasFpsChoice ? fps : undefined))
         : undefined,
       draft: isPVideo ? pVideoDraft : (isSeedanceDraftRes ? true : undefined),
+      // The reference variant has no quality mode: it runs speed
+      pvMode: isPVideo2Pro ? (pVideo2ProRef && pVideoProMode === 'quality' ? 'speed' : pVideoProMode) : undefined,
+      keepAudio: pVideo2ProRef && pVideoKeepAudio && audioRefItems.length === 1 ? true : undefined,
       sound: mode === 'video' && !isReplicate ? soundEnabled : undefined,
       enhancePrompt: isMarketingStudio ? msEnhancePrompt : undefined,
       presetId: isMarketingStudio ? (msPresetId || (isMarketplace ? 'f188a40a-098a-5fb3-bffc-eedfeaf9ecd7' : 'ef84af61-57cd-5f2e-b3ca-209d8038563c')) : undefined,
@@ -2130,9 +2164,9 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       // In image mode imageBase64 duplicates imageRefs[0] (same image by construction) and the
       // API only uses refs when present, so skip it to keep stored parameters clean.
       // Video models that ignore imageRefs still need imageBase64.
-      imageBase64: isReplicate ? (imageBase64 || finalImageRefs[0]?.base64 || undefined) : (mode === 'image' && finalImageRefs.length > 0) ? undefined : (namedRefItems.length > 0 ? namedRefItems[0].base64 : (imageRefItems.length > 0) ? imageRefItems[0].base64 : ((activeId !== currentModel.t2iId && activeId !== currentModel.t2vId) ? (imageBase64 || undefined) : undefined)),
-      imageMime: isReplicate ? (imageMime || finalImageRefs[0]?.mime || 'image/png') : (namedRefItems[0]?.mime || imageRefItems[0]?.mime || imageMime),
-      imageRefs: isReplicate ? undefined : (finalImageRefs.length > 0 ? finalImageRefs : undefined),
+      imageBase64: isReplicate || isPruna ? (imageBase64 || finalImageRefs[0]?.base64 || undefined) : (mode === 'image' && finalImageRefs.length > 0) ? undefined : (namedRefItems.length > 0 ? namedRefItems[0].base64 : (imageRefItems.length > 0) ? imageRefItems[0].base64 : ((activeId !== currentModel.t2iId && activeId !== currentModel.t2vId) ? (imageBase64 || undefined) : undefined)),
+      imageMime: isReplicate || isPruna ? (imageMime || finalImageRefs[0]?.mime || 'image/png') : (namedRefItems[0]?.mime || imageRefItems[0]?.mime || imageMime),
+      imageRefs: isReplicate && !isPVideo2Pro ? undefined : (finalImageRefs.length > 0 ? finalImageRefs : undefined),
       videoRefs: videoRefItems.length > 0 ? videoRefItems.map(r => ({
         base64: r.base64 || '',
         url: r.url,
@@ -2151,10 +2185,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       multiPrompt: !isReplicate && multiShots && multiPrompt.length > 0 ? multiPrompt : undefined,
       upscaleEngine: upscaleEngine && currentModel.upscaleEngines?.includes(upscaleEngine) ? upscaleEngine : undefined,
       modelId: currentModel.modelId,
-    })
+    }
+    // Each variant is its own task: the Playground runs them in parallel
+    const variants = Math.min(4, Math.max(1, batchSize))
+    for (let i = 0; i < variants; i++) onGenerate({ ...generateParams, batchSize: 1 })
     setExpanded(false)
     if (!embedded) clearDraft()
-  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, instrumental, showRefsModal, imageRefEntries, elements, isReplicate, isFal, isMachgen, isHiggsfield, isMarketingStudio, msEnhancePrompt, msPresetId, msQuality, msModeration, isAiInfluencer, isMotionTransfer, influencerOpts, hasFpsChoice, isPVideo, pVideoFps, pVideoDraft, isSeedanceDraftRes, replicateVoice, replicateLanguage, upscaleEngine, cameraEnabled, cameraDisabled, cameraBody, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting, filmLook, cameraSpeed, embedded])
+  }, [prompt, aspectRatio, resolution, batchSize, duration, fps, imageBase64, imageMime, refs, firstFrameBase64, firstFrameUrl, lastFrameBase64, lastFrameUrl, currentModel, onGenerate, mode, isFFLF, multiShots, multiPrompt, soundEnabled, instrumental, showRefsModal, imageRefEntries, elements, isReplicate, isFal, isMachgen, isHiggsfield, isMarketingStudio, msEnhancePrompt, msPresetId, msQuality, msModeration, isAiInfluencer, isMotionTransfer, influencerOpts, hasFpsChoice, isPVideo, isPruna, pVideoFps, pVideoDraft, isPVideo2Pro, pVideo2ProRef, pVideoProMode, pVideoKeepAudio, isSeedanceDraftRes, replicateVoice, replicateLanguage, upscaleEngine, cameraEnabled, cameraDisabled, cameraBody, cameraLens, cameraShot, cameraLevel, cameraMovement, lighting, filmLook, cameraSpeed, embedded])
 
   const ffImageSrc = firstFrameUrl
     ? srcUrl(firstFrameUrl)
@@ -3257,11 +3294,48 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                 </div>
               )}
 
+              {/* Simultaneous variants (1–4) */}
+              {!embedded && mode !== 'audio' && (
+                <div className="relative" ref={batchRef}>
+                  <button
+                    type="button"
+                    onClick={() => setShowBatch(!showBatch)}
+                    title="Variantes en simultáneo"
+                    className="flex items-center gap-1.5 h-7 px-2.5 py-1 bg-surface-900/90 hover:bg-surface-800/90 border border-surface-700/80 hover:border-surface-600 rounded-pill text-[11px] font-medium text-surface-200 transition-all shadow-sm"
+                  >
+                    <span>×{batchSize}</span>
+                    <ChevronDown size={11} className={`text-surface-400 transition-transform duration-150 ${showBatch ? 'rotate-180 text-surface-200' : ''}`} />
+                  </button>
+                  {showBatch && (
+                    <div className="astryx-selector-popup absolute bottom-full left-0 mb-1.5 popover-surface rounded-2xl p-1 min-w-[110px] z-50 animate-in fade-in zoom-in-95 duration-150">
+                      {[1, 2, 3, 4].map((n) => {
+                        const isSelected = batchSize === n
+                        return (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => { setBatchSize(n); setShowBatch(false) }}
+                            className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg transition-colors flex items-center justify-between ${
+                              isSelected
+                                ? 'text-accent-400 bg-accent-500/10 font-medium'
+                                : 'text-surface-300 hover:text-surface-100 hover:bg-surface-800/60'
+                            }`}
+                          >
+                            <span>{n === 1 ? '1 variante' : `${n} variantes`}</span>
+                            {isSelected && <span className="size-1.5 rounded-full bg-accent-400" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Duration for video */}
               {mode === 'video' && currentModel.durationFromInputVideo && (
                 <span
                   className="flex items-center h-7 px-2.5 rounded-pill text-[11px] border bg-surface-900/90 border-surface-700/80 text-surface-300 shadow-sm"
-                  title={isMotionTransfer ? 'Motion Transfer usa el video de origen (mín. 4 s, se recorta a 30 s): la duración y el coste salen de su largo' : 'El upscale procesa el video completo: la duración y el coste salen de su largo'}
+                  title={isMotionTransfer ? `Motion Transfer usa el video de origen (mín. 4 s, se recorta a ${currentModel.durationMax ?? 30} s): la duración y el coste salen de su largo` : 'El upscale procesa el video completo: la duración y el coste salen de su largo'}
                 >
                   {(() => {
                     const secs = refs.find(r => r.mime.startsWith('video/'))?.duration
@@ -3269,11 +3343,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   })()}
                 </span>
               )}
-              {mode === 'video' && !currentModel.durationFromInputVideo && currentModel.t2vId !== 'omnihuman-1-5' && (!isReplicate || isPVideo) && !(multiShots && isKling30) && (
+              {mode === 'video' && !currentModel.durationFromInputVideo && currentModel.t2vId !== 'omnihuman-1-5' && (!isReplicate || isPVideo || isPVideo2Pro) && !(multiShots && isKling30) && (
                 <StreamDuration
                   value={duration}
                   options={currentModel.durationOptions}
-                  min={isPVideo ? 1 : 4}
+                  min={isPVideo ? 1 : isPVideo2Pro ? 5 : 4}
                   max={currentModel.durationMax || 15}
                   onChange={handleDurationChange}
                 />
@@ -3347,6 +3421,36 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   >
                     Draft
                   </button>
+                </>
+              )}
+
+              {/* P-Video 2 Pro mode (quality only without references) and keep-audio */}
+              {isPVideo2Pro && (
+                <>
+                  <select
+                    value={pVideo2ProRef && pVideoProMode === 'quality' ? 'speed' : pVideoProMode}
+                    onChange={(e) => setPVideoProMode(e.target.value as 'quality' | 'speed' | 'cost')}
+                    title={pVideo2ProRef ? 'Mode (with references: speed or cost)' : 'Mode: quality, speed or cost'}
+                    className="h-7 bg-surface-900/90 border border-surface-700/80 hover:border-surface-600 rounded-pill px-2 py-1 text-[11px] font-medium text-surface-200 outline-none transition-all shadow-sm"
+                  >
+                    {!pVideo2ProRef && <option value="quality" className="bg-surface-900 text-surface-200">Quality</option>}
+                    <option value="speed" className="bg-surface-900 text-surface-200">Speed</option>
+                    <option value="cost" className="bg-surface-900 text-surface-200">Cost</option>
+                  </select>
+                  {pVideo2ProRef && refs.filter(r => r.mime.startsWith('audio/')).length === 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setPVideoKeepAudio(!pVideoKeepAudio)}
+                      title="Use the attached audio as the video soundtrack, not only as a reference"
+                      className={`flex items-center gap-1 h-7 px-2.5 py-1 rounded-pill text-[11px] font-medium border transition-all shadow-sm ${
+                        pVideoKeepAudio
+                          ? 'bg-accent-600 text-on-accent border-accent-500'
+                          : 'bg-surface-900/90 hover:bg-surface-800/90 border-surface-700/80 hover:border-surface-600 text-surface-300 hover:text-surface-100'
+                      }`}
+                    >
+                      Keep audio
+                    </button>
+                  )}
                 </>
               )}
 
@@ -3485,7 +3589,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
               {/* Right side: Generate button */}
               <div className="self-end shrink-0">
-                <button onClick={handleGenerate} disabled={disabled || (mode === 'audio' ? !prompt.trim() : (showRefsModal ? !prompt.trim() || (!imageRefEntries.some(e => e.base64) && !imageBase64 && refs.length === 0) : (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? (!prompt.trim() && !firstFrameBase64 && !(isMachgen && lastFrameBase64)) : (isAiInfluencer ? false : isMotionTransfer ? (!hasVideoRef || (!hasImageRef && !imageBase64 && !imageRefEntries.some(e => e.base64))) : isHiggsfield ? !prompt.trim() : (isReplicate ? (isPVideo ? !prompt.trim() : (!prompt.trim() && !imageBase64 && !refs.some(r => r.mime.startsWith('audio/')) && !refs.some(r => r.mime.startsWith('video/')))) : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0))))))}
+                <button onClick={handleGenerate} disabled={disabled || (mode === 'audio' ? !prompt.trim() : (showRefsModal ? !prompt.trim() || (!imageRefEntries.some(e => e.base64) && !imageBase64 && refs.length === 0) : (multiShots ? !multiPrompt.some(s => s.prompt.trim()) || multiPrompt.reduce((a, x) => a + x.duration, 0) > 15 : (isFFLF ? (!prompt.trim() && !firstFrameBase64 && !(isMachgen && lastFrameBase64)) : (isAiInfluencer ? false : isMotionTransfer ? (!hasVideoRef || (!hasImageRef && !imageBase64 && !imageRefEntries.some(e => e.base64))) : isHiggsfield ? !prompt.trim() : (isPVideo || isPVideo2Pro) ? !prompt.trim() : (isReplicate ? (!prompt.trim() && !imageBase64 && !refs.some(r => r.mime.startsWith('audio/')) && !refs.some(r => r.mime.startsWith('video/'))) : !prompt.trim() && !imageBase64 && !firstFrameBase64 && refs.length === 0))))))}
                   className={`flex-shrink-0 aspect-square flex flex-col items-center justify-center gap-0.5 ${iconOnlyGenerate ? 'w-10 h-10 p-0' : 'w-16 h-16 p-1'} bg-accent-600 hover:bg-accent-500 disabled:bg-accent-600/50 disabled:cursor-not-allowed text-on-accent rounded-full text-sm font-medium transition-all active:scale-[0.97] cursor-pointer`}
                   title="Generar">
                   {iconOnlyGenerate ? (

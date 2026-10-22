@@ -7,6 +7,7 @@ Fecha_Lanzamiento,Modelo,Proveedor,Tipo,Pricing,Estado_Integracion,Clasificacion
 2026-04,google/veo-3.1,Replicate,Video,.150 - .200 / s,Integrado,Más reciente,https://replicate.com/google/veo-3.1
 2026-04,Veo 3.1,fal.ai,Video,.150 - .200 / s,Integrado,Más reciente,https://fal.ai/models/fal-ai/google/veo-3-1
 2026-10,Genjutsu Motion Transfer,Higgsfield AI,Video,.318 - 1.632 / s,Integrado,Más reciente,https://open.higgsfield.ai/models/higgsfield/genjutsu/motion-transfer/v1.0
+2026-10,Genjutsu Light Motion Transfer,Higgsfield AI,Video,.05 - .20 / s (output + input),Integrado,Más reciente,https://open.higgsfield.ai/models/higgsfield/genjutsu-light/motion-transfer/v1.0
 2026-10,AI Influencer,Higgsfield AI,Imagen,.050 / img,Integrado,Más reciente,https://open.higgsfield.ai/models/higgsfield/ai-influencer
 2026-03,Kling 3.0 Standard,Higgsfield AI,Video,.070 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/kling-3-0
 2026-03,Wan 3.0 (Higgsfield),Higgsfield AI,Video,.040 / s,Integrado,Más reciente,https://console.higgsfield.ai/models/wan-3-0
