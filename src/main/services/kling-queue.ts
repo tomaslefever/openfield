@@ -130,15 +130,26 @@ export class KlingQueue extends EventEmitter implements RecoverableQueue {
       const model = getKlingModel(payload?.model)
       if (!model) throw new Error(`Kling: unsupported model "${payload?.model}"`)
 
-      const firstFrame =
+      const imageRefs: any[] = Array.isArray(payload.imageRefs) ? payload.imageRefs : []
+      const explicitFirst =
         (await this.resolveImage(payload.firstFrameUrl || payload.firstFrameBase64, payload.firstFrameAssetId)) ||
-        (await this.resolveImage(payload.imageUrl || payload.imageBase64, payload.imageAssetId)) ||
-        (Array.isArray(payload.imageRefs) && payload.imageRefs[0]
-          ? await this.resolveImage(payload.imageRefs[0].url || payload.imageRefs[0].base64 || payload.imageRefs[0].localPath, payload.imageRefs[0].assetId)
-          : null)
+        (await this.resolveImage(payload.imageUrl || payload.imageBase64, payload.imageAssetId))
+      const firstFrame = explicitFirst ||
+        (imageRefs[0] ? await this.resolveImage(imageRefs[0].url || imageRefs[0].base64 || imageRefs[0].localPath, imageRefs[0].assetId) : null)
       const lastFrame = model.supportsLastFrame
         ? await this.resolveImage(payload.lastFrameUrl || payload.lastFrameBase64, payload.lastFrameAssetId)
         : null
+
+      // Kling 4.0: the remaining image references, in order, become keyframes between first and last
+      const middleFrames: string[] = []
+      if (firstFrame && model.middleFrames) {
+        for (const ref of imageRefs.slice(explicitFirst ? 0 : 1)) {
+          if (middleFrames.length >= model.middleFrames) break
+          if (ref?.mime && !String(ref.mime).startsWith('image/')) continue
+          const url = await this.resolveImage(ref?.url || ref?.base64 || ref?.localPath, ref?.assetId)
+          if (url) middleFrames.push(url)
+        }
+      }
 
       if (lastFrame && !firstFrame) throw new Error('Kling: a last frame needs a first frame too')
       if (!firstFrame && !model.supportsTextToVideo) throw new Error(`Kling: ${model.name} needs a first-frame image`)
@@ -168,6 +179,7 @@ export class KlingQueue extends EventEmitter implements RecoverableQueue {
       let submitted
       if (firstFrame) {
         const contents: KlingContent[] = [{ type: 'prompt', text: prompt }, { type: 'first_frame', url: firstFrame }]
+        for (const url of middleFrames) contents.push({ type: 'middle_frame', url })
         if (lastFrame) contents.push({ type: 'last_frame', url: lastFrame })
         submitted = await this.apiClient.imageToVideo(model.id, { contents, settings })
       } else {

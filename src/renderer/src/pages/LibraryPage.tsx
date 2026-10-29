@@ -114,6 +114,12 @@ const MODEL_NAMES: Record<string, string> = {
   'minimax/h3-max-turbo/text-to-video': 'MiniMax H3 Max Turbo',
   'minimax/h3-max/text-to-video': 'MiniMax H3 Max',
   'minimax/h3-max/reference-to-video': 'MiniMax H3 Max Ref',
+  'kling-4.0/reference-to-video': 'Kling 4.0',
+  'kling-4.0/keyframe-to-video': 'Kling 4.0',
+  'kling/v4/text-to-video': 'Kling 4.0',
+  'kling/v4/image-to-video': 'Kling 4.0',
+  'kling/v4/reference-to-video': 'Kling 4.0',
+  'klingai/kling-4.0': 'Kling 4.0',
   'machgen/MiniMax-H3/t2v': 'MiniMax H3',
   'machgen/MiniMax-H3/i2v': 'MiniMax H3',
   'machgen/MiniMax-H3/fflf': 'MiniMax H3',
@@ -802,7 +808,7 @@ export function LibraryPage() {
         params?.model?.startsWith('xai/grok-imagine') ||
         params?.model?.startsWith('marketing-studio/')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/') || params?.model?.startsWith('black-forest-labs/') || params?.model?.startsWith('ideogram-ai/')
-      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/') || params?.model?.startsWith('bria/')
+      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('kling/v4/') || params?.model?.startsWith('imagineart/') || params?.model?.startsWith('bria/')
 
       if (isVideo) {
         if (!assetSearch.types.video) {
