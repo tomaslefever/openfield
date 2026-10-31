@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
-  Search, Plus, Trash2, X, ChevronLeft, Wand2, Library, Upload, ImagePlus, Loader2, Pencil,
+  Search, Plus, Trash2, X, ChevronLeft, Wand2, Library, Upload, ImagePlus, Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -19,8 +19,9 @@ import { ToolButton } from '../components/ui/tool-button'
 import { QuickPromptComposer } from '../components/QuickPromptComposer'
 import { ImagePreviewModal } from '../components/ui/ImagePreviewModal'
 import { ImageLibraryPicker } from '../components/ImageLibraryPicker'
-import { ElementWizard, PropertySelector } from '../components/ElementWizard'
-import { ELEMENT_PROPERTIES, KIND_ICONS, KIND_ORDER, withProperty } from '../lib/element-config'
+import { ElementWizard } from '../components/ElementWizard'
+import { ELEMENT_PROPERTIES, KIND_ICONS, KIND_ORDER } from '../lib/element-config'
+import { filesToRefs, type MediaKind } from '../lib/element-references'
 
 // ───────────────────── Generation prompts ─────────────────────
 
@@ -75,37 +76,8 @@ function styleOf(el: StudioElement): string {
 
 // ───────────────────── Media input helpers ─────────────────────
 
-type MediaKind = 'image' | 'video'
-
 interface PickedRef extends MediaRef {
   prompt?: string
-}
-
-const MAX_BYTES: Record<MediaKind, number> = {
-  image: 20 * 1024 * 1024,
-  video: 50 * 1024 * 1024,
-}
-
-function readFileB64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve((reader.result as string).split(',')[1] || '')
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
-async function filesToRefs(files: File[], accept: MediaKind): Promise<PickedRef[]> {
-  const out: PickedRef[] = []
-  for (const file of files) {
-    if (!file.type.startsWith(`${accept}/`)) continue
-    if (file.size > MAX_BYTES[accept]) {
-      toast.error(`${file.name} supera ${MAX_BYTES[accept] / 1024 / 1024} MB`)
-      continue
-    }
-    try { out.push({ base64: await readFileB64(file), assetId: '' }) } catch { /* unreadable file */ }
-  }
-  return out
 }
 
 async function assetsToRefs(assets: any[], accept: MediaKind): Promise<PickedRef[]> {
@@ -398,51 +370,6 @@ function Moodboard({
   )
 }
 
-// ───────────────────── Attributes ─────────────────────
-
-function Attributes({ element, onChange }: { element: StudioElement; onChange: (props: Record<string, string>) => void }) {
-  const [editing, setEditing] = useState(false)
-  const config = ELEMENT_PROPERTIES[element.kind]
-  const props = element.properties || {}
-  const set = config.filter((p) => props[p.key])
-
-  return (
-    <Section
-      title="Atributos"
-      action={
-        <ToolButton icon={editing ? X : Pencil} onClick={() => setEditing(!editing)}>
-          {editing ? 'Cerrar' : 'Editar'}
-        </ToolButton>
-      }
-    >
-      {editing ? (
-        <div className="space-y-5 rounded-2xl border border-hairline p-4">
-          {config.map((p) => (
-            <PropertySelector
-              key={p.key}
-              label={p.label}
-              options={p.options}
-              value={props[p.key] || ''}
-              onChange={(v) => onChange(withProperty(props, p.key, v))}
-            />
-          ))}
-        </div>
-      ) : set.length === 0 ? (
-        <p className="text-meta text-ink-subtle">Sin atributos. Defínelos para que los renders generados sean más precisos.</p>
-      ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {set.map((p) => (
-            <span key={p.key} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-pill bg-surface-soft border border-hairline text-meta">
-              <span className="text-ink-subtle">{p.label}</span>
-              <span className="text-ink font-emphasis">{props[p.key]}</span>
-            </span>
-          ))}
-        </div>
-      )}
-    </Section>
-  )
-}
-
 // ───────────────────── Element detail ─────────────────────
 
 type PickerTarget = 'primary' | 'pose' | 'moodboard' | 'video' | 'hdri'
@@ -724,10 +651,6 @@ function ElementDetail({
               </div>
             </Section>
 
-            <Attributes
-              element={element}
-              onChange={(properties) => update({ properties, style: properties.style || '' })}
-            />
 
             {isPerson && (
               <Section title="Voz">

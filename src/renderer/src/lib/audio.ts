@@ -3,6 +3,7 @@ import { AUDIO_MODELS, cleanModelName, type ProviderId } from './models'
 
 export const MODEL_NAMES: Record<string, string> = {
   // Voice / TTS
+  'eleven_v4': 'Eleven v4',
   'elevenlabs-tts': 'ElevenLabs TTS',
   'elevenlabs/text-to-speech-multilingual-v2': 'ElevenLabs Multilingual v2 (KIE)',
   'elevenlabs/text-to-speech-turbo-2-5': 'ElevenLabs Turbo 2.5 (KIE)',

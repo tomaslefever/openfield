@@ -10,9 +10,11 @@ export interface ResolvedRef {
   kind: RefKind
   /** Local path, URL or data URI; null when the reference can no longer be found */
   src: string | null
+  /** Library asset backing the reference, when it was stored by ID */
+  assetId?: string
 }
 
-interface RawRef {
+export interface RawRef {
   label: string
   kind: RefKind
   assetId?: string
@@ -34,7 +36,7 @@ function inlineSrc(r: any, kind: RefKind): string | undefined {
 }
 
 /** Every input media a generation used, read from its stored parameters (deduplicated) */
-function collectReferences(params: any): RawRef[] {
+export function collectReferences(params: any): RawRef[] {
   if (!params || typeof params !== 'object') return []
   const out: RawRef[] = []
   const seen = new Set<string>()
@@ -91,7 +93,7 @@ function useResolvedReferences(params: any, assetId: string): ResolvedRef[] {
           if (p) src = p
         } catch {}
       }
-      return { key: `${i}-${r.assetId || r.src?.slice(0, 64)}`, label: r.label, kind: r.kind, src }
+      return { key: `${i}-${r.assetId || r.src?.slice(0, 64)}`, label: r.label, kind: r.kind, src, assetId: r.assetId }
     })).then(res => { if (!cancelled) setRefs(res) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps

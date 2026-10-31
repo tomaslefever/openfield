@@ -100,6 +100,8 @@ const COMPLETED_CHANNEL: Record<string, string> = {
   'fal.ai': 'fal:task:completed',
   MachGen: 'machgen:task:completed',
   Higgsfield: 'higgsfield:task:completed',
+  Kling: 'kling:task:completed',
+  Pruna: 'pruna:task:completed',
 }
 
 const FAILED_CHANNEL: Record<string, string> = {
@@ -108,6 +110,8 @@ const FAILED_CHANNEL: Record<string, string> = {
   'fal.ai': 'fal:task:failed',
   MachGen: 'machgen:task:failed',
   Higgsfield: 'higgsfield:task:failed',
+  Kling: 'kling:task:failed',
+  Pruna: 'pruna:task:failed',
 }
 
 // Broadcast task events to every open window so pages refresh their asset lists

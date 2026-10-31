@@ -73,3 +73,21 @@ export async function copyImage(base64: string, mime: string): Promise<boolean> 
     return false
   }
 }
+
+// Copy an image given by URL (data:, asset:// or http) to the clipboard.
+export async function copyImageFromUrl(url: string): Promise<boolean> {
+  if (!url) return false
+  try {
+    const blob = await (await fetch(url)).blob()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+    return copyImage(dataUrl.split(',')[1] || '', blob.type || 'image/png')
+  } catch (err) {
+    console.warn('[clipboard] Copy image from URL failed:', err)
+    return false
+  }
+}

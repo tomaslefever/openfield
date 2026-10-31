@@ -7,8 +7,13 @@ import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
 import { redactPayload } from './payload-redact'
 import { persistMediaToAssets, hydratePayloadMedia } from './media-persist'
-import { FalApiClient, getFalModel, type FalImageResult, type FalVideoResult, type FalAudioResult, type FalResult } from './fal'
+import { FalApiClient, getFalModel, type FalImageResult, type FalVideoResult, type FalAudioResult, type FalResult, type FalRequestUrls } from './fal'
 import { registerRecoverableProvider, readApiKey, canAutoResume, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
+
+/** Polling URLs fal returned on submit (older tasks have none: the client derives them from the model id) */
+function falUrls(payload: any): FalRequestUrls {
+  return { statusUrl: payload?.falStatusUrl, responseUrl: payload?.falResponseUrl, cancelUrl: payload?.falCancelUrl }
+}
 
 const POLL_INTERVAL_MS = 2000
 const MAX_RETRIES = 3
@@ -101,7 +106,49 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
     return input
   }
 
+  /**
+   * Kling 4.0: text-to-video; image-to-video (start frame, up to 8 middle keyframes, end frame);
+   * reference-to-video (up to 10 images and 5 videos, cited in the prompt as @Image1 / @Video1).
+   */
+  private buildKlingV4Input(payload: any): Record<string, any> {
+    const toUrl = (v: string | undefined, mime = 'image/png') =>
+      !v ? undefined : (/^(https?:|data:)/.test(v) ? v : `data:${mime};base64,${v}`)
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      duration: Math.min(30, Math.max(3, Math.round(Number(payload.duration) || 5))),
+      resolution: String(payload.resolution || '').toLowerCase() === '720p' ? '720p' : '1080p',
+    }
+    const images = [
+      ...(payload.imageRefs?.length ? [] : [toUrl(payload.imageBase64, payload.imageMime || 'image/png')]),
+      ...(payload.imageRefs || []).filter((r: any) => r?.base64 || /^https?:/.test(r?.url || ''))
+        .map((r: any) => toUrl(r.base64 || r.url, r.mime || 'image/png')),
+    ].filter(Boolean) as string[]
+    const firstFrame = toUrl(payload.firstFrameBase64) || toUrl(/^https?:/.test(payload.firstFrameUrl || '') ? payload.firstFrameUrl : undefined)
+    const lastFrame = toUrl(payload.lastFrameBase64) || toUrl(/^https?:/.test(payload.lastFrameUrl || '') ? payload.lastFrameUrl : undefined)
+
+    if (payload.model === 'kling/v4/image-to-video') {
+      // Remaining images, in order, are keyframes between the start and end frames
+      const frames = firstFrame ? images : images.slice(1)
+      input.start_image_url = firstFrame || images[0]
+      if (frames.length) input.middle_image_urls = frames.slice(0, 8)
+      if (lastFrame) input.end_image_url = lastFrame
+      return input
+    }
+    const aspectRatio = payload.aspectRatio && payload.aspectRatio !== 'adaptive' ? payload.aspectRatio : undefined
+    if (payload.model === 'kling/v4/reference-to-video') {
+      if (images.length) input.image_urls = images.slice(0, 10)
+      const videos = (payload.videoRefs || []).filter((r: any) => r?.base64 || /^https?:/.test(r?.url || ''))
+        .map((r: any) => toUrl(r.base64 || r.url, r.mime || 'video/mp4'))
+      if (videos.length) input.video_urls = videos.slice(0, 5)
+      input.aspect_ratio = aspectRatio || 'auto'
+      return input
+    }
+    input.aspect_ratio = aspectRatio && aspectRatio !== 'auto' ? aspectRatio : '16:9'
+    return input
+  }
+
   private buildVideoInput(payload: any): Record<string, any> {
+    if (String(payload.model || '').startsWith('kling/v4/')) return this.buildKlingV4Input(payload)
     const isTextToVideo = payload.model?.includes('text-to-video')
 
     let aspectRatio = payload.aspectRatio || (isTextToVideo ? '16:9' : 'adaptive')
@@ -115,9 +162,10 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
       resolution: (payload.resolution || '768P').toUpperCase(),
       aspect_ratio: aspectRatio,
     }
+    // MiniMax H3 on fal requires prompt_expansion_mode on every endpoint (text and reference to video)
     if (payload.promptExpansionMode) {
       input.prompt_expansion_mode = payload.promptExpansionMode
-    } else if (isTextToVideo) {
+    } else if (isTextToVideo || String(payload.model || '').startsWith('minimax/')) {
       input.prompt_expansion_mode = 'balanced'
     }
 
@@ -201,6 +249,10 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
         logRun(raw, task.taskId, 'api-response', `Request submitted: ${requestId}`)
 
         payload.requestId = requestId
+        // Poll where fal says: status and results live under the app id, not the endpoint path
+        if (res.status_url) payload.falStatusUrl = res.status_url
+        if (res.response_url) payload.falResponseUrl = res.response_url
+        if (res.cancel_url) payload.falCancelUrl = res.cancel_url
         raw.prepare('UPDATE tasks SET payload = ?, external_id = ?, request_id = ? WHERE task_id = ?')
           .run(JSON.stringify(redactPayload(payload)), requestId, requestId, task.taskId)
       }
@@ -208,7 +260,7 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
       raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), task.taskId)
       logRun(raw, task.taskId, 'waiting', 'Polling queue status...')
 
-      const result = await this.poll(payload.model, requestId!, task.taskId)
+      const result = await this.poll(payload.model, requestId!, task.taskId, falUrls(payload))
       logRun(raw, task.taskId, 'completed', 'Request completed')
 
       await this.handleSuccess(task, result)
@@ -221,14 +273,14 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
     }
   }
 
-  private async poll(modelId: string, requestId: string, taskId: string): Promise<FalVideoResult | FalImageResult> {
+  private async poll(modelId: string, requestId: string, taskId: string, urls: FalRequestUrls): Promise<FalVideoResult | FalImageResult> {
     const raw = getRawDb()
     while (true) {
-      const status = await this.apiClient.getRequestStatus(modelId, requestId)
+      const status = await this.apiClient.getRequestStatus(modelId, requestId, urls)
       this.emit('task:progress', { taskId, state: status.status, queuePosition: status.queue_position })
 
       if (status.status === 'COMPLETED') {
-        return this.apiClient.getRequestResult(modelId, requestId)
+        return this.apiClient.getRequestResult(modelId, requestId, urls)
       }
 
       raw.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(Date.now(), taskId)
@@ -513,10 +565,10 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
 
   async checkRemote(task: any, requestId: string): Promise<RemoteTaskStatus> {
     const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
-    const status = await this.apiClient.getRequestStatus(payload.model, requestId)
+    const status = await this.apiClient.getRequestStatus(payload.model, requestId, falUrls(payload))
     if (status.status !== 'COMPLETED') return { state: 'running', detail: status.status }
     try {
-      return { state: 'completed', result: await this.apiClient.getRequestResult(payload.model, requestId) }
+      return { state: 'completed', result: await this.apiClient.getRequestResult(payload.model, requestId, falUrls(payload)) }
     } catch (err: any) {
       // fal reports failed jobs as COMPLETED and returns the job error from the result endpoint
       if (/\((400|404|422)\)/.test(String(err?.message))) return { state: 'failed', error: err.message }
@@ -535,7 +587,7 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
     const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
     const requestId = task.requestId || task.request_id || task.external_id || payload?.requestId
     if (requestId && payload?.model) {
-      try { await this.apiClient.cancelRequest(payload.model, requestId) } catch {}
+      try { await this.apiClient.cancelRequest(payload.model, requestId, falUrls(payload)) } catch {}
     }
     raw.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?')
       .run('failed', 'Canceled by user', Date.now(), taskId)

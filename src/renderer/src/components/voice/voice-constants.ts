@@ -248,7 +248,8 @@ export const VOICE_ACCENTS_BY_LANG: Record<string, string[]> = {
 export const VOICE_GENDERS = ['male', 'female', 'neutral']
 
 export const ELEVENLABS_MODELS = [
-  { value: 'eleven_v3', label: 'V3 (flagship)' },
+  { value: 'eleven_v4', label: 'V4 (flagship)' },
+  { value: 'eleven_v3', label: 'V3' },
   { value: 'eleven_v3_flash', label: 'V3 Flash (fastest)' },
   { value: 'eleven_multilingual_v3', label: 'Multilingual v3' },
   { value: 'eleven_multilingual_v3_flash', label: 'Multilingual v3 Flash' },

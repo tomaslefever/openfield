@@ -16,7 +16,7 @@ function isDefaultWs(ws: { name: string }) {
 }
 
 export const DramaProjectList: React.FC = () => {
-  const { workspaces } = useWorkspaceStore()
+  const { workspaces, activeId: activeWorkspaceId } = useWorkspaceStore()
   const {
     projectsList,
     isLoadingProjects,
@@ -30,10 +30,15 @@ export const DramaProjectList: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<DramaContentType | 'all'>('all')
-  const [selectedWsFilter, setSelectedWsFilter] = useState<string>('all')
+  // Scoped to the active workspace like the rest of the app; "all" stays available in the selector
+  const [selectedWsFilter, setSelectedWsFilter] = useState<string>(activeWorkspaceId || 'all')
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<DramaProjectSummary | null>(null)
   const [isNewModalOpen, setIsNewModalOpen] = useState(false)
+
+  useEffect(() => {
+    setSelectedWsFilter(activeWorkspaceId || 'all')
+  }, [activeWorkspaceId])
 
   useEffect(() => {
     fetchProjectsList(selectedWsFilter)
@@ -44,28 +49,34 @@ export const DramaProjectList: React.FC = () => {
     [workspaces],
   )
 
+  // Other store actions (move, delete, hub return) refetch every workspace, so the
+  // workspace scope is always re-applied here rather than trusting the fetched list
+  const wsProjects = useMemo(
+    () => (selectedWsFilter === 'all' ? projectsList : projectsList.filter((p) => workspaceOf(p)?.id === selectedWsFilter)),
+    [projectsList, selectedWsFilter, workspaceOf],
+  )
+
   const filteredProjects = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
-    return projectsList.filter((p) => {
+    return wsProjects.filter((p) => {
       const pType = p.contentType || 'microdrama'
       if (filterType !== 'all' && pType !== filterType) return false
-      if (selectedWsFilter !== 'all' && workspaceOf(p)?.id !== selectedWsFilter) return false
       if (!q) return true
       return [p.title, p.logline || p.ideaPrompt, p.genre].some((v) => (v || '').toLowerCase().includes(q))
     })
-  }, [projectsList, searchTerm, filterType, selectedWsFilter, workspaceOf])
+  }, [wsProjects, searchTerm, filterType])
 
   const typeCounts = useMemo(() => {
     const counts = new Map<DramaContentType, number>()
-    for (const p of projectsList) {
+    for (const p of wsProjects) {
       const t = p.contentType || 'microdrama'
       counts.set(t, (counts.get(t) || 0) + 1)
     }
     return counts
-  }, [projectsList])
+  }, [wsProjects])
 
-  const totalVideos = projectsList.reduce((acc, p) => acc + (p.progress?.stats?.genVideos || 0), 0)
-  const completedProjects = projectsList.filter((p) => p.progress?.stats?.hasFinalVideo).length
+  const totalVideos = wsProjects.reduce((acc, p) => acc + (p.progress?.stats?.genVideos || 0), 0)
+  const completedProjects = wsProjects.filter((p) => p.progress?.stats?.hasFinalVideo).length
   const isFiltering = !!searchTerm.trim() || filterType !== 'all' || selectedWsFilter !== 'all'
 
   const handleCreateNew = async (data: {
@@ -89,8 +100,8 @@ export const DramaProjectList: React.FC = () => {
         <div>
           <h1 className="text-title-lg text-ink">Content Studio</h1>
           <p className="text-meta text-ink-subtle mt-1">
-            {projectsList.length > 0
-              ? `${projectsList.length} ${projectsList.length === 1 ? 'pieza' : 'piezas'} · ${completedProjects} ${completedProjects === 1 ? 'terminada' : 'terminadas'} · ${totalVideos} clips`
+            {wsProjects.length > 0
+              ? `${wsProjects.length} ${wsProjects.length === 1 ? 'pieza' : 'piezas'} · ${completedProjects} ${completedProjects === 1 ? 'terminada' : 'terminadas'} · ${totalVideos} clips`
               : 'Microdramas, UGC, spots, reels y más, producidos por etapas'}
           </p>
         </div>
@@ -136,7 +147,7 @@ export const DramaProjectList: React.FC = () => {
           )}
 
           <div className="flex items-center gap-1 overflow-x-auto">
-            {[['all', 'Todos', projectsList.length] as const, ...Array.from(typeCounts.entries()).map(([t, n]) => [t, CONTENT_TYPES_CONFIG[t]?.shortLabel || t, n] as const)].map(([key, label, count]) => (
+            {[['all', 'Todos', wsProjects.length] as const, ...Array.from(typeCounts.entries()).map(([t, n]) => [t, CONTENT_TYPES_CONFIG[t]?.shortLabel || t, n] as const)].map(([key, label, count]) => (
               <button
                 key={key}
                 onClick={() => setFilterType(key as DramaContentType | 'all')}

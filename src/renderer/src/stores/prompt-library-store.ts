@@ -7,8 +7,67 @@ export interface PromptEntry {
   kind: 'image' | 'video'
   references: PromptReference[]
   tags: string[]
+  category?: string
+  /** When to use it, in a sentence or two (read by agents over MCP) */
+  description?: string
+  /** Saved for every workspace instead of only the active one */
+  global?: boolean
+  /** Model families it was written for (e.g. nano-banana, kling) */
+  models?: string[]
+  /** Piece types (e.g. ads, storyboard, character-sheet) */
+  types?: string[]
+  review?: PromptReview
   createdAt: number
   updatedAt: number
+}
+
+export type ReviewStatus = 'pending' | 'approved' | 'rejected'
+
+export interface PromptReview {
+  status: ReviewStatus
+  note: string
+  updatedAt?: number
+}
+
+export interface BuiltinReference {
+  name: string
+  type: 'image' | 'video'
+  /** Bundled file */
+  path?: string
+  /** Example image hosted by the source (shown with credit) */
+  url?: string
+  caption?: string
+  credit?: string
+  sourceUrl?: string
+  license?: string
+  date?: string
+}
+
+export interface PromptTaxonomy {
+  categories: Record<string, string>
+  models: Record<string, { label: string; kind: 'image' | 'video' }>
+  types: Record<string, string>
+}
+
+/** A read-only template from Openfield's built-in library */
+export interface BuiltinTemplate {
+  id: string
+  source: 'openfield'
+  name: string
+  kind: 'image' | 'video'
+  category: string
+  description: string
+  tags: string[]
+  prompt: string
+  variables: { name: string; description: string; example: string; optional?: boolean }[]
+  guidance: string[]
+  aspectRatios: string[]
+  durationSeconds?: number
+  models: string[]
+  types: string[]
+  references: BuiltinReference[]
+  sources: { title: string; url: string }[]
+  review: PromptReview
 }
 
 export interface PromptReference {
@@ -31,6 +90,12 @@ function toEntry(row: any): PromptEntry {
     kind: row.kind === 'video' ? 'video' : 'image',
     references: Array.isArray(row.references) ? row.references : [],
     tags: Array.isArray(row.tags) ? row.tags : [],
+    category: row.category || '',
+    description: row.description || '',
+    global: row.global === true,
+    models: Array.isArray(row.models) ? row.models : [],
+    types: Array.isArray(row.types) ? row.types : [],
+    review: row.review || { status: 'pending', note: '' },
     createdAt: row.createdAt ?? row.created_at ?? Date.now(),
     updatedAt: row.updatedAt ?? row.updated_at ?? Date.now(),
   }
@@ -38,10 +103,15 @@ function toEntry(row: any): PromptEntry {
 
 interface PromptLibraryState {
   entries: PromptEntry[]
+  builtins: BuiltinTemplate[]
+  taxonomy: PromptTaxonomy | null
   selectedId: string | null
   loaded: boolean
 
   loadEntries: () => Promise<void>
+  loadBuiltins: (force?: boolean) => Promise<void>
+  /** Review verdict on any prompt (built-in or own); agents prefer approved and skip rejected */
+  setReview: (id: string, status: ReviewStatus, note?: string) => Promise<void>
   addEntry: (entry: Omit<PromptEntry, 'id' | 'createdAt' | 'updatedAt'>) => Promise<PromptEntry | null>
   updateEntry: (id: string, updates: Partial<PromptEntry>) => void
   removeEntry: (id: string) => void
@@ -52,8 +122,36 @@ interface PromptLibraryState {
 
 export const usePromptLibraryStore = create<PromptLibraryState>((set, get) => ({
   entries: [],
+  builtins: [],
+  taxonomy: null,
   selectedId: null,
   loaded: false,
+
+  loadBuiltins: async (force = false) => {
+    if (get().builtins.length && !force) return
+    try {
+      const [rows, taxonomy] = await Promise.all([api()?.builtin?.(), get().taxonomy ? null : api()?.taxonomy?.()])
+      if (Array.isArray(rows)) set({ builtins: rows })
+      if (taxonomy) set({ taxonomy })
+    } catch (err) {
+      console.error('[PromptLibrary] Failed to load Openfield templates:', err)
+    }
+  },
+
+  setReview: async (id, status, note) => {
+    const apply = (review: PromptReview) => set((s) => ({
+      builtins: s.builtins.map(b => b.id === id ? { ...b, review } : b),
+      entries: s.entries.map(e => e.id === id ? { ...e, review } : e),
+    }))
+    const prev = get().builtins.find(b => b.id === id)?.review || get().entries.find(e => e.id === id)?.review
+    apply({ status, note: note ?? prev?.note ?? '', updatedAt: Date.now() })
+    try {
+      await api()?.setReview?.(id, status, note)
+    } catch (err) {
+      console.error('[PromptLibrary] Failed to save review:', err)
+      if (prev) apply(prev)
+    }
+  },
 
   loadEntries: async () => {
     const a = api()
@@ -104,6 +202,11 @@ export const usePromptLibraryStore = create<PromptLibraryState>((set, get) => ({
     if (next && updates.prompt !== undefined) data.prompt = next.prompt
     if (next && updates.kind !== undefined) data.kind = next.kind
     if (next && updates.tags !== undefined) data.tags = next.tags
+    if (next && updates.category !== undefined) data.category = next.category
+    if (next && updates.description !== undefined) data.description = next.description
+    if (next && updates.global !== undefined) data.global = next.global
+    if (next && updates.models !== undefined) data.models = next.models
+    if (next && updates.types !== undefined) data.types = next.types
     if (next && updates.references !== undefined) data.references = next.references
     api()?.update(id, data).catch((err: any) => {
       console.error('[PromptLibrary] Failed to update prompt:', err)

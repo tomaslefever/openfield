@@ -288,7 +288,12 @@ export class MachgenQueue extends EventEmitter implements RecoverableQueue {
         taskType = 'T2I'
       }
     } else if (payload.type === 'image' || payload.mode === 'image') {
-      taskType = (srcImageUrls.length > 0 && modelDef?.supportsI2I) ? 'I2I' : 'T2I'
+      // A model missing from this build's catalog must not silently drop the attached
+      // references (it was sent as T2I with src_image_urls: null): treat it as I2I.
+      if (!modelDef && srcImageUrls.length > 0) {
+        console.warn(`[MachGen] Model "${rawModel}" is not in the catalog; sending its ${payload.imageRefs?.length || srcImageUrls.length} reference image(s) as I2I.`)
+      }
+      taskType = (srcImageUrls.length > 0 && (!modelDef || modelDef.supportsI2I)) ? 'I2I' : 'T2I'
     } else {
       // Video model
       if (rawModel.endsWith('/upscale') || (modelDef?.supportsUpscale && !modelDef.supportsT2V && !modelDef.supportsI2V && !modelDef.supportsR2V)) {
@@ -338,11 +343,15 @@ export class MachgenQueue extends EventEmitter implements RecoverableQueue {
         duration = modelDef.allowedDurations.reduce((prev, curr) => Math.abs(curr - duration) < Math.abs(prev - duration) ? curr : prev)
       }
 
-      let aspectRatio = payload.aspectRatio || '16:9'
-      if (aspectRatio === 'auto') aspectRatio = '16:9'
-      if (modelDef?.allowedAspectRatios && modelDef.allowedAspectRatios.length > 0 && !modelDef.allowedAspectRatios.includes(aspectRatio)) {
-        aspectRatio = modelDef.allowedAspectRatios[0] || '16:9'
+      let requestedRatio: string = payload.aspectRatio || '16:9'
+      if (requestedRatio === 'auto') requestedRatio = '16:9'
+      const taskAspectRatios = modelDef?.allowedAspectRatiosByTask?.[taskType]
+      const allowedAspectRatios = taskAspectRatios || modelDef?.allowedAspectRatios
+      if (allowedAspectRatios && allowedAspectRatios.length > 0 && !allowedAspectRatios.includes(requestedRatio)) {
+        requestedRatio = allowedAspectRatios[0] || '16:9'
       }
+      // An empty list for the task: the model takes the framing from the input image and rejects aspect_ratio
+      const aspectRatio: string | null = taskAspectRatios && taskAspectRatios.length === 0 ? null : requestedRatio
 
       let fps = payload.fps != null ? Number(payload.fps) : (modelDef?.defaultFps || 24)
       const allowedFps = modelDef?.allowedFps?.[taskType]

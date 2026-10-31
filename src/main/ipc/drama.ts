@@ -123,7 +123,17 @@ export function registerDramaIpcHandlers() {
   })
 
   // 2. Get full project details with characters, scenarios, props, and shots
-  handle('drama:project:get', async (_e, id: string) => {
+  handle('drama:project:get', async (_e, id: string) => getDramaProject(id))
+
+  // 3. Save / Upsert full project atomically
+  handle('drama:project:save', async (_e, data: any) => saveDramaProject(data))
+
+  registerDramaMaintenanceHandlers(handle)
+}
+
+/** Full project with characters, scenarios, props and shots (null when missing) */
+export function getDramaProject(id: string): any {
+    const raw = getRawDb()
     try {
       const project = raw.prepare('SELECT * FROM drama_projects WHERE id = ?').get(id) as any
       if (!project) return null
@@ -171,6 +181,8 @@ export function registerDramaIpcHandlers() {
         workspaceId: project.workspace_id || project.workspaceId || getDefaultWorkspaceId(),
         contentType: project.content_type || project.contentType || 'microdrama',
         customPromptGuide: project.custom_prompt_guide || project.customPromptGuide || '',
+        narratorVoiceId: project.narrator_voice_id || project.narratorVoiceId || '',
+        voiceSource: project.voice_source || project.voiceSource || 'eleven',
         characters,
         scenarios,
         props,
@@ -180,10 +192,11 @@ export function registerDramaIpcHandlers() {
       console.error('[Drama IPC] Error getting project:', id, err)
       return null
     }
-  })
+}
 
-  // 3. Save / Upsert full project atomically
-  handle('drama:project:save', async (_e, data: any) => {
+/** Upserts a full project; arrays given replace that project's characters/scenarios/props/shots */
+export function saveDramaProject(data: any): { success: true; id: string } {
+    const raw = getRawDb()
     try {
       const now = Date.now()
       const projectId = data.id || crypto.randomUUID()
@@ -193,10 +206,10 @@ export function registerDramaIpcHandlers() {
         `INSERT OR REPLACE INTO drama_projects (
           id, workspace_id, title, logline, idea_prompt, genre, tone, visual_style, content_type, aspect_ratio,
           shots_count, current_stage, llm_model, image_model, image_resolution,
-          video_model, video_resolution, video_duration, voice_model, voice_id,
+          video_model, video_resolution, video_duration, voice_model, voice_id, narrator_voice_id, voice_source,
           script_text, final_video_asset_id, final_video_path, thumbnail_url,
           custom_prompt_guide, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         projectId,
         wsId,
         data.title || 'Microserie AI',
@@ -217,6 +230,8 @@ export function registerDramaIpcHandlers() {
         data.videoDuration || 5,
         typeof data.voiceModel === 'object' ? data.voiceModel?.t2aId || data.voiceModel?.name : data.voiceModel || '',
         data.voiceId || 'male-qn-qingse',
+        data.narratorVoiceId || '',
+        data.voiceSource === 'video' ? 'video' : 'eleven',
         data.script || data.scriptText || '',
         data.finalVideo?.assetId || data.finalVideoAssetId || null,
         data.finalVideo?.localPath || data.finalVideoPath || null,
@@ -364,7 +379,10 @@ export function registerDramaIpcHandlers() {
       console.error('[Drama IPC] Error saving project:', err)
       throw err
     }
-  })
+}
+
+function registerDramaMaintenanceHandlers(handle: (channel: string, fn: (...args: any[]) => any) => void) {
+  const raw = getRawDb()
 
   // 4. Delete project and cascading items
   handle('drama:project:delete', async (_e, id: string) => {
@@ -391,10 +409,10 @@ export function registerDramaIpcHandlers() {
         `INSERT INTO drama_projects (
           id, workspace_id, title, logline, idea_prompt, genre, tone, visual_style, content_type, aspect_ratio,
           shots_count, current_stage, llm_model, image_model, image_resolution,
-          video_model, video_resolution, video_duration, voice_model, voice_id,
+          video_model, video_resolution, video_duration, voice_model, voice_id, narrator_voice_id, voice_source,
           script_text, final_video_asset_id, final_video_path, thumbnail_url,
           custom_prompt_guide, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         newId,
         wsId,
         `${orig.title} (Copia)`,
@@ -415,6 +433,8 @@ export function registerDramaIpcHandlers() {
         orig.videoDuration,
         orig.voiceModel,
         orig.voiceId,
+        orig.narrator_voice_id || orig.narratorVoiceId || '',
+        orig.voice_source || orig.voiceSource || 'eleven',
         orig.scriptText,
         orig.finalVideoAssetId,
         orig.finalVideoPath,

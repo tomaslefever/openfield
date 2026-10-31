@@ -19,7 +19,9 @@ export class FalApiClient {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout)
 
     try {
-      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      // Absolute URLs are the status/response/cancel URLs fal returns on submit
+      const url = /^https?:\/\//.test(endpoint) ? endpoint : `${this.baseUrl}${endpoint}`
+      const response = await fetch(url, {
         ...options,
         headers: {
           'Authorization': `Key ${this.apiKey}`,

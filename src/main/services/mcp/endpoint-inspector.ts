@@ -407,6 +407,8 @@ const CATALOG_LOADERS: Record<string, () => Promise<any[]>> = {
   replicate: async () => (await import('../replicate/catalog')).REPLICATE_MODELS || [],
   machgen: async () => (await import('../machgen/catalog')).MACHGEN_MODELS || [],
   apimart: async () => (await import('../apimart/catalog')).APIMART_MODELS || [],
+  klingai: async () => (await import('../kling/catalog')).KLING_MODELS || [],
+  pruna: async () => (await import('../pruna/catalog')).PRUNA_MODELS || [],
 }
 
 /**

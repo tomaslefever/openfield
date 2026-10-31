@@ -270,11 +270,11 @@ export interface AiInfluencerOptionsResponse {
   categories: AiInfluencerCategory[]
 }
 
-// ─── Genjutsu Motion Transfer ───────────────────────────────
+// ─── Genjutsu Motion Transfer (and Genjutsu Light) ──────────
 
 export interface GenjutsuMotionTransferInput {
   prompt?: string
-  /** Source video, min 4 s; longer than 30 s is trimmed */
+  /** Source video, min 4 s; trimmed past 30 s (Light: 15 s, source audio kept) */
   video_url: string
   /** 1 – 8 references (characters, locations, styles) */
   image_urls: string[]

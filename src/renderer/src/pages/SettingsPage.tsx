@@ -220,7 +220,7 @@ export function SettingsPage() {
                     Escalado de render en Cuadrículas / Grid Render Scale
                   </label>
                   <p className="text-[11px] text-surface-500 mb-2 leading-relaxed">
-                    Ajusta la resolución a la que se procesan y renderizan las imágenes en las cuadrículas. Reducir la escala ahorra hasta un 95% de memoria GPU (VRAM) y asegura un desplazamiento a 60–120 FPS sin saturar los recursos gráficos. Al hacer clic para ver la imagen o video en el modal, se renderiza siempre a calidad 100% original.
+                    Ajusta la resolución a la que se procesan y renderizan las imágenes en las cuadrículas. Reducir la escala ahorra hasta un 95% de memoria GPU (VRAM) y asegura un desplazamiento a 60–120 FPS sin saturar los recursos gráficos. Al hacer clic para ver la imagen o video en el modal, se renderiza siempre a calidad 100% original. Las generaciones pequeñas (1K, 480p) nunca bajan de 720 px en su lado corto, así que no se ven pixeladas.
                   </p>
                   <select
                     value={gridRenderScale}

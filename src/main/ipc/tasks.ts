@@ -23,6 +23,24 @@ export function registerTasksHandlers({ raw, handle }: IpcContext) {
     const queue = getProviderQueue(task.provider)
     if (!queue) throw new Error('El proveedor de esta generación no está configurado.')
 
+    // The job may have finished at the provider even though our polling failed (network drop,
+    // a bad status URL): recover that output instead of submitting and paying again
+    const externalId = task.externalId || task.requestId || task.predictionId || task.openfieldTaskId
+    if (externalId && !/canceled by user/i.test(String(task.errorMessage || ''))) {
+      try {
+        const remote = await queue.checkRemote(task, externalId)
+        if (remote.state === 'completed') {
+          raw.prepare('UPDATE tasks SET status = ?, error_message = NULL, updated_at = ? WHERE task_id = ?')
+            .run('processing', Date.now(), task.taskId)
+          raw.prepare("UPDATE assets SET file_path = '', updated_at = ? WHERE id = ? AND file_path LIKE '__error__%'")
+            .run(Date.now(), assetId)
+          await queue.completeRemote(task, remote.result, externalId)
+          notifyAssetsChanged()
+          return { taskId: task.taskId, recovered: true }
+        }
+      } catch { /* not recoverable: submit again below */ }
+    }
+
     let payload: any = {}
     try { payload = JSON.parse(task.payload || '{}') } catch {}
     // Ids of the failed job would make the queue resume it instead of submitting again
