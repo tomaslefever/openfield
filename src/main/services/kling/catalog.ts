@@ -1,11 +1,35 @@
 import type { KlingModelDef } from './types'
 
 const DURATIONS_3_15 = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+const DURATIONS_3_30 = Array.from({ length: 28 }, (_, i) => i + 3)
 
 // Prices from https://kling.ai/document-api/pricing/base/video (1 unit = $0.14).
 // A new Kling version that ships on the same "new API" (e.g. Kling 4.0) only needs an entry here
 // plus its twin in the renderer's VIDEO_MODELS.
 export const KLING_MODELS: KlingModelDef[] = [
+  {
+    // Kling 4.0 (needs the Flagship Resource Pack): always native audio, no audio or
+    // multi_shot setting; up to 10 frames (first + 8 middle + last)
+    id: 'kling-4.0',
+    name: 'Kling 4.0',
+    category: 'Kling',
+    type: 'video',
+    supportsTextToVideo: true,
+    supportsFirstFrame: true,
+    supportsLastFrame: true,
+    audioSetting: false,
+    multiShot: false,
+    multiShotSetting: false,
+    middleFrames: 8,
+    durationOptions: DURATIONS_3_30,
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    pricing: [
+      { resolution: '720p', cost: 0.14 },
+      { resolution: '1080p', cost: 0.21 },
+    ],
+    unit: 's',
+  },
   {
     id: 'kling-3.0',
     name: 'Kling 3.0',

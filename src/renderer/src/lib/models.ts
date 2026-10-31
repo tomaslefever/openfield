@@ -432,6 +432,20 @@ export const PIXVERSE_REF_PRICES = [
 ]
 
 export const VIDEO_MODELS: ModelPricing[] = [
+  // Kling 4.0 (KIE): FF/LF or one image → keyframe-to-video (images after the first are
+  // keyframes); 2+ images or videos → reference-to-video, which is also the text-to-video path.
+  // Native audio always on, so the "-audio" rates match.
+  { name: 'Kling 4.0', category: 'Kling', unit: 's',
+    t2vId: 'kling-4.0/reference-to-video', i2vId: 'kling-4.0/keyframe-to-video',
+    fflfId: 'kling-4.0/keyframe-to-video', refId: 'kling-4.0/reference-to-video',
+    prices: [
+      { resolution: '720p', cost: 0.1425, costWithVideoInput: 0.085 }, { resolution: '720p-audio', cost: 0.1425, costWithVideoInput: 0.085 },
+      { resolution: '1080p', cost: 0.2125, costWithVideoInput: 0.1275 }, { resolution: '1080p-audio', cost: 0.2125, costWithVideoInput: 0.1275 },
+    ],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
+    supportsVideoRef: true, maxVideoRefs: 5,
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    refTags: { image: '@image_%d', video: '@video_%d' } },
   { name: 'Kling 3.0', category: 'Kling', unit: 's', t2vId: 'kling-3.0/video', i2vId: 'kling-3.0/video',
     prices: [{ resolution: 'std', cost: 0.07 }, { resolution: 'std-audio', cost: 0.10 }, { resolution: 'pro', cost: 0.09 }, { resolution: 'pro-audio', cost: 0.135 }, { resolution: '4k', cost: 0.335 }],
     durationMax: 15, resolutions: ['std', 'pro', '4k'] },
@@ -862,6 +876,15 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.20 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
     falAspectRatios: ['16:9', '9:16', '1:1'] },
+  // Kling 4.0 (Fal): same routing as the KIE model (image-to-video takes up to 8 middle keyframes)
+  { name: 'Kling 4.0 (Fal)', category: 'Kling', unit: 's', provider: 'fal',
+    t2vId: 'kling/v4/text-to-video', i2vId: 'kling/v4/image-to-video',
+    fflfId: 'kling/v4/image-to-video', refId: 'kling/v4/reference-to-video',
+    prices: [{ resolution: '720p', cost: 0.157 }, { resolution: '720p-audio', cost: 0.157 }, { resolution: '1080p', cost: 0.235 }, { resolution: '1080p-audio', cost: 0.235 }],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
+    supportsVideoRef: true, maxVideoRefs: 5,
+    falAspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    refTags: { image: '@Image%d', video: '@Video%d' } },
   { name: 'Kling 3.0 Video (Fal)', category: 'Kling', unit: 's', provider: 'fal',
     t2vId: 'fal-ai/kling-video/v3/text-to-video', i2vId: 'fal-ai/kling-video/v3/image-to-video',
     prices: [{ resolution: 'std', cost: 0.08 }],
@@ -1015,6 +1038,13 @@ export const VIDEO_MODELS: ModelPricing[] = [
     durationMax: 15, durationOptions: ['2', '5', '8', '10', '15'], resolutions: ['720p', '1080p'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
   // Kling AI official API (https://kling.ai/document-api), prices per second in USD
+  // Kling 4.0 needs the Flagship Resource Pack; image refs after the first frame become keyframes
+  { name: 'Kling 4.0 (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
+    t2vId: 'klingai/kling-4.0', i2vId: 'klingai/kling-4.0', fflfId: 'klingai/kling-4.0',
+    // Always generates native audio: same rate with or without the sound switch
+    prices: [{ resolution: '720p', cost: 0.14 }, { resolution: '720p-audio', cost: 0.14 }, { resolution: '1080p', cost: 0.21 }, { resolution: '1080p-audio', cost: 0.21 }],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'] },
   { name: 'Kling 3.0 (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
     t2vId: 'klingai/kling-3.0', i2vId: 'klingai/kling-3.0', fflfId: 'klingai/kling-3.0',
     prices: [{ resolution: '720p', cost: 0.084 }, { resolution: '720p-audio', cost: 0.126 }, { resolution: '1080p', cost: 0.112 }, { resolution: '1080p-audio', cost: 0.168 }, { resolution: '4k', cost: 0.42 }],
@@ -1398,6 +1428,7 @@ export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {})
 
 // Total cost for a video generation, including model-specific surcharges:
 // - Wan 3.0 (KIE): Total = Unit Price × (Generated + Input Video Duration)
+// - Kling 4.0 (KIE): with a reference video, Video-Input Price × max(Generated × 2, Input + Generated)
 // - Gemini Omni 1.1 Flash (KIE):
 //   No video: 4s/6s/8s/10s at 360p/720p/1080p = 63/84/105/126 credits ($0.315-$0.630), 4k = 147/168/189/210 credits ($0.735-$1.050)
 //   With video: 360p/720p/1080p = 168 credits ($0.840), 4k = 252 credits ($1.260)
@@ -1420,7 +1451,10 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
     ? model.prices.find(p => p.resolution.toLowerCase() === ctx.resolution!.toLowerCase() && p.costWithVideoInput != null)
     : undefined
   if (videoInputEntry) {
-    const baseDollars = videoInputEntry.costWithVideoInput! * (resolveVideoDuration(model, ctx) + inputVideoSecs)
+    // Kling 4.0 bills max(output × 2, input + output) seconds
+    const outputSecs = resolveVideoDuration(model, ctx)
+    const billedInputSecs = model.t2vId?.startsWith('kling-4.0/') ? Math.max(outputSecs, inputVideoSecs) : inputVideoSecs
+    const baseDollars = videoInputEntry.costWithVideoInput! * (outputSecs + billedInputSecs)
     const totalDollars = baseDollars * (ctx.batchSize || 1)
     return {
       perUnitCredits: Math.round(baseDollars * CREDITS_PER_DOLLAR),

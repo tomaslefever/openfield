@@ -908,6 +908,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isPixverseV6 = !!(currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.fflfId?.startsWith('pixverse-v6/'))
   const isGrok = !!(currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/')) || currentModel.extendId?.startsWith('grok-imagine/')
   const isMinimaxH3 = !!(currentModel.t2vId?.startsWith('minimax-h3/') || currentModel.i2vId?.startsWith('minimax-h3/'))
+  // Kling 4.0 on KIE and fal: separate keyframe/image and reference endpoints behind one model
+  const isKling4Routed = !!(currentModel.t2vId?.startsWith('kling-4.0/') || currentModel.t2vId?.startsWith('kling/v4/'))
   // P-Video 2 Pro (Replicate or official Pruna API): one model; any image/video/audio reference
   // routes to its -reference variant
   const isPVideo2Pro = pVideo2Variant(currentModel.t2vId) === 'p-video-2-pro'
@@ -1012,6 +1014,15 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || currentModel.i2vId || ''
       if (hasVideoRef || refs.some(r => r.mime.startsWith('audio/'))) return currentModel.refId || ''
       if (hasImages) return currentModel.refId || ''
+      return currentModel.t2vId || ''
+    }
+    if (isKling4Routed) {
+      // FF/LF or one image → keyframe/image-to-video; 2+ images or a video → references; else text
+      if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || ''
+      if (hasVideoRef) return currentModel.refId || ''
+      const imgCount = (imageBase64 ? 1 : 0) + refs.filter(r => r.mime.startsWith('image/')).length + imageRefEntries.filter(e => e.base64).length
+      if (imgCount > 1) return currentModel.refId || ''
+      if (imgCount === 1) return currentModel.i2vId || ''
       return currentModel.t2vId || ''
     }
     if (isMachgen) {

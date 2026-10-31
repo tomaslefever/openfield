@@ -106,7 +106,49 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
     return input
   }
 
+  /**
+   * Kling 4.0: text-to-video; image-to-video (start frame, up to 8 middle keyframes, end frame);
+   * reference-to-video (up to 10 images and 5 videos, cited in the prompt as @Image1 / @Video1).
+   */
+  private buildKlingV4Input(payload: any): Record<string, any> {
+    const toUrl = (v: string | undefined, mime = 'image/png') =>
+      !v ? undefined : (/^(https?:|data:)/.test(v) ? v : `data:${mime};base64,${v}`)
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      duration: Math.min(30, Math.max(3, Math.round(Number(payload.duration) || 5))),
+      resolution: String(payload.resolution || '').toLowerCase() === '720p' ? '720p' : '1080p',
+    }
+    const images = [
+      ...(payload.imageRefs?.length ? [] : [toUrl(payload.imageBase64, payload.imageMime || 'image/png')]),
+      ...(payload.imageRefs || []).filter((r: any) => r?.base64 || /^https?:/.test(r?.url || ''))
+        .map((r: any) => toUrl(r.base64 || r.url, r.mime || 'image/png')),
+    ].filter(Boolean) as string[]
+    const firstFrame = toUrl(payload.firstFrameBase64) || toUrl(/^https?:/.test(payload.firstFrameUrl || '') ? payload.firstFrameUrl : undefined)
+    const lastFrame = toUrl(payload.lastFrameBase64) || toUrl(/^https?:/.test(payload.lastFrameUrl || '') ? payload.lastFrameUrl : undefined)
+
+    if (payload.model === 'kling/v4/image-to-video') {
+      // Remaining images, in order, are keyframes between the start and end frames
+      const frames = firstFrame ? images : images.slice(1)
+      input.start_image_url = firstFrame || images[0]
+      if (frames.length) input.middle_image_urls = frames.slice(0, 8)
+      if (lastFrame) input.end_image_url = lastFrame
+      return input
+    }
+    const aspectRatio = payload.aspectRatio && payload.aspectRatio !== 'adaptive' ? payload.aspectRatio : undefined
+    if (payload.model === 'kling/v4/reference-to-video') {
+      if (images.length) input.image_urls = images.slice(0, 10)
+      const videos = (payload.videoRefs || []).filter((r: any) => r?.base64 || /^https?:/.test(r?.url || ''))
+        .map((r: any) => toUrl(r.base64 || r.url, r.mime || 'video/mp4'))
+      if (videos.length) input.video_urls = videos.slice(0, 5)
+      input.aspect_ratio = aspectRatio || 'auto'
+      return input
+    }
+    input.aspect_ratio = aspectRatio && aspectRatio !== 'auto' ? aspectRatio : '16:9'
+    return input
+  }
+
   private buildVideoInput(payload: any): Record<string, any> {
+    if (String(payload.model || '').startsWith('kling/v4/')) return this.buildKlingV4Input(payload)
     const isTextToVideo = payload.model?.includes('text-to-video')
 
     let aspectRatio = payload.aspectRatio || (isTextToVideo ? '16:9' : 'adaptive')

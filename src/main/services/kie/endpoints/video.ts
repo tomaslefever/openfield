@@ -268,6 +268,56 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     return createTask(client, actualModel, wanInput)
   }
 
+  // Kling 4.0: keyframe-to-video (first frame, up to 8 keyframes, last frame) or
+  // reference-to-video (images/videos cited as @image_1 / @video_1; plain text-to-video without them)
+  if (params.model === 'kling-4.0/keyframe-to-video' || params.model === 'kling-4.0/reference-to-video') {
+    const upload = async (ref: { base64?: string; url?: string; mime?: string } | undefined, fallbackMime: string) => {
+      if (ref?.url && /^https?:/.test(ref.url)) return ref.url
+      if (ref?.base64) return await uploadFileBase64(client, ref.base64, ref.mime || fallbackMime)
+      return undefined
+    }
+    const imageInputs = params.imageRefs?.length
+      ? params.imageRefs
+      : params.imageBase64 || params.imageUrl ? [{ base64: params.imageBase64, url: params.imageUrl, mime: params.imageMime }] : []
+    const klingInput: Record<string, any> = {
+      prompt: params.prompt || '',
+      duration: Math.min(30, Math.max(3, Math.round(Number(params.duration) || 5))),
+      resolution: String(params.resolution || '').toLowerCase() === '1080p' ? '1080p' : '720p',
+    }
+
+    const firstFrame = await upload({ base64: params.firstFrameBase64, url: params.firstFrameUrl }, 'image/png')
+    if (params.model === 'kling-4.0/keyframe-to-video') {
+      const frames: string[] = []
+      for (const ref of imageInputs) {
+        const url = await upload(ref, 'image/png')
+        if (url) frames.push(url)
+      }
+      klingInput.first_frame_url = firstFrame || frames.shift()
+      if (!klingInput.first_frame_url) throw new Error('Kling 4.0 keyframes needs a first frame')
+      if (frames.length) klingInput.keyframe_urls = frames.slice(0, 8)
+      const lastFrame = await upload({ base64: params.lastFrameBase64, url: params.lastFrameUrl }, 'image/png')
+      if (lastFrame) klingInput.last_frame_url = lastFrame
+      return createTask(client, params.model, klingInput)
+    }
+
+    const imageUrls: string[] = []
+    for (const ref of imageInputs) {
+      const url = await upload(ref, 'image/png')
+      if (url) imageUrls.push(url)
+    }
+    const videoUrls: string[] = []
+    for (const ref of params.videoRefs || []) {
+      const url = await upload(ref, 'video/mp4')
+      if (url) videoUrls.push(url)
+    }
+    if (imageUrls.length) klingInput.image_urls = imageUrls.slice(0, 10)
+    if (videoUrls.length) klingInput.video_urls = videoUrls.slice(0, 5)
+    const hasRefs = imageUrls.length > 0 || videoUrls.length > 0
+    const ratio = params.aspectRatio && ['auto', '16:9', '9:16', '1:1', '21:9'].includes(params.aspectRatio) ? params.aspectRatio : undefined
+    klingInput.aspect_ratio = ratio && !(ratio === 'auto' && !hasRefs) ? ratio : hasRefs ? 'auto' : '16:9'
+    return createTask(client, params.model, klingInput)
+  }
+
   // Grok Imagine: single model routed by attachments — text-to-video, image-to-video or extend
   if (params.model === 'grok-imagine/text-to-video' || params.model === 'grok-imagine/image-to-video' || params.model === 'grok-imagine/extend') {
     const grokInput: Record<string, any> = { prompt: params.prompt, mode: 'normal' }

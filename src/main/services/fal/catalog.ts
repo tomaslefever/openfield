@@ -66,6 +66,34 @@ export const FAL_MODELS: FalModelCatalogEntry[] = [
     freeReferenceImages: 5,
     extraReferenceImageCost: 0.08,
   },
+  // Kling 4.0: $0.157/s 720p, $0.235/s 1080p (native audio included)
+  {
+    id: 'kling/v4/text-to-video',
+    name: 'Kling 4.0',
+    category: 'Kling',
+    type: 'video',
+    costPerSecond: 0.157,
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+  },
+  {
+    id: 'kling/v4/image-to-video',
+    name: 'Kling 4.0 I2V',
+    category: 'Kling',
+    type: 'video',
+    costPerSecond: 0.157,
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+  },
+  {
+    id: 'kling/v4/reference-to-video',
+    name: 'Kling 4.0 Reference',
+    category: 'Kling',
+    type: 'video',
+    costPerSecond: 0.157,
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['auto', '16:9', '9:16', '1:1', '21:9'],
+  },
   // OpenAI
   {
     id: 'openai/gpt-image-2',

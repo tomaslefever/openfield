@@ -1,5 +1,5 @@
 // Kling AI official API (https://kling.ai/document-api) — "new API" shape shared by
-// Kling 3.0, 3.0 Omni and 3.0 Turbo: POST /{text|image}-to-video/{model}, GET /tasks.
+// Kling 4.0, 3.0, 3.0 Omni and 3.0 Turbo: POST /{text|image}-to-video/{model}, GET /tasks.
 
 export type KlingTaskStatus = 'submitted' | 'processing' | 'succeeded' | 'failed'
 
@@ -25,7 +25,7 @@ export interface KlingTextToVideoRequest {
 
 export type KlingContent =
   | { type: 'prompt'; text: string }
-  | { type: 'first_frame' | 'last_frame'; url: string }
+  | { type: 'first_frame' | 'middle_frame' | 'last_frame'; url: string }
   | { type: 'element'; element_id: string; id: string }
 
 export interface KlingImageToVideoRequest {
@@ -78,6 +78,8 @@ export interface KlingModelDef {
   multiShot: boolean
   /** The model takes the settings.multi_shot switch (Turbo infers it from the prompt) */
   multiShotSetting: boolean
+  /** Keyframes allowed between the first and last frame (Kling 4.0); omitted = none */
+  middleFrames?: number
   durationOptions: number[]
   resolutions: Array<'720p' | '1080p' | '4k'>
   aspectRatios: string[]

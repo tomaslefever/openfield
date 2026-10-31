@@ -42,6 +42,12 @@ export const AUDIO_MODELS = [
 ] as const
 
 export const VIDEO_MODELS = [
+  // Kling 4.0: $0.1425/s 720p, $0.2125/s 1080p; with a reference video $0.085/$0.1275 per
+  // second of max(output × 2, input + output) (see calcVideoCost in the renderer)
+  { id: 'kling-4.0/reference-to-video', name: 'Kling 4.0', cost: 0.1425, unit: 's', category: 'Kling',
+    prices: { '720P': 0.1425, '1080P': 0.2125, '720p': 0.1425, '1080p': 0.2125 } },
+  { id: 'kling-4.0/keyframe-to-video', name: 'Kling 4.0', cost: 0.1425, unit: 's', category: 'Kling',
+    prices: { '720P': 0.1425, '1080P': 0.2125, '720p': 0.1425, '1080p': 0.2125 } },
   { id: 'kling-3.0/video', name: 'Kling 3.0', cost: 18, unit: 's', category: 'Kling' },
   { id: 'kling/v25-turbo-text-to-video-pro', name: 'Kling 2.5 Turbo', cost: 10, unit: 's', category: 'Kling' },
   { id: 'grok-imagine/text-to-video', name: 'Grok Imagine', cost: 0.012, unit: 's', category: 'Grok' },
