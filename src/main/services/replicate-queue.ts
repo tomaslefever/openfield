@@ -8,6 +8,7 @@ import { attachTaskNotifications } from './task-notifications'
 import { redactPayload } from './payload-redact'
 import { persistMediaToAssets, hydratePayloadMedia } from './media-persist'
 import { ReplicateApiClient, REPLICATE_MODELS, getReplicateModel, type Prediction } from './replicate'
+import { pVideo2Kind, buildPVideo2Input, validatePVideo2Input, type MediaRef } from './pruna/inputs'
 import { registerRecoverableProvider, readApiKey, canAutoResume, RemoteJobFailedError, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
 
 const POLL_INTERVAL_MS = 2000
@@ -30,6 +31,16 @@ function modelVersion(modelId: string): string {
 function apiModelId(modelId: string): string {
   const entry = REPLICATE_MODELS.find(m => m.id === modelId)
   return entry?.apiModel || modelId
+}
+
+function isLipsync(modelId: string): boolean {
+  return (modelId || '').startsWith('sync/lipsync')
+}
+
+/** Inline data URI, or the remote URL a ref already has (Replicate fetches it) */
+async function replicateMediaUri(ref: MediaRef, fallbackMime: string): Promise<string | null> {
+  if (ref?.base64) return `data:${ref.mime || fallbackMime};base64,${ref.base64}`
+  return typeof ref?.url === 'string' && /^https?:\/\//.test(ref.url) ? ref.url : null
 }
 
 function modelName(modelId: string): string {
@@ -116,6 +127,18 @@ export class ReplicateQueue extends EventEmitter implements RecoverableQueue {
       return input
     }
 
+    if (isLipsync(payload.model)) {
+      // Sync lipsync: the source video plus the audio its mouth should follow
+      const videoRef = payload.videoRefs?.[0]
+      const audioRef = payload.audioRefs?.[0]
+      if (videoRef?.base64) input.video = `data:${videoRef.mime || 'video/mp4'};base64,${videoRef.base64}`
+      if (audioRef?.base64) input.audio = `data:${audioRef.mime || 'audio/wav'};base64,${audioRef.base64}`
+      input.sync_mode = payload.syncMode || 'cut_off'
+      if (typeof payload.temperature === 'number') input.temperature = payload.temperature
+      if (typeof payload.activeSpeaker === 'boolean') input.active_speaker = payload.activeSpeaker
+      return input
+    }
+
     // Nano Banana models take every reference image as a list in image_input
     if (apiModelId(payload.model || '').startsWith('google/nano-banana')) {
       const refs = (payload.imageRefs || []).filter((r: any) => r.base64)
@@ -184,10 +207,14 @@ export class ReplicateQueue extends EventEmitter implements RecoverableQueue {
         logRun(raw, task.taskId, 'recovery', `Resuming existing prediction: ${predictionId}`)
       } else {
         const version = modelVersion(payload.model)
-        const input = this.buildInput(payload)
+        // Pruna P-2 shares its input builder with the official Pruna provider
+        const p2Kind = pVideo2Kind(payload.model)
+        const input = p2Kind ? await buildPVideo2Input(p2Kind, payload, replicateMediaUri) : this.buildInput(payload)
+        if (p2Kind) validatePVideo2Input(p2Kind, input, modelName(payload.model))
         if (!input.image && payload.model === 'prunaai/p-video-avatar') throw new Error('A portrait image is required for this model.')
         if (!input.prompt && !input.image && !input.audio && payload.model === 'prunaai/p-video') throw new Error('P-Video requires a prompt, image or audio.')
         if (!input.video && payload.model === 'philz1337x/crystal-video-upscaler') throw new Error('Crystal Upscaler requiere un video de referencia.')
+        if ((!input.video || !input.audio) && isLipsync(payload.model)) throw new Error('Lipsync requiere un video y un audio de referencia.')
 
         logRun(raw, task.taskId, 'api-request', `Creating prediction: model=${modelName(payload.model)}, resolution=${payload.resolution || '720p'}`)
         prediction = await this.apiClient.createPrediction(version ? { version, input } : { model: apiModelId(payload.model), input })

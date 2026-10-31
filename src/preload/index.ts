@@ -82,6 +82,18 @@ const electronAPI = {
     models: () => ipcRenderer.invoke('apimart:models:list'),
     account: () => ipcRenderer.invoke('apimart:account'),
   },
+  kling: {
+    generate: (params: any) => ipcRenderer.invoke('kling:generate', params),
+    taskStatus: (taskId: string) => ipcRenderer.invoke('kling:task:status', taskId),
+    cancelTask: (taskId: string) => ipcRenderer.invoke('kling:task:cancel', taskId),
+    models: () => ipcRenderer.invoke('kling:models:list'),
+  },
+  pruna: {
+    generate: (params: any) => ipcRenderer.invoke('pruna:generate', params),
+    taskStatus: (taskId: string) => ipcRenderer.invoke('pruna:task:status', taskId),
+    cancelTask: (taskId: string) => ipcRenderer.invoke('pruna:task:cancel', taskId),
+    models: () => ipcRenderer.invoke('pruna:models:list'),
+  },
   balances: {
     list: () => ipcRenderer.invoke('balances:list'),
   },
@@ -94,6 +106,8 @@ const electronAPI = {
     music: (params: any) => ipcRenderer.invoke('elevenlabs:music', params),
     sfx: (params: any) => ipcRenderer.invoke('elevenlabs:sfx', params),
     account: () => ipcRenderer.invoke('elevenlabs:account'),
+    designVoice: (params: any) => ipcRenderer.invoke('elevenlabs:designVoice', params),
+    createDesignedVoice: (params: any) => ipcRenderer.invoke('elevenlabs:createDesignedVoice', params),
   },
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),
@@ -101,7 +115,17 @@ const electronAPI = {
     create: (name: string) => ipcRenderer.invoke('projects:create', name),
     update: (id: string, data: any) => ipcRenderer.invoke('projects:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('projects:delete', id),
-    export: (id: string, outputPath: string) => ipcRenderer.invoke('projects:export', id, outputPath),
+    export: (id: string, outputPath?: string) => ipcRenderer.invoke('projects:export', id, outputPath),
+    cancelExport: () => ipcRenderer.invoke('projects:exportCancel'),
+    detectVoices: (doc: any) => ipcRenderer.invoke('projects:detectVoices', doc),
+    planAutoDucking: (doc: any) => ipcRenderer.invoke('projects:planAutoDucking', doc),
+    layouts: () => ipcRenderer.invoke('projects:layouts'),
+    createFromLayout: (layout: string, name?: string) => ipcRenderer.invoke('projects:createFromLayout', layout, name),
+  },
+  captions: {
+    providers: () => ipcRenderer.invoke('captions:providers'),
+    generate: (req: any) => ipcRenderer.invoke('captions:generate', req),
+    exportSrt: (doc: any, trackId: string | undefined, name: string) => ipcRenderer.invoke('captions:exportSrt', doc, trackId, name),
   },
   workspaces: {
     list: () => ipcRenderer.invoke('workspaces:list'),
@@ -117,6 +141,9 @@ const electronAPI = {
   },
   prompts: {
     list: () => ipcRenderer.invoke('prompts:list'),
+    builtin: () => ipcRenderer.invoke('prompts:builtin'),
+    taxonomy: () => ipcRenderer.invoke('prompts:taxonomy'),
+    setReview: (id: string, status: string, note?: string) => ipcRenderer.invoke('prompts:setReview', id, status, note),
     create: (data: any) => ipcRenderer.invoke('prompts:create', data),
     update: (id: string, data: any) => ipcRenderer.invoke('prompts:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('prompts:delete', id),
@@ -169,8 +196,13 @@ const electronAPI = {
       'machgen:task:progress', 'machgen:task:completed', 'machgen:task:failed',
       'higgsfield:task:progress', 'higgsfield:task:completed', 'higgsfield:task:failed',
       'apimart:task:progress', 'apimart:task:completed', 'apimart:task:failed',
+      'kling:task:progress', 'kling:task:completed', 'kling:task:failed',
+      'pruna:task:progress', 'pruna:task:completed', 'pruna:task:failed',
       'assets:changed', 'assets:updated',
+      'workspaces:changed',
+      'prompts:changed',
       'export:progress', 'export:complete', 'export:error',
+      'montage:changed',
       'error', 'notification',
       'update:status', 'update:progress',
       'window:maximized',
@@ -231,6 +263,16 @@ const electronAPI = {
     updateShot: (id: string, data: any) => ipcRenderer.invoke('drama:shot:update', id, data),
     moveWorkspace: (id: string, workspaceId: string) =>
       ipcRenderer.invoke('drama:project:moveWorkspace', { id, workspaceId }),
+  },
+
+  // ─── Content Studio steps requested by the MCP bridge ─────
+  contentStudioAgent: {
+    onCommand: (callback: (cmd: any) => void) => {
+      const subscription = (_event: any, cmd: any) => callback(cmd);
+      ipcRenderer.on('content-studio:command', subscription);
+      return () => ipcRenderer.removeListener('content-studio:command', subscription);
+    },
+    reply: (response: any) => ipcRenderer.invoke('content-studio:reply', response),
   },
 };
 

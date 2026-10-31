@@ -8,6 +8,8 @@ export type ProviderId =
   | 'elevenlabs'
   | 'machgen'
   | 'higgsfield'
+  | 'klingai'
+  | 'pruna'
   | 'hf'
   | 'local'
   | 'deepseek'
@@ -359,10 +361,52 @@ export function ApimartLogo({ size = 16, className = '', ...props }: ProviderLog
   )
 }
 
+/**
+ * Kling AI mark
+ */
+export function KlingLogo({ size = 16, className = '', ...props }: ProviderLogoProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      className={`shrink-0 ${className}`}
+      {...props}
+    >
+      <rect width="24" height="24" rx="5.5" fill="#0b0b0f" />
+      <path d="M8 6.5V17.5" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M16.5 6.5L9.5 12L16.5 17.5" stroke="#22d3a6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/**
+ * Pruna mark
+ */
+export function PrunaLogo({ size = 16, className = '', ...props }: ProviderLogoProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      className={`shrink-0 ${className}`}
+      {...props}
+    >
+      <rect width="24" height="24" rx="5.5" fill="#111827" />
+      <path d="M8.5 18V6.5H13a3.5 3.5 0 0 1 0 7H8.5" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="16.5" cy="17" r="1.6" fill="#a78bfa" />
+    </svg>
+  )
+}
+
 export function ProviderLogo({ provider, size = 16, className = '' }: ProviderLogoComponentProps) {
   const norm = (provider || 'kie').toLowerCase()
 
   if (norm === 'apimart') return <ApimartLogo size={size} className={className} />
+  if (norm === 'klingai') return <KlingLogo size={size} className={className} />
+  if (norm === 'pruna') return <PrunaLogo size={size} className={className} />
   if (norm === 'replicate') return <ReplicateLogo size={size} className={className} />
   if (norm === 'fal') return <FalLogo size={size} className={className} />
   if (norm === 'elevenlabs') return <ElevenLabsLogo size={size} className={className} />

@@ -1,5 +1,20 @@
 export type FalQueueStatus = 'IN_QUEUE' | 'IN_PROGRESS' | 'COMPLETED'
 
+/** POST /{modelId}: fal returns where to poll; status and results live under the app id, not the endpoint path */
+export interface FalSubmitResponse {
+  request_id: string
+  status_url?: string
+  response_url?: string
+  cancel_url?: string
+}
+
+/** Where to reach a submitted request (the URLs fal returned on submit, when known) */
+export interface FalRequestUrls {
+  statusUrl?: string
+  responseUrl?: string
+  cancelUrl?: string
+}
+
 export interface FalQueueStatusResponse {
   request_id: string
   status: FalQueueStatus

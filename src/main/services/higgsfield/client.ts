@@ -103,6 +103,7 @@ export const HIGGSFIELD_ENDPOINT_MAP: Record<string, string> = {
   // AI Influencer (character sheet) and Genjutsu Motion Transfer: the model id is the path
   'higgsfield/ai-influencer': '/higgsfield/ai-influencer',
   'higgsfield/genjutsu/motion-transfer/v1.0': '/higgsfield/genjutsu/motion-transfer/v1.0',
+  'higgsfield/genjutsu-light/motion-transfer/v1.0': '/higgsfield/genjutsu-light/motion-transfer/v1.0',
 }
 
 export function normalizeHiggsfieldEndpoint(endpoint: string): string {

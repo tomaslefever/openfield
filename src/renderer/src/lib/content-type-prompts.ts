@@ -379,6 +379,7 @@ export function getMasterSystemPrompt(
 
   const assetsDirectives = `
 REGLAS OBLIGATORIAS PARA PERSONAJES, LOCACIONES Y PROPS:
+- LOCUTOR / NARRADOR (V.O.): la voz en off NO es un personaje. Nunca lo incluyas en "characters" (tiene su propia voz aparte). En las tomas narradas usa dialogueSpeaker: "Narrador" y no lo pongas en characterNames.
 - PERSONAJES (CASTING):
   * El visualPrompt de cada personaje humano DEBE comenzar obligatoriamente con: "professional reference pose sheet 3 views + 1", seguido del turnaround detallado con vistas frontal, lateral, trasera y 3/4 para garantizar consistencia visual y anatómica.
 - LOCACIONES / ESCENARIOS (ESTRICTAMENTE SIN PERSONAS):
@@ -392,8 +393,8 @@ REGLAS OBLIGATORIAS PARA PERSONAJES, LOCACIONES Y PROPS:
   "logline": "Logline en español que resume el núcleo de la pieza",
   "characters": [
     {
-      "name": "Nombre o rol del personaje/modelo/presentador (o Narrador / V.O. si es faceless)",
-      "role": "Rol en la pieza (ej. Narrador V.O., Creador UGC, Protagonista, Modelo, Manos)",
+      "name": "Nombre o rol del personaje/modelo/presentador que aparece en cámara (nunca el Narrador / V.O.)",
+      "role": "Rol en la pieza (ej. Creador UGC, Protagonista, Modelo, Manos)",
       "visualPrompt": "professional reference pose sheet 3 views + 1, detailed photographic character turnaround description in English with front view, side view, back view and 3/4 view, distinctive facial features, hairstyle, clothing, age, lighting, cinematic style"
     }
   ],
@@ -421,9 +422,9 @@ REGLAS OBLIGATORIAS PARA PERSONAJES, LOCACIONES Y PROPS:
       "propNames": ["Nombre del producto/objeto presente"],
       "actionPrompt": "Desarrollo temporal y acción de la escena en español.",
       "dialogueText": "Línea de diálogo, locución o narración en español (vacío si no hay voz en esta toma)",
-      "dialogueSpeaker": "Nombre del hablante (ej. Creador UGC, Carlos, Narrador V.O.)",
+      "dialogueSpeaker": "Nombre del hablante (ej. Creador UGC, Carlos) o \"Narrador\" si es voz en off",
       "estimatedDuration": 5,
-      "keyframePrompt": "Detailed photographic/cinematic description in English of the EXACT FIRST FRAME (Frame 0). Describe ONLY what is visible at the very opening second of the shot."
+      "keyframePrompt": "Detailed photographic/cinematic description in English of the EXACT FIRST FRAME (Frame 0). Describe ONLY what is visible at the very opening second of the shot. Name characters, locations and products with their exact name in angle brackets (e.g. <Ana>, <Cafetería>) and describe position, pose and expression; whoever speaks in the shot has a closed-mouth expression, about to speak."
     }
   ]
 }`
@@ -587,7 +588,7 @@ ${shotsCountDirective}
   * cameraMovement: Tipo de plano o ángulo (ej. Plano General, Primer Plano, Macro).
   * actionPrompt: Descripción precisa del desarrollo temporal de la toma en español.
   * dialogueText: Diálogo, locución o narración en off (vacío si no hay voz).
-  * dialogueSpeaker: Nombre del personaje o narrador.
+  * dialogueSpeaker: Nombre del personaje, o "Narrador" si es voz en off (el narrador no es un personaje).
   * estimatedDuration: Duración exacta de la toma en segundos (número entero).
   * keyframePrompt: Prompt fotográfico/cinematográfico ultra-detallado en inglés para el FOTOGRAMA 0 (Frame 0), aplicando el estilo y directivas solicitadas en la guía.
 - Sin música de fondo en los prompts.
@@ -607,7 +608,7 @@ ${customGuideDirective}
 ${assetsDirectives}
 - REGLA DE ORO DE FACELESS: NINGÚN ROSTRO HUMANO VISIBLE.
   * NO crees personajes humanos con rostros para el reparto principal.
-  * Si la historia requiere un narrador en off, define en "characters" un único elemento: name: "Narrador", role: "Voz en Off (V.O.)".
+  * El narrador en off NO va en "characters": deja "characters" vacío salvo que aparezcan manos u otra figura sin rostro.
   * Las tomas se componen exclusivamente de: B-roll cinematográfico de alta calidad, macrofotografía, entornos y locaciones atmosféricas (completamente vacías de personas), objetos y props clave aislados en estudio, gráficos conceptuales, documentos, pantallas, tecnología, o manos realizando una acción sin mostrar jamás caras.
 - NARRACIÓN / LOCUCIÓN (V.O.):
   * Todo el texto hablado debe ser narración en off reflexiva, impactante y magnética.

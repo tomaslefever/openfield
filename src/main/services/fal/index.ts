@@ -1,26 +1,26 @@
 import { FalApiClient as BaseClient } from './client'
 import { submitRequest, getRequestStatus, getRequestResult, cancelRequest } from './endpoints/queue'
-import type { FalQueueStatusResponse } from './types'
+import type { FalQueueStatusResponse, FalSubmitResponse, FalRequestUrls } from './types'
 import type { FalResult } from './endpoints/queue'
 
 /**
  * Public fal.ai client: composes every endpoint from `endpoints/`.
  */
 export class FalApiClient extends BaseClient {
-  submitRequest(modelId: string, input: Record<string, any>): Promise<{ request_id: string }> {
+  submitRequest(modelId: string, input: Record<string, any>): Promise<FalSubmitResponse> {
     return submitRequest(this, modelId, input)
   }
 
-  getRequestStatus(modelId: string, requestId: string): Promise<FalQueueStatusResponse> {
-    return getRequestStatus(this, modelId, requestId)
+  getRequestStatus(modelId: string, requestId: string, urls?: FalRequestUrls): Promise<FalQueueStatusResponse> {
+    return getRequestStatus(this, modelId, requestId, urls)
   }
 
-  getRequestResult(modelId: string, requestId: string): Promise<FalResult> {
-    return getRequestResult(this, modelId, requestId)
+  getRequestResult(modelId: string, requestId: string, urls?: FalRequestUrls): Promise<FalResult> {
+    return getRequestResult(this, modelId, requestId, urls)
   }
 
-  cancelRequest(modelId: string, requestId: string): Promise<void> {
-    return cancelRequest(this, modelId, requestId)
+  cancelRequest(modelId: string, requestId: string, urls?: FalRequestUrls): Promise<void> {
+    return cancelRequest(this, modelId, requestId, urls)
   }
 
   async getBalance(): Promise<number | null> {

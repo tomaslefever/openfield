@@ -155,9 +155,13 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsEndFrame: true,
     supportsR2V: true,
     supportsVideoRef: true,
+    supportsAudioRef: true, // R2V: audio as reference (src_audio_urls)
     supportsUpscale: false,
     allowedHeights: [480, 720, 1080],
     allowedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+    // API: "Seedance-2.5 does not support I2V aspect_ratio='16:9'; allowed aspect ratios: ['adaptive']"
+    // (first frame and first + last frame both follow the input frame's framing)
+    allowedAspectRatiosByTask: { I2V: ['adaptive'] },
     allowedDurations: Array.from({ length: 27 }, (_, i) => 4 + i), // 4..30 s, 1 s steps
     defaultFps: 24,
     // With an input video MachGen bills input + output seconds at a lower rate
@@ -289,6 +293,34 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     allowedDurations: [4, 8],
     defaultFps: 24,
     prices: [{ resolution: '720p', height: 720, costPerSec: 0.035 }],
+  },
+  {
+    // machgen.ai/models/vidu (Oct 2026): image to video and reference to video (up to 15 images and
+    // 3 audio references), 3–16 s at 24 fps, 540p to 4K, optional audio, seed. No text to video.
+    id: 'Vidu-Q4-Preview',
+    name: 'Vidu-Q4-Preview (MachGen)',
+    category: 'Vidu',
+    hosting: 'Partner',
+    supportedTasks: ['I2V', 'R2V'],
+    supportsT2V: false,
+    supportsI2V: true,
+    supportsEndFrame: false,
+    supportsR2V: true,
+    supportsAudioRef: true,
+    supportsUpscale: false,
+    allowedHeights: [540, 720, 1080, 1440, 2160],
+    allowedAspectRatios: ['16:9', '9:16', '1:1'],
+    // API: "Vidu-Q4-Preview does not support configurable aspect_ratio for I2V" (framing comes from the image)
+    allowedAspectRatiosByTask: { I2V: [] },
+    allowedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    defaultFps: 24,
+    prices: [
+      { resolution: '540p', height: 540, costPerSec: 0.045 },
+      { resolution: '720p', height: 720, costPerSec: 0.095 },
+      { resolution: '1080p', height: 1080, costPerSec: 0.12 },
+      { resolution: '2K', height: 1440, costPerSec: 0.19 },
+      { resolution: '4K', height: 2160, costPerSec: 0.39 },
+    ],
   },
   {
     id: 'Vidu-Q3-Pro-Fast',
@@ -649,6 +681,27 @@ export const MACHGEN_MODELS: MachgenModelDef[] = [
     supportsUpscale: false,
     allowedHeights: [1024],
     allowedAspectRatios: ['1:1', '16:9', '9:16'],
+    allowedDurations: [],
+    defaultFps: 0,
+    // machgen.ai/pricing (Oct 2026): 1024p / 2048p / 4096p
+    prices: [
+      { resolution: '1K', height: 1024, cost: 0.04 },
+      { resolution: '2K', height: 2048, cost: 0.048 },
+      { resolution: '4K', height: 4096, cost: 0.089 },
+    ],
+  },
+  {
+    id: 'Nano-Banana-2.1',
+    name: 'Nano-Banana-2.1 (MachGen)',
+    category: 'Google',
+    hosting: 'Partner',
+    supportedTasks: ['T2I', 'I2I'],
+    supportsT2I: true,
+    supportsI2I: true,
+    supportsUpscale: false,
+    allowedHeights: [1024, 2048, 4096],
+    // machgen.ai/models/google/nano-banana-2.1 (Oct 2026): same 9 ratios for T2I and editing (up to 14 refs)
+    allowedAspectRatios: ['16:9', '21:9', '3:2', '4:3', '1:1', '4:5', '3:4', '2:3', '9:16'],
     allowedDurations: [],
     defaultFps: 0,
     // machgen.ai/pricing (Oct 2026): 1024p / 2048p / 4096p

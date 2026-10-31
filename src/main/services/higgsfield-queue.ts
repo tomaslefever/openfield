@@ -546,7 +546,7 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
         modelStr.includes('marketplace')
 
       const isAiInfluencer = modelStr.includes('ai-influencer')
-      const isMotionTransfer = modelStr.includes('genjutsu/motion-transfer')
+      const isMotionTransfer = /genjutsu(-light)?\/motion-transfer/.test(modelStr)
       // 'higgsfield/soul-2-0/text-to-video' is the id of the old "Soul 2.0 Cinema" entry
       const isCinemaStudio4 = modelStr.includes('cinema-studio/4.0') || modelStr.includes('soul-2-0')
 
@@ -554,7 +554,9 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
         endpoint = '/higgsfield/ai-influencer'
         input = buildAiInfluencerInput(payload?.influencer, prompt, resolvedImageUrls)
       } else if (isMotionTransfer) {
-        endpoint = '/higgsfield/genjutsu/motion-transfer/v1.0'
+        endpoint = modelStr.includes('genjutsu-light/')
+          ? '/higgsfield/genjutsu-light/motion-transfer/v1.0'
+          : '/higgsfield/genjutsu/motion-transfer/v1.0'
         if (resolvedVideoUrls.length === 0) {
           throw new Error('Motion Transfer necesita un video de origen')
         }

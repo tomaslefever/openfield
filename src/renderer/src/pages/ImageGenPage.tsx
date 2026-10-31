@@ -13,6 +13,8 @@ import { BulkTagModal } from '../components/ui/BulkTagModal'
 import { AssetDetailModal } from '../components/assets/AssetDetailModal'
 import { ImageGeneration } from '../components/agents/image-generation'
 import { ElementWizard } from '../components/ElementWizard'
+import { referencesFromAsset } from '../lib/element-references'
+import type { MediaRef } from '../stores/elements-store'
 import { copyImage } from '../lib/clipboard'
 import { downscaleImage } from '../lib/image'
 import { cleanModelName, getAssetProvider } from '../lib/models'
@@ -181,7 +183,7 @@ export function ImageGenPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkTag, setShowBulkTag] = useState(false)
   const [showBulkDelete, setShowBulkDelete] = useState(false)
-  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string; assetId?: string } | null>(null)
+  const [creatingFromAsset, setCreatingFromAsset] = useState<{ base64: string; prompt: string; assetId?: string; refs: MediaRef[] } | null>(null)
   const [search, setSearch] = useState('')
   const [showFavorites, setShowFavorites] = useState(false)
   const [recreateMsg, setRecreateMsg] = useState<string | null>(null)
@@ -662,13 +664,16 @@ export function ImageGenPage() {
             } },
             { icon: Box, label: 'Crear elemento', onClick: async () => {
               try {
-                const results = await (window as any).electronAPI?.assets.readBase64([selectedAsset.id])
+                const [results, refs] = await Promise.all([
+                  (window as any).electronAPI?.assets.readBase64([selectedAsset.id]),
+                  referencesFromAsset(selectedAsset),
+                ])
                 const b64 = results?.[0]?.base64 || ''
                 const assetId = selectedAsset.id
                 const prompt = selectedAsset.prompt || ''
                 setSelectedAsset(null)
                 setTimeout(() => {
-                  setCreatingFromAsset({ base64: b64, prompt, assetId })
+                  setCreatingFromAsset({ base64: b64, prompt, assetId, refs })
                 }, 100)
               } catch (err) { console.error('Failed to create element:', err) }
             } },
@@ -682,6 +687,7 @@ export function ImageGenPage() {
             imageBase64: creatingFromAsset.base64,
             imageAssetId: creatingFromAsset.assetId,
             prompt: creatingFromAsset.prompt,
+            referenceImages: creatingFromAsset.refs,
           }}
           onClose={() => setCreatingFromAsset(null)}
         />

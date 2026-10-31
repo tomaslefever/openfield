@@ -144,6 +144,8 @@ export interface MachgenModelDef {
   supportsAudioRef?: boolean
   allowedHeights?: number[]
   allowedAspectRatios?: string[]
+  /** Aspect ratios the API accepts per task, overriding allowedAspectRatios (e.g. { I2V: ['adaptive'] }) */
+  allowedAspectRatiosByTask?: Partial<Record<string, string[]>>
   allowedDurations?: number[]
   allowedSizes?: [number, number][]
   defaultFps?: number

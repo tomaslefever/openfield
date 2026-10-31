@@ -12,8 +12,9 @@ const DEFAULT_MODEL = 'eleven_multilingual_v3'
 
 // Fallback list when the models endpoint is unavailable (v3 models included)
 const ELEVENLABS_MODELS_FALLBACK = [
+  { id: 'eleven_v4', name: 'Eleven v4 (flagship)' },
   { id: 'eleven_v3_flash', name: 'Eleven v3 Flash (fastest)' },
-  { id: 'eleven_v3', name: 'Eleven v3 (flagship)' },
+  { id: 'eleven_v3', name: 'Eleven v3' },
   { id: 'eleven_multilingual_v3_flash', name: 'Eleven Multilingual v3 Flash' },
   { id: 'eleven_multilingual_v3', name: 'Eleven Multilingual v3' },
   { id: 'eleven_turbo_v2_5', name: 'Eleven Turbo v2.5' },
@@ -504,6 +505,96 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
     } finally {
       fs.unlink(tmpPath).catch(() => {})
     }
+  })
+
+  // Voice Design: a text description becomes a few preview voices to choose from.
+  // Each preview is stored in the library so the take can be heard again later.
+  handle('elevenlabs:designVoice', async (_e, params: {
+    description: string
+    text?: string
+    autoGenerateText?: boolean
+    modelId?: string
+    loudness?: number
+    guidanceScale?: number
+    seed?: number
+  }) => {
+    const apiKey = requireElevenLabsKey()
+    const description = String(params?.description || '').trim()
+    if (description.length < 20) throw new Error('La descripción de la voz necesita al menos 20 caracteres')
+    const text = String(params?.text || '').trim()
+    const autoGenerateText = !!params?.autoGenerateText || !text
+    if (!autoGenerateText && (text.length < 100 || text.length > 1000)) throw new Error('El texto de prueba debe tener entre 100 y 1000 caracteres')
+    const modelId = params?.modelId || 'eleven_ttv_v3'
+    const startTime = Date.now()
+
+    const result = await request<{ previews: Array<{ generated_voice_id: string; audio_base_64: string; media_type?: string; duration_secs?: number }>; text: string }>(
+      '/v1/text-to-voice/design',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          voice_description: description,
+          model_id: modelId,
+          ...(autoGenerateText ? { auto_generate_text: true } : { text }),
+          ...(Number.isFinite(Number(params?.loudness)) ? { loudness: Number(params.loudness) } : {}),
+          ...(Number.isFinite(Number(params?.guidanceScale)) ? { guidance_scale: Number(params.guidanceScale) } : {}),
+          ...(Number.isFinite(Number(params?.seed)) ? { seed: Math.round(Number(params.seed)) } : {}),
+        }),
+      },
+      apiKey,
+      180000,
+    )
+
+    const elapsedMs = Math.max(0, Date.now() - startTime)
+    const am = getAssetManager()
+    const db = getRawDb()
+    const previews = []
+    for (const [i, p] of (result.previews || []).entries()) {
+      let assetId = ''
+      try {
+        const asset = await am.importBase64(p.audio_base_64, p.media_type || 'audio/mpeg', `voice-design-${i + 1}.mp3`, { modelUsed: 'elevenlabs-design' })
+        assetId = asset?.id || ''
+        if (assetId) {
+          db.prepare(`UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, provider = 'elevenlabs', credits_used = 0 WHERE id = ?`).run(
+            result.text || text,
+            `elevenlabs-design:${p.generated_voice_id}`,
+            JSON.stringify({ engine: 'elevenlabs', mode: 'voiceDesign', model: modelId, description, generatedVoiceId: p.generated_voice_id, preview: i + 1, generationTimeMs: elapsedMs }),
+            assetId,
+          )
+        }
+      } catch (err: any) {
+        console.warn('[elevenlabs] Could not store voice preview:', err?.message)
+      }
+      previews.push({
+        generatedVoiceId: p.generated_voice_id,
+        audioBase64: p.audio_base_64,
+        mediaType: p.media_type || 'audio/mpeg',
+        durationSecs: p.duration_secs || 0,
+        assetId,
+      })
+    }
+    db.saveSync()
+    return { text: result.text || text, modelId, generationTimeMs: elapsedMs, previews }
+  })
+
+  // Saves the chosen preview as a permanent voice in the ElevenLabs account
+  handle('elevenlabs:createDesignedVoice', async (_e, params: { name: string; description: string; generatedVoiceId: string }) => {
+    const apiKey = requireElevenLabsKey()
+    const name = String(params?.name || '').trim()
+    if (!name) throw new Error('Ponle un nombre a la voz')
+    if (!params?.generatedVoiceId) throw new Error('Elige una de las previews')
+    const voice = await request<{ voice_id: string; name?: string }>(
+      '/v1/text-to-voice',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          voice_name: name,
+          voice_description: String(params.description || '').trim(),
+          generated_voice_id: params.generatedVoiceId,
+        }),
+      },
+      apiKey,
+    )
+    return { voiceId: voice.voice_id, name: voice.name || name }
   })
 
   handle('elevenlabs:account', async () => {

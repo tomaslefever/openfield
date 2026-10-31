@@ -3,6 +3,8 @@ import { useAppStore } from '../stores/app-store'
 export interface FileUrlOptions {
   cacheBust?: number
   thumb?: boolean
+  /** Video poster frame: always rendered by main (never the whole file), at the given scale */
+  poster?: boolean
   scale?: string
 }
 
@@ -29,9 +31,9 @@ export function fileUrl(
   if (options.cacheBust) {
     params.set('t', String(options.cacheBust))
   }
-  if (options.thumb) {
+  if (options.thumb || options.poster) {
     const scale = options.scale || useAppStore.getState().gridRenderScale || '0.25'
-    if (scale !== '1.0') {
+    if (options.poster || scale !== '1.0') {
       params.set('thumb', '1')
       params.set('scale', scale)
     }
@@ -47,6 +49,15 @@ export function srcUrl(
 ): string | undefined {
   if (!filePath) return undefined
   return fileUrl(filePath, optionsOrCacheBust)
+}
+
+/** Poster frame of a video for grid cards (a JPEG rendered once by main and cached) */
+export function posterUrl(
+  filePath: string | undefined | null,
+  scale?: string
+): string | undefined {
+  if (!filePath) return undefined
+  return fileUrl(filePath, { poster: true, scale })
 }
 
 export function thumbUrl(

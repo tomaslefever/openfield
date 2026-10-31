@@ -265,6 +265,12 @@ export const IMAGE_MODELS: ModelPricing[] = [
     prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.048 }, { resolution: '4K', cost: 0.089 }],
     resolutions: ['1K', '2K', '4K'],
     aspectRatios: ['1:1', '16:9', '9:16'] },
+  { name: 'Nano-Banana-2.1 (MachGen)', category: 'Google', unit: 'img', provider: 'machgen',
+    t2iId: 'machgen/Nano-Banana-2.1',
+    // machgen.ai/pricing (Oct 2026): 1024p / 2048p / 4096p
+    prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.048 }, { resolution: '4K', cost: 0.089 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['16:9', '21:9', '3:2', '4:3', '1:1', '4:5', '3:4', '2:3', '9:16'] },
   { name: 'Nano-Banana-Pro (MachGen)', category: 'Google', unit: 'img', provider: 'machgen',
     t2iId: 'machgen/Nano-Banana-Pro',
     // machgen.ai/pricing (Oct 2026): 1024p / 2048p / 4096p
@@ -435,6 +441,20 @@ export const PIXVERSE_REF_PRICES = [
 ]
 
 export const VIDEO_MODELS: ModelPricing[] = [
+  // Kling 4.0 (KIE): FF/LF or one image → keyframe-to-video (images after the first are
+  // keyframes); 2+ images or videos → reference-to-video, which is also the text-to-video path.
+  // Native audio always on, so the "-audio" rates match.
+  { name: 'Kling 4.0', category: 'Kling', unit: 's',
+    t2vId: 'kling-4.0/reference-to-video', i2vId: 'kling-4.0/keyframe-to-video',
+    fflfId: 'kling-4.0/keyframe-to-video', refId: 'kling-4.0/reference-to-video',
+    prices: [
+      { resolution: '720p', cost: 0.1425, costWithVideoInput: 0.085 }, { resolution: '720p-audio', cost: 0.1425, costWithVideoInput: 0.085 },
+      { resolution: '1080p', cost: 0.2125, costWithVideoInput: 0.1275 }, { resolution: '1080p-audio', cost: 0.2125, costWithVideoInput: 0.1275 },
+    ],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
+    supportsVideoRef: true, maxVideoRefs: 5,
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    refTags: { image: '@image_%d', video: '@video_%d' } },
   { name: 'Kling 3.0', category: 'Kling', unit: 's', t2vId: 'kling-3.0/video', i2vId: 'kling-3.0/video',
     prices: [{ resolution: 'std', cost: 0.07 }, { resolution: 'std-audio', cost: 0.10 }, { resolution: 'pro', cost: 0.09 }, { resolution: 'pro-audio', cost: 0.135 }, { resolution: '4k', cost: 0.335 }],
     durationMax: 15, resolutions: ['std', 'pro', '4k'] },
@@ -548,11 +568,47 @@ export const VIDEO_MODELS: ModelPricing[] = [
     t2vId: 'philz1337x/crystal-video-upscaler', i2vId: 'philz1337x/crystal-video-upscaler',
     prices: [{ resolution: 'video', cost: 0.10 }],
     supportsVideoRef: true },
+  { name: 'Lipsync 2 Pro', category: 'Sync', unit: 's', provider: 'replicate',
+    t2vId: 'sync/lipsync-2-pro', i2vId: 'sync/lipsync-2-pro',
+    prices: [{ resolution: 'video', cost: 0.08325 }],
+    supportsVideoRef: true, maxVideoRefs: 1, supportsAudioRef: true, durationFromInputVideo: true },
   { name: 'P-Video', category: 'PrunaAI', unit: 's', provider: 'replicate',
     t2vId: 'prunaai/p-video', i2vId: 'prunaai/p-video',
     prices: [{ resolution: '720p', cost: 0.02 }, { resolution: '1080p', cost: 0.04 }],
     durationMax: 20, durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20'], resolutions: ['720p', '1080p'],
     supportsAudioRef: true,
+    pvAspectRatios: ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'] },
+  // Pruna P-2 family on Replicate (docs.api.pruna.ai/guides/models/p-video-2*). Prices are the
+  // standard rates; draft (P-Video 2) and mode (P-Video 2 Pro) are applied in calcVideoCost.
+  { name: 'P-Video 2', category: 'PrunaAI', unit: 's', provider: 'replicate',
+    t2vId: 'prunaai/p-video-2', i2vId: 'prunaai/p-video-2', fflfId: 'prunaai/p-video-2',
+    prices: [{ resolution: '720p', cost: 0.025 }, { resolution: '1080p', cost: 0.05 }],
+    durationMax: 20, durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20'], resolutions: ['720p', '1080p'],
+    supportsAudioRef: true,
+    pvAspectRatios: ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'] },
+  // One model, routed by input: text / FF-LF → p-video-2-pro; any image, video or audio
+  // reference → p-video-2-pro-reference (MiniMax H3 reference-to-video)
+  { name: 'P-Video 2 Pro', category: 'PrunaAI', unit: 's', provider: 'replicate',
+    t2vId: 'prunaai/p-video-2-pro', i2vId: 'prunaai/p-video-2-pro', fflfId: 'prunaai/p-video-2-pro',
+    refId: 'prunaai/p-video-2-pro-reference',
+    prices: [{ resolution: '480p', cost: 0.02 }, { resolution: '768p', cost: 0.035 }],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['768p', '480p'],
+    supportsVideoRef: true, maxVideoRefs: 3, supportsAudioRef: true,
+    pvAspectRatios: ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'] },
+  // Same P-2 models on the official Pruna API (docs.api.pruna.ai): same inputs and list prices;
+  // references are uploaded to Pruna instead of sent inline
+  { name: 'P-Video 2 (Pruna)', category: 'PrunaAI', unit: 's', provider: 'pruna',
+    t2vId: 'pruna/p-video-2', i2vId: 'pruna/p-video-2', fflfId: 'pruna/p-video-2',
+    prices: [{ resolution: '720p', cost: 0.025 }, { resolution: '1080p', cost: 0.05 }],
+    durationMax: 20, durationOptions: ['4', '5', '6', '8', '10', '12', '15', '20'], resolutions: ['720p', '1080p'],
+    supportsAudioRef: true,
+    pvAspectRatios: ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'] },
+  { name: 'P-Video 2 Pro (Pruna)', category: 'PrunaAI', unit: 's', provider: 'pruna',
+    t2vId: 'pruna/p-video-2-pro', i2vId: 'pruna/p-video-2-pro', fflfId: 'pruna/p-video-2-pro',
+    refId: 'pruna/p-video-2-pro-reference',
+    prices: [{ resolution: '480p', cost: 0.02 }, { resolution: '768p', cost: 0.035 }],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['768p', '480p'],
+    supportsVideoRef: true, maxVideoRefs: 3, supportsAudioRef: true,
     pvAspectRatios: ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'] },
   { name: 'MiniMax H3', category: 'MiniMax', unit: 's',
     t2vId: 'minimax-h3/text-to-video', i2vId: 'minimax-h3/image-to-video', fflfId: 'minimax-h3/image-to-video', refId: 'minimax-h3/reference-to-video',
@@ -604,6 +660,17 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
     durationMax: 8, durationOptions: ['4', '8'], resolutions: ['720p', '1080p'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Vidu-Q4-Preview (MachGen)', category: 'Vidu', unit: 's', provider: 'machgen',
+    // No text to video: image to video, or reference to video with images and up to 3 audio clips
+    t2vId: 'machgen/Vidu-Q4-Preview/i2v', i2vId: 'machgen/Vidu-Q4-Preview/i2v', refId: 'machgen/Vidu-Q4-Preview/ref',
+    // machgen.ai/pricing (Oct 2026)
+    prices: [
+      { resolution: '540p', cost: 0.045 }, { resolution: '720p', cost: 0.095 }, { resolution: '1080p', cost: 0.12 },
+      { resolution: '2K', cost: 0.19 }, { resolution: '4K', cost: 0.39 },
+    ],
+    durationMax: 16, durationOptions: secondsRange(3, 16), resolutions: ['540p', '720p', '1080p', '2K', '4K'],
+    supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'MiniMax H3 (MachGen)', category: 'MiniMax', unit: 's', provider: 'machgen',
     t2vId: 'machgen/MiniMax-H3/t2v', i2vId: 'machgen/MiniMax-H3/i2v', fflfId: 'machgen/MiniMax-H3/fflf', refId: 'machgen/MiniMax-H3/ref',
     prices: [{ resolution: '480p', cost: 0.035 }, { resolution: '768p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }, { resolution: '2K', cost: 0.10 }],
@@ -626,7 +693,7 @@ export const VIDEO_MODELS: ModelPricing[] = [
     ],
     // The composer never auto-selects the draft option; drafts are billed at the 480p rate
     durationMax: 30, durationOptions: secondsRange(4, 30), resolutions: [SEEDANCE_DRAFT_RES, '480p', '720p', '1080p'],
-    supportsVideoRef: true,
+    supportsVideoRef: true, supportsAudioRef: true,
     aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
   { name: 'Seedance 2.0 (MachGen)', category: 'ByteDance', unit: 's', provider: 'machgen',
     t2vId: 'machgen/Seedance-2.0/t2v', i2vId: 'machgen/Seedance-2.0/i2v', fflfId: 'machgen/Seedance-2.0/fflf', refId: 'machgen/Seedance-2.0/ref',
@@ -818,6 +885,15 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.20 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
     falAspectRatios: ['16:9', '9:16', '1:1'] },
+  // Kling 4.0 (Fal): same routing as the KIE model (image-to-video takes up to 8 middle keyframes)
+  { name: 'Kling 4.0 (Fal)', category: 'Kling', unit: 's', provider: 'fal',
+    t2vId: 'kling/v4/text-to-video', i2vId: 'kling/v4/image-to-video',
+    fflfId: 'kling/v4/image-to-video', refId: 'kling/v4/reference-to-video',
+    prices: [{ resolution: '720p', cost: 0.157 }, { resolution: '720p-audio', cost: 0.157 }, { resolution: '1080p', cost: 0.235 }, { resolution: '1080p-audio', cost: 0.235 }],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
+    supportsVideoRef: true, maxVideoRefs: 5,
+    falAspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    refTags: { image: '@Image%d', video: '@Video%d' } },
   { name: 'Kling 3.0 Video (Fal)', category: 'Kling', unit: 's', provider: 'fal',
     t2vId: 'fal-ai/kling-video/v3/text-to-video', i2vId: 'fal-ai/kling-video/v3/image-to-video',
     prices: [{ resolution: 'std', cost: 0.08 }],
@@ -901,6 +977,15 @@ export const VIDEO_MODELS: ModelPricing[] = [
     durationFromInputVideo: true,
     prices: [{ resolution: '480p', cost: 0.318 }, { resolution: '720p', cost: 0.681 }, { resolution: '1080p', cost: 1.632 }],
     durationMax: 30, resolutions: ['480p', '720p', '1080p'] },
+  // Cheaper Genjutsu: uses the first 15 s of the source and keeps its audio. Billed per total
+  // second (output + input video, so ~2× the source length), list rates Oct 2026
+  { name: 'Genjutsu Light Motion Transfer (Higgsfield)', category: 'Higgsfield', unit: 's', provider: 'higgsfield',
+    t2vId: 'higgsfield/genjutsu-light/motion-transfer/v1.0', refId: 'higgsfield/genjutsu-light/motion-transfer/v1.0',
+    supportsVideoRef: true,
+    maxVideoRefs: 1,
+    durationFromInputVideo: true,
+    prices: [{ resolution: '480p', cost: 0.05 }, { resolution: '720p', cost: 0.10 }, { resolution: '1080p', cost: 0.20 }],
+    durationMax: 15, resolutions: ['480p', '720p', '1080p'] },
   { name: 'MiniMax H3 (Higgsfield)', category: 'MiniMax', unit: 's', provider: 'higgsfield',
     t2vId: 'minimax/h3/text-to-video', i2vId: 'minimax/h3/image-to-video', refId: 'minimax/h3/reference-to-video',
     prices: [{ resolution: '2K', cost: 0.13 }],
@@ -967,6 +1052,25 @@ export const VIDEO_MODELS: ModelPricing[] = [
     t2vId: 'apimart/wan2.7', i2vId: 'apimart/wan2.7', fflfId: 'apimart/wan2.7', refId: 'apimart/wan2.7',
     prices: [{ resolution: '720p', cost: 0.04 }, { resolution: '1080p', cost: 0.08 }],
     durationMax: 15, durationOptions: ['2', '5', '8', '10', '15'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  // Kling AI official API (https://kling.ai/document-api), prices per second in USD
+  // Kling 4.0 needs the Flagship Resource Pack; image refs after the first frame become keyframes
+  { name: 'Kling 4.0 (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
+    t2vId: 'klingai/kling-4.0', i2vId: 'klingai/kling-4.0', fflfId: 'klingai/kling-4.0',
+    // Always generates native audio: same rate with or without the sound switch
+    prices: [{ resolution: '720p', cost: 0.14 }, { resolution: '720p-audio', cost: 0.14 }, { resolution: '1080p', cost: 0.21 }, { resolution: '1080p-audio', cost: 0.21 }],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'] },
+  { name: 'Kling 3.0 (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
+    t2vId: 'klingai/kling-3.0', i2vId: 'klingai/kling-3.0', fflfId: 'klingai/kling-3.0',
+    prices: [{ resolution: '720p', cost: 0.084 }, { resolution: '720p-audio', cost: 0.126 }, { resolution: '1080p', cost: 0.112 }, { resolution: '1080p-audio', cost: 0.168 }, { resolution: '4k', cost: 0.42 }],
+    durationMax: 15, durationOptions: ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'], resolutions: ['720p', '1080p', '4k'],
+    aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling 3.0 Turbo (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
+    t2vId: 'klingai/kling-3.0-turbo', i2vId: 'klingai/kling-3.0-turbo',
+    // Always generates native audio: same rate with or without the sound switch
+    prices: [{ resolution: '720p', cost: 0.112 }, { resolution: '720p-audio', cost: 0.112 }, { resolution: '1080p', cost: 0.14 }, { resolution: '1080p-audio', cost: 0.14 }],
+    durationMax: 15, durationOptions: ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'], resolutions: ['720p', '1080p'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'Kling 2.6 (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
     t2vId: 'apimart/kling-v2-6', i2vId: 'apimart/kling-v2-6', fflfId: 'apimart/kling-v2-6',
@@ -1038,6 +1142,8 @@ export const VIDEO_MODELS: ModelPricing[] = [
 // ─── Audio models ──────────────────────────────────────────────────────────
 
 export const AUDIO_MODELS: ModelPricing[] = [
+  { name: 'Eleven v4', category: 'ElevenLabs', unit: 'img', t2aId: 'eleven_v4', kind: 'voice', provider: 'elevenlabs', engine: 'elevenlabs',
+    prices: [{ resolution: 'clip', cost: 0.015 }] },
   { name: 'ElevenLabs TTS', category: 'ElevenLabs', unit: 'img', t2aId: 'elevenlabs-tts', kind: 'voice', provider: 'elevenlabs', engine: 'elevenlabs',
     prices: [{ resolution: 'clip', cost: 0.015 }] },
   // KIE TTS (docs.kie.ai/market): costs are estimates, KIE doesn't publish per-request prices
@@ -1117,6 +1223,17 @@ export const AUDIO_MODELS: ModelPricing[] = [
     prices: [{ resolution: 'clip', cost: 0.010 }] },
   { name: 'Eleven-Music-v2 (MachGen)', category: 'ElevenLabs', unit: 'img', t2aId: 'machgen/Eleven-Music-v2', kind: 'music', provider: 'machgen',
     prices: [{ resolution: 'clip', cost: 0.008 }] },
+]
+
+// ─── Speech-to-text (timeline autocaptions) ────────────────────────────────
+// Priced per second of audio sent. ElevenLabs Scribe v2: $0.22/h (Oct 2026; plans bill it in
+// credits). OpenAI whisper-1: $0.006/min, transcription and translation alike.
+
+export const TRANSCRIPTION_MODELS: ModelPricing[] = [
+  { name: 'ElevenLabs Scribe v2', category: 'ElevenLabs', unit: 's', modelId: 'scribe_v2', provider: 'elevenlabs',
+    prices: [{ resolution: 'std', cost: 0.22 / 3600 }] },
+  { name: 'OpenAI Whisper', category: 'OpenAI', unit: 's', modelId: 'whisper-1', provider: 'openai',
+    prices: [{ resolution: 'std', cost: 0.006 / 60 }] },
 ]
 
 // ─── Cost calculation (single source of truth) ─────────────────────────────
@@ -1207,6 +1324,53 @@ export interface CostContext {
   imageCount?: number
   inputVideoSeconds?: number
   batchSize?: number
+  /** P-Video 2 draft preview */
+  draft?: boolean
+  /** P-Video 2 Pro generation mode: quality | speed | cost */
+  pvMode?: string
+}
+
+// P-Video 2 Pro $/s by resolution and mode (list prices, Oct 2026). With any reference the
+// -reference variant runs (no quality mode) and each reference is billed on top.
+const P_VIDEO_2_PRO_RATES: Record<string, Record<string, number>> = {
+  '480p': { cost: 0.01, speed: 0.02, quality: 0.04 },
+  '768p': { cost: 0.025, speed: 0.035, quality: 0.075 },
+}
+const P_VIDEO_2_PRO_REF_RATES: Record<string, { output: number; video: number; image: number; audio: number }> = {
+  'cost-480p': { output: 0.015, video: 0.03, image: 0.005, audio: 0.0015 },
+  'cost-768p': { output: 0.025, video: 0.06, image: 0.005, audio: 0.0015 },
+  'speed-480p': { output: 0.02, video: 0.04, image: 0.01, audio: 0.0025 },
+  'speed-768p': { output: 0.035, video: 0.06, image: 0.01, audio: 0.0025 },
+}
+
+/** Pruna P-2 variant of a model id on either provider ('prunaai/…' Replicate, 'pruna/…' official) */
+export function pVideo2Variant(id?: string | null): 'p-video-2' | 'p-video-2-pro' | 'p-video-2-pro-reference' | null {
+  const name = String(id || '').replace(/^(prunaai|pruna)\//, '')
+  return name === 'p-video-2' || name === 'p-video-2-pro' || name === 'p-video-2-pro-reference' ? name : null
+}
+
+function calcPVideo2ProCost(ctx: CostContext) {
+  const res = ctx.resolution === '480p' ? '480p' : '768p'
+  const dur = Math.min(15, Math.max(5, ctx.requestedSeconds || 5))
+  const audioSecs = ctx.audioRefSeconds || 0
+  const hasRefs = (ctx.imageCount || 0) > 0 || (ctx.inputVideoSeconds || 0) > 0 || audioSecs > 0
+  let baseDollars: number
+  if (hasRefs) {
+    const r = P_VIDEO_2_PRO_REF_RATES[`${ctx.pvMode === 'cost' ? 'cost' : 'speed'}-${res}`]
+    // Each reference clip is billed up to the output length + 0.5 s (combined max 15 s)
+    const refVideoSecs = Math.min(ctx.inputVideoSeconds || 0, 15, dur + 0.5)
+    baseDollars = r.output * dur + r.video * refVideoSecs + r.image * (ctx.imageCount || 0) + r.audio * Math.min(audioSecs, 15)
+  } else {
+    const mode = ['cost', 'speed', 'quality'].includes(ctx.pvMode || '') ? ctx.pvMode! : 'speed'
+    baseDollars = P_VIDEO_2_PRO_RATES[res][mode] * dur
+  }
+  const totalDollars = baseDollars * (ctx.batchSize || 1)
+  return {
+    perUnitCredits: Math.round(baseDollars * CREDITS_PER_DOLLAR),
+    totalCredits: Math.round(totalDollars * CREDITS_PER_DOLLAR),
+    perUnitDollars: baseDollars,
+    totalDollars,
+  }
 }
 
 export function getSeedance20Dimensions(resolution: string = '720p', aspectRatio: string = '16:9'): { width: number; height: number } {
@@ -1258,6 +1422,8 @@ export function getSeedance20Dimensions(resolution: string = '720p', aspectRatio
 export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {}): number {
   const audio = ctx.audioRefSeconds && ctx.audioRefSeconds > 0 ? ctx.audioRefSeconds : 0
   if (model.t2vId === 'omnihuman-1-5') return audio
+  // P-Video 2 (Replicate or Pruna) with audio bills the audio's length, not the requested duration
+  if (pVideo2Variant(model.t2vId) === 'p-video-2' && audio > 0) return audio
   if (model.provider === 'replicate') {
     if (model.t2vId === 'prunaai/p-video-avatar') {
       return audio > 0 ? audio : Math.max(1, Math.round(((ctx.wordCount || 0) / 2.5) * 10) / 10)
@@ -1265,12 +1431,12 @@ export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {})
     return ctx.requestedSeconds || 0
   }
   // Video upscalers process (and bill) the whole source video, rounded up to the second
-  // (Motion Transfer trims sources longer than 30 s, so durationMax caps it there)
+  // (Motion Transfer trims sources longer than 30 s — Light 15 s — so durationMax caps it there)
   if (model.durationFromInputVideo) {
     const secs = Math.ceil(ctx.inputVideoSeconds || 0)
     return model.t2vId?.includes('motion-transfer') && model.durationMax ? Math.min(secs, model.durationMax) : secs
   }
-  if ((model.t2vId?.startsWith('kling-3') || model.t2vId?.startsWith('kling-video/v3')) && ctx.multiSceneSeconds && ctx.multiSceneSeconds.length > 0) {
+  if ((model.t2vId?.startsWith('kling-3') || model.t2vId?.startsWith('kling-video/v3') || model.t2vId?.startsWith('klingai/kling-3')) && ctx.multiSceneSeconds && ctx.multiSceneSeconds.length > 0) {
     return ctx.multiSceneSeconds.reduce((s, x) => s + x, 0)
   }
   return ctx.requestedSeconds || 0
@@ -1278,6 +1444,7 @@ export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {})
 
 // Total cost for a video generation, including model-specific surcharges:
 // - Wan 3.0 (KIE): Total = Unit Price × (Generated + Input Video Duration)
+// - Kling 4.0 (KIE): with a reference video, Video-Input Price × max(Generated × 2, Input + Generated)
 // - Gemini Omni 1.1 Flash (KIE):
 //   No video: 4s/6s/8s/10s at 360p/720p/1080p = 63/84/105/126 credits ($0.315-$0.630), 4k = 147/168/189/210 credits ($0.735-$1.050)
 //   With video: 360p/720p/1080p = 168 credits ($0.840), 4k = 252 credits ($1.260)
@@ -1300,7 +1467,10 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
     ? model.prices.find(p => p.resolution.toLowerCase() === ctx.resolution!.toLowerCase() && p.costWithVideoInput != null)
     : undefined
   if (videoInputEntry) {
-    const baseDollars = videoInputEntry.costWithVideoInput! * (resolveVideoDuration(model, ctx) + inputVideoSecs)
+    // Kling 4.0 bills max(output × 2, input + output) seconds
+    const outputSecs = resolveVideoDuration(model, ctx)
+    const billedInputSecs = model.t2vId?.startsWith('kling-4.0/') ? Math.max(outputSecs, inputVideoSecs) : inputVideoSecs
+    const baseDollars = videoInputEntry.costWithVideoInput! * (outputSecs + billedInputSecs)
     const totalDollars = baseDollars * (ctx.batchSize || 1)
     return {
       perUnitCredits: Math.round(baseDollars * CREDITS_PER_DOLLAR),
@@ -1360,8 +1530,18 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
     }
   }
 
+  if (pVideo2Variant(model.t2vId) === 'p-video-2-pro') return calcPVideo2ProCost(ctx)
+
   const duration = resolveVideoDuration(model, ctx)
-  const base = calcCost(model, ctx.resolution, duration, ctx.batchSize || 1)
+  // P-Video 2 draft: 60% of the standard rate ($0.015 / $0.03 per second)
+  const draftFactor = pVideo2Variant(model.t2vId) === 'p-video-2' && ctx.draft ? 0.6 : 1
+  const fullBase = calcCost(model, ctx.resolution, duration, ctx.batchSize || 1)
+  const base = draftFactor === 1 ? fullBase : {
+    perUnitCredits: Math.round(fullBase.perUnitDollars * draftFactor * CREDITS_PER_DOLLAR),
+    totalCredits: Math.round(fullBase.totalDollars * draftFactor * CREDITS_PER_DOLLAR),
+    perUnitDollars: fullBase.perUnitDollars * draftFactor,
+    totalDollars: fullBase.totalDollars * draftFactor,
+  }
   const imageCount = ctx.imageCount || 0
   let surcharge = 0
   if (model.provider === 'fal' && model.t2vId?.startsWith('minimax/') && !model.t2vId.includes('text-to-video')) {
@@ -1374,6 +1554,11 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
       surcharge += Math.max(0, imageCount - 5) * 0.02
     }
     surcharge += (ctx.inputVideoSeconds || 0) * base.perUnitDollars
+  }
+  if (model.t2vId?.startsWith('higgsfield/genjutsu-light/')) {
+    // Genjutsu Light bills output + input video seconds; the input is the same trimmed source,
+    // so the input half costs exactly what the output does
+    surcharge += base.totalDollars
   }
   if (model.provider === 'higgsfield' && model.t2vId?.startsWith('minimax/h3/')) {
     // MiniMax H3 (Higgsfield) reference-to-video: first 5 reference images free, +$0.08 per extra image

@@ -30,6 +30,7 @@ import {
   type DramaScenario,
   type DramaProp,
   parseDialogueTurns,
+  isNarratorName,
 } from '../../../stores/short-drama-store'
 import { ModelSelectorDropdown } from '../../models/ModelSelectorDropdown'
 import { ResolutionSelector } from '../../models/ResolutionSelector'
@@ -66,7 +67,9 @@ interface LinkedRef {
 /** Elements whose images feed the frame, in the order the store sends them */
 function linkedRefs(shot: DramaShot, characters: DramaCharacter[], scenarios: DramaScenario[], props: DramaProp[]): LinkedRef[] {
   const chars = characters.filter((c) => (shot.characterNames || []).includes(c.name))
-  const speaker = characters.find((c) => (shot.dialogueSpeaker || '').toLowerCase().trim() === c.name.toLowerCase().trim())
+  const speaker = isNarratorName(shot.dialogueSpeaker)
+    ? undefined
+    : characters.find((c) => (shot.dialogueSpeaker || '').toLowerCase().trim() === c.name.toLowerCase().trim())
   if (speaker && !chars.some((c) => c.id === speaker.id)) chars.unshift(speaker)
   const scn = scenarios.find((s) => s.name === shot.scenarioName)
   return [
@@ -182,9 +185,11 @@ function DialogueRow({
   }, [speakerOpen])
 
   const turns = useMemo(() => parseDialogueTurns(text, shot.dialogueSpeaker, characters), [text, shot.dialogueSpeaker, characters])
+  // With video-model voices the clip speaks for itself: no TTS track here
+  const videoVoices = useShortDramaStore((s) => s.voiceSource === 'video')
   const isGenerating = shot.audioStatus === 'generating'
   const audioSrc = srcUrl(shot.audioLocalPath || shot.audioUrl)
-  const hasAudio = shot.audioStatus === 'completed' && !!audioSrc
+  const hasAudio = !videoVoices && shot.audioStatus === 'completed' && !!audioSrc
 
   useEffect(() => {
     audioRef.current?.pause()
@@ -214,7 +219,7 @@ function DialogueRow({
           </button>
           {speakerOpen && (
             <div className="absolute left-0 top-full mt-1 z-30 w-44 popover-surface rounded-2xl p-1.5">
-              {[{ id: '__vo', name: 'Narrador' }, ...characters].map((c) => (
+              {[{ id: '__vo', name: 'Narrador' }, ...characters.filter((c) => !isNarratorName(c.name))].map((c) => (
                 <button
                   key={c.id}
                   type="button"
@@ -222,7 +227,7 @@ function DialogueRow({
                   className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-meta text-ink hover:bg-surface-800 transition-colors"
                 >
                   <span className="truncate">{c.name}</span>
-                  {(shot.dialogueSpeaker || 'Narrador').toLowerCase().trim() === c.name.toLowerCase().trim() && <Check size={12} />}
+                  {(c.id === '__vo' ? isNarratorName(shot.dialogueSpeaker) : (shot.dialogueSpeaker || '').toLowerCase().trim() === c.name.toLowerCase().trim()) && <Check size={12} />}
                 </button>
               ))}
             </div>
@@ -238,15 +243,21 @@ function DialogueRow({
               onClick={() => updateShot(shot.id, { audioStatus: 'idle', audioLocalPath: undefined, audioUrl: undefined, audioAssetId: undefined, audioTaskId: undefined })}
             />
           )}
-          <ToolButton
-            icon={isGenerating ? Loader2 : hasAudio ? Mic : Sparkles}
-            spin={isGenerating}
-            onClick={() => onGenerateAudio(text)}
-            disabled={isGenerating || !text.trim()}
-            title={hasAudio ? 'Volver a sintetizar' : 'Sintetizar la voz'}
-          >
-            {isGenerating ? 'Sintetizando' : hasAudio ? 'Rehacer' : 'Voz'}
-          </ToolButton>
+          {videoVoices ? (
+            <span className="text-meta text-ink-subtle px-1" title="La voz la genera el modelo de video al crear el clip">
+              Voz del video
+            </span>
+          ) : (
+            <ToolButton
+              icon={isGenerating ? Loader2 : hasAudio ? Mic : Sparkles}
+              spin={isGenerating}
+              onClick={() => onGenerateAudio(text)}
+              disabled={isGenerating || !text.trim()}
+              title={hasAudio ? 'Volver a sintetizar' : 'Sintetizar la voz'}
+            >
+              {isGenerating ? 'Sintetizando' : hasAudio ? 'Rehacer' : 'Voz'}
+            </ToolButton>
+          )}
         </div>
       </div>
 

@@ -5,6 +5,7 @@ import * as path from 'path'
 import * as crypto from 'crypto'
 import { spawn } from 'child_process'
 import { getRawDb } from '../db'
+import { ffmpegBinary } from './bundled-binaries'
 
 /**
  * Local file of an asset on disk. Generated assets keep their downloaded copy in local_path,
@@ -35,16 +36,9 @@ const NON_MP4_VIDEO_EXT = /\.(mkv|matroska|webm|mov|qt|avi|m4v|flv|wmv|mpg|mpeg|
 function isNonMp4Video(filePath: string, mime?: string | null): boolean {
   const m = (mime || '').toLowerCase()
   if (m.startsWith('video/')) return m !== 'video/mp4'
+  // audio/mpeg (MP3) assets can be stored as .mpeg; only the extension says "video" there
+  if (m.startsWith('audio/') || m.startsWith('image/')) return false
   return NON_MP4_VIDEO_EXT.test(filePath)
-}
-
-function ffmpegBinary(): string {
-  try {
-    const ffmpegStatic = require('ffmpeg-static')
-    return (typeof ffmpegStatic === 'string' ? ffmpegStatic : ffmpegStatic?.path) || 'ffmpeg'
-  } catch {
-    return 'ffmpeg'
-  }
 }
 
 export function runFfmpeg(args: string[]): Promise<void> {

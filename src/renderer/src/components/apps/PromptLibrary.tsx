@@ -1,8 +1,12 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from 'react'
-import { Plus, Trash2, X, Upload, Image, Video, Search, Copy, Check, FileText, Sparkles, Library, Save } from 'lucide-react'
-import { usePromptLibraryStore, type PromptEntry, type PromptReference } from '../../stores/prompt-library-store'
+import { Plus, Trash2, X, Upload, Image, Video, Search, Copy, Check, FileText, Sparkles, Library, Save, Maximize2 } from 'lucide-react'
+import { usePromptLibraryStore, type PromptEntry, type PromptReference, type BuiltinTemplate } from '../../stores/prompt-library-store'
 import { useAppStore } from '../../stores/app-store'
 import { ImageLibraryPicker } from '../ImageLibraryPicker'
+import { PromptLibraryReview, TagChips, ReviewBadge, KindChip } from './PromptLibraryReview'
+import { fileUrl } from '../../services/file-url'
+import { PromptReferenceViewer } from './PromptReferenceViewer'
+import { builtinViewerImages } from '../../lib/prompt-references'
 
 function PromptCard({
   entry,
@@ -25,6 +29,7 @@ function PromptCard({
   const [draftPrompt, setDraftPrompt] = useState(entry.prompt)
   const [draftKind, setDraftKind] = useState(entry.kind)
   const [draftTags, setDraftTags] = useState(entry.tags.join(', '))
+  const [draftDescription, setDraftDescription] = useState(entry.description || '')
   const [draftRefs, setDraftRefs] = useState<PromptReference[]>(entry.references)
   const fileRef = useRef<HTMLInputElement>(null)
   const firstRef = entry.references[0]
@@ -38,6 +43,7 @@ function PromptCard({
     setDraftPrompt(entry.prompt)
     setDraftKind(entry.kind)
     setDraftTags(entry.tags.join(', '))
+    setDraftDescription(entry.description || '')
     setDraftRefs(entry.references)
   }, [modal, entry])
 
@@ -88,6 +94,7 @@ function PromptCard({
     draftName.trim() !== entry.name ||
     draftKind !== entry.kind ||
     draftTags.trim() !== entry.tags.join(', ') ||
+    draftDescription.trim() !== (entry.description || '') ||
     !refsEqual
 
   const handleSave = () => {
@@ -96,6 +103,7 @@ function PromptCard({
       prompt: draftPrompt.trim(),
       kind: draftKind,
       tags: draftTags.split(',').map(t => t.trim()).filter(Boolean),
+      description: draftDescription.trim(),
       references: draftRefs,
     })
   }
@@ -233,9 +241,7 @@ function PromptCard({
 
           {/* Kind badge */}
           <div className="absolute top-2 right-2">
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${entry.kind === 'video' ? 'bg-blue-500/20 text-blue-400 border-blue-500/20' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20'}`}>
-              {entry.kind === 'video' ? 'Video' : 'Image'}
-            </span>
+            <KindChip kind={entry.kind} />
           </div>
 
           {entry.references.length > 1 && (
@@ -405,6 +411,17 @@ function PromptCard({
                 />
               </div>
 
+              {/* Description: what agents read over MCP to pick this prompt */}
+              <div className="mt-4">
+                <p className="eyebrow mb-2">Cuándo usarlo</p>
+                <input
+                  value={draftDescription}
+                  onChange={e => setDraftDescription(e.target.value)}
+                  placeholder="Ej.: anuncio de producto premium para Instagram"
+                  className="input-field text-xs w-full"
+                />
+              </div>
+
               {/* More references */}
               {draftRefs.length > 1 && (
                 <div className="mt-4">
@@ -463,11 +480,145 @@ function PromptCard({
   )
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  advertising: 'Publicidad',
+  product: 'Producto',
+  ugc: 'UGC',
+  social: 'Redes',
+  food: 'Gastronomía',
+  beauty: 'Belleza',
+  fashion: 'Moda',
+  'real-estate': 'Inmobiliaria',
+  brand: 'Marca',
+  character: 'Personajes',
+  storyboard: 'Storyboard',
+  editing: 'Edición',
+  style: 'Estilo',
+}
+
+/** Highlights the {{variables}} of a template */
+function TemplateText({ text }: { text: string }) {
+  const parts = text.split(/(\{\{\s*[a-zA-Z][a-zA-Z0-9_]*\s*\}\})/g)
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.startsWith('{{')
+          ? <span key={i} className="text-accent-400 font-medium">{part}</span>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  )
+}
+
+function TemplateCard({ template, onSave }: { template: BuiltinTemplate; onSave: (t: BuiltinTemplate) => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const setPage = useAppStore(s => s.setPage)
+  const setComposerPayload = useAppStore(s => s.setComposerPayload)
+  const taxonomy = usePromptLibraryStore(s => s.taxonomy)
+  const [viewing, setViewing] = useState(false)
+  const ref = template.references.find(r => r.type === 'image' && (r.path || r.url))
+  const refSrc = ref?.path ? fileUrl(ref.path, { thumb: true }) : ref?.url
+  const viewerImages = useMemo(() => builtinViewerImages(template.references), [template.references])
+
+  const handleUse = () => {
+    setComposerPayload({
+      prompt: template.prompt,
+      mode: template.kind,
+      aspectRatio: template.aspectRatios[0] || '3:4',
+      resolution: '1K',
+    })
+    setPage(template.kind === 'video' ? 'video' : 'image')
+  }
+
+  return (
+    <div className="card p-4 flex flex-col gap-3">
+      {refSrc && (
+        <div className="-mx-4 -mt-4 mb-1 relative group">
+          <button onClick={() => setViewing(true)} className="block w-full cursor-zoom-in" title="Ver referencia">
+            <img src={refSrc} alt={ref?.caption || template.name} referrerPolicy="no-referrer" loading="lazy" className="w-full aspect-[4/3] object-cover rounded-t-[inherit]" />
+            <span className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Maximize2 size={12} />
+            </span>
+            {viewerImages.length > 1 && (
+              <span className="absolute top-1.5 left-1.5 text-[9px] px-1.5 py-0.5 rounded bg-black/60 text-white/90">{viewerImages.length} refs</span>
+            )}
+          </button>
+          {ref?.credit && (
+            <a href={ref.sourceUrl} target="_blank" rel="noreferrer" title={ref.caption}
+              className="absolute bottom-1.5 right-1.5 text-[9px] px-1.5 py-0.5 rounded bg-black/60 text-white/80 hover:text-white max-w-[90%] truncate">
+              {ref.credit}
+            </a>
+          )}
+        </div>
+      )}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-surface-100 leading-snug">{template.name}</p>
+          <div className="flex items-center gap-1.5 mt-1 text-[10px] text-surface-500">
+            {template.kind === 'video' ? <Video size={11} /> : <Image size={11} />}
+            <span>{CATEGORY_LABELS[template.category] || template.category}</span>
+            {template.aspectRatios.length > 0 && <span>· {template.aspectRatios.join(' · ')}</span>}
+            {template.durationSeconds ? <span>· {template.durationSeconds}s</span> : null}
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <span className="text-[9px] px-1.5 py-0.5 rounded-pill bg-accent-500/10 text-accent-400 border border-accent-500/20">Openfield</span>
+          <ReviewBadge status={template.review?.status || 'pending'} />
+        </div>
+      </div>
+
+      <p className="text-xs text-surface-400 leading-relaxed">{template.description}</p>
+      <TagChips kind={template.kind} models={template.models || []} types={template.types || []} taxonomy={taxonomy} />
+
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className={`text-left text-[11px] text-surface-300 leading-relaxed bg-surface-800/60 border border-surface-700 rounded-lg px-3 py-2 ${expanded ? '' : 'line-clamp-4'}`}
+        title={expanded ? 'Contraer' : 'Ver plantilla completa'}
+      >
+        <TemplateText text={template.prompt} />
+      </button>
+
+      {expanded && template.guidance.length > 0 && (
+        <ul className="text-[11px] text-surface-400 list-disc pl-4 space-y-1">
+          {template.guidance.map((g, i) => <li key={i}>{g}</li>)}
+        </ul>
+      )}
+
+      <div className="flex items-center gap-1.5 mt-auto pt-1">
+        <button
+          onClick={() => { navigator.clipboard.writeText(template.prompt); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+          className="text-[10px] px-2 py-1 rounded-pill bg-surface-800 text-surface-400 border border-surface-700 hover:text-surface-200 flex items-center gap-1"
+        >
+          {copied ? <Check size={10} className="text-green-600 dark:text-green-400" /> : <Copy size={10} />} Copiar
+        </button>
+        <button
+          onClick={() => onSave(template)}
+          className="text-[10px] px-2 py-1 rounded-pill bg-surface-800 text-surface-400 border border-surface-700 hover:text-surface-200 flex items-center gap-1 whitespace-nowrap"
+          title="Guardar una copia editable en tu biblioteca"
+        >
+          <Library size={10} /> Guardar
+        </button>
+        <button onClick={handleUse} className="btn-primary text-[10px] ml-auto flex items-center gap-1 px-2.5 py-1">
+          <Sparkles size={10} /> Usar
+        </button>
+      </div>
+
+      {viewing && (
+        <PromptReferenceViewer title={template.name} images={viewerImages} onClose={() => setViewing(false)} />
+      )}
+    </div>
+  )
+}
+
 export function PromptLibrary() {
   const {
-    entries, addEntry, updateEntry, removeEntry,
+    entries, builtins, loadBuiltins, addEntry, updateEntry, removeEntry,
     addReference, removeReference,
   } = usePromptLibraryStore()
+
+  const [tab, setTab] = useState<'mine' | 'openfield' | 'review'>('openfield')
+  useEffect(() => { loadBuiltins() }, [loadBuiltins])
 
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<'all' | 'image' | 'video'>('all')
@@ -491,6 +642,38 @@ export function PromptLibrary() {
     if (kindFilter !== 'all') result = result.filter(e => e.kind === kindFilter)
     return result
   }, [entries, search, kindFilter])
+
+  const filteredTemplates = useMemo(() => {
+    let result = builtins
+    if (search) {
+      const q = search.toLowerCase()
+      result = result.filter(t =>
+        t.name.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q) ||
+        (CATEGORY_LABELS[t.category] || t.category).toLowerCase().includes(q) ||
+        t.tags.some(tag => tag.toLowerCase().includes(q)) ||
+        t.types.some(tag => tag.toLowerCase().includes(q)) ||
+        t.models.some(tag => tag.toLowerCase().includes(q))
+      )
+    }
+    if (kindFilter !== 'all') result = result.filter(t => t.kind === kindFilter)
+    return result
+  }, [builtins, search, kindFilter])
+
+  const handleSaveTemplate = async (t: BuiltinTemplate) => {
+    await addEntry({
+      name: t.name,
+      prompt: t.prompt,
+      kind: t.kind,
+      references: [],
+      tags: t.tags,
+      category: t.category,
+      description: t.description,
+      models: t.models,
+      types: t.types,
+    })
+    setTab('mine')
+  }
 
   const handleAddFile = async (file: File, targetId: string) => {
     if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) return
@@ -527,14 +710,23 @@ export function PromptLibrary() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-800 flex-shrink-0">
-        <h1 className="text-sm font-semibold text-surface-100 flex items-center gap-2">
+      <div className="flex items-center flex-wrap gap-x-3 gap-y-2 px-4 py-3 border-b border-surface-800 flex-shrink-0">
+        <h1 className="text-sm font-semibold text-surface-100 flex items-center gap-2 whitespace-nowrap">
           <FileText size={16} className="text-accent-400" />
           Prompt Library
         </h1>
-        <span className="text-[10px] text-surface-600">{filtered.length} prompts</span>
+        <span className="text-[10px] text-surface-600 whitespace-nowrap">{tab === 'mine' ? filtered.length : tab === 'openfield' ? filteredTemplates.length : entries.length + builtins.length} prompts</span>
 
         <div className="flex items-center gap-1 ml-4">
+          {([['openfield', 'Openfield'], ['mine', 'Mis prompts'], ['review', 'Revisión']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={`text-[10px] px-2 py-1 rounded-pill whitespace-nowrap transition-all ${tab === k ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30' : 'bg-surface-800 text-surface-500 border border-surface-700 hover:text-surface-300'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1 ml-2">
           {(['all', 'image', 'video'] as const).map(k => (
             <button key={k} onClick={() => setKindFilter(k)}
               className={`text-[10px] px-2 py-1 rounded-pill transition-all capitalize ${kindFilter === k ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30' : 'bg-surface-800 text-surface-500 border border-surface-700 hover:text-surface-300'}`}>
@@ -548,7 +740,7 @@ export function PromptLibrary() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="input-field pl-8 text-xs w-[180px]" />
         </div>
 
-        <button onClick={() => setShowAdd(!showAdd)} className="btn-primary text-xs flex items-center gap-1.5">
+        <button onClick={() => setShowAdd(!showAdd)} className="btn-primary text-xs flex items-center gap-1.5 whitespace-nowrap">
           <Plus size={12} /> New Prompt
         </button>
       </div>
@@ -580,11 +772,27 @@ export function PromptLibrary() {
 
       {/* Card grid */}
       <div className="flex-1 overflow-y-auto p-4">
-        {filtered.length === 0 ? (
+        {tab === 'review' ? (
+          <PromptLibraryReview search={search} kindFilter={kindFilter} />
+        ) : tab === 'openfield' ? (
+          <div className="max-w-7xl mx-auto">
+            <p className="text-[11px] text-surface-500 mb-4">
+              Plantillas curadas por Openfield. Los agentes conectados por MCP las consultan como referencia y las adaptan a tu marca; guarda una copia para editarla.
+            </p>
+            {filteredTemplates.length === 0 ? (
+              <p className="text-sm text-surface-600 text-center py-20">Sin resultados</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {filteredTemplates.map(t => <TemplateCard key={t.id} template={t} onSave={handleSaveTemplate} />)}
+              </div>
+            )}
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-surface-600">
             <FileText size={48} className="mb-4 opacity-50" />
             <p className="text-sm">No prompts yet</p>
             <button onClick={() => setShowAdd(true)} className="text-xs text-accent-400 hover:text-accent-300 mt-2">Create your first prompt</button>
+            <button onClick={() => setTab('openfield')} className="text-xs text-accent-400 hover:text-accent-300 mt-1">Ver las {builtins.length} plantillas de Openfield</button>
           </div>
         ) : (
           <div className="max-w-7xl mx-auto">
