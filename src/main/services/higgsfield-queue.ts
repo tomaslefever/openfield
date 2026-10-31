@@ -26,6 +26,9 @@ import {
   type AiInfluencerInput,
   type AiInfluencerTier,
   type GenjutsuMotionTransferInput,
+  CINEMA_STUDIO_4_CONTROLS,
+  type CinemaStudio4Control,
+  type CinemaStudio4Input,
   type HiggsfieldStatusResponse,
   type HiggsfieldCompletedStatus,
   type SeedanceResolution,
@@ -80,6 +83,55 @@ export function buildAiInfluencerInput(opts: any, prompt: string, imageUrls: str
     if (typeof opts?.bodyColor === 'string' && /^#[0-9a-f]{6}$/i.test(opts.bodyColor)) input.body_color = opts.bodyColor.toUpperCase()
     if (tier === 'insects' && typeof opts?.pinnedSpecies === 'string' && opts.pinnedSpecies.trim()) {
       input.pinned_species = opts.pinnedSpecies.trim().slice(0, 64)
+    }
+  }
+  return input
+}
+
+/**
+ * Cinema Studio 4.0 request body. One endpoint: text-to-video with no media, reference-to-video
+ * when any media array is nonempty. Creative controls (era, genre, light, pacing, camera_*,
+ * color_palette) are read from the payload as snake_case keys and sent only when they hold a
+ * documented value: an omitted field lets the director choose, and "auto" is rejected by the API.
+ */
+export function buildCinemaStudio4Input(
+  payload: any,
+  prompt: string,
+  imageUrls: string[],
+  videoUrls: string[],
+  audioUrls: string[],
+  generateAudio: boolean,
+): CinemaStudio4Input {
+  if (!/\S/.test(prompt)) throw new Error('Cinema Studio 4.0 necesita un prompt')
+  if (imageUrls.length > 30) throw new Error('Cinema Studio 4.0 acepta hasta 30 imágenes de referencia')
+  if (videoUrls.length > 10) throw new Error('Cinema Studio 4.0 acepta hasta 10 videos de referencia')
+  if (audioUrls.length > 10) throw new Error('Cinema Studio 4.0 acepta hasta 10 audios de referencia')
+
+  let duration = Math.round(Number(payload?.duration) || 5)
+  if (duration < 4) duration = 4
+  if (duration > 30) duration = 30
+
+  const resolution: '480p' | '720p' = String(payload?.resolution || '').includes('480') ? '480p' : '720p'
+
+  let aspect_ratio: SeedanceAspectRatio = '16:9'
+  const arStr = String(payload?.aspectRatio || payload?.aspect_ratio || '').toLowerCase()
+  if (['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'].includes(arStr)) aspect_ratio = arStr as SeedanceAspectRatio
+
+  const input: CinemaStudio4Input = {
+    prompt,
+    duration,
+    resolution,
+    aspect_ratio,
+    generate_audio: generateAudio,
+    ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
+    ...(videoUrls.length > 0 ? { video_urls: videoUrls } : {}),
+    ...(audioUrls.length > 0 ? { audio_urls: audioUrls } : {}),
+  }
+
+  for (const key of Object.keys(CINEMA_STUDIO_4_CONTROLS) as CinemaStudio4Control[]) {
+    const value = String(payload?.[key] ?? '').trim().toLowerCase()
+    if ((CINEMA_STUDIO_4_CONTROLS[key] as readonly string[]).includes(value)) {
+      (input as Record<string, unknown>)[key] = value
     }
   }
   return input
@@ -495,6 +547,8 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
 
       const isAiInfluencer = modelStr.includes('ai-influencer')
       const isMotionTransfer = /genjutsu(-light)?\/motion-transfer/.test(modelStr)
+      // 'higgsfield/soul-2-0/text-to-video' is the id of the old "Soul 2.0 Cinema" entry
+      const isCinemaStudio4 = modelStr.includes('cinema-studio/4.0') || modelStr.includes('soul-2-0')
 
       if (isAiInfluencer) {
         endpoint = '/higgsfield/ai-influencer'
@@ -519,6 +573,9 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
         }
         if (prompt) mtInput.prompt = prompt.slice(0, 10000)
         input = mtInput
+      } else if (isCinemaStudio4) {
+        endpoint = '/higgsfield/cinema-studio/4.0'
+        input = buildCinemaStudio4Input(payload, prompt, resolvedImageUrls, resolvedVideoUrls, resolvedAudioUrls, generateAudio)
       } else if (isMarketingStudio) {
         endpoint = '/marketing-studio/image'
         const isMarketplace = modelStr.includes('marketplace')
@@ -652,12 +709,15 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
             ...(payload?.seed !== undefined ? { seed: payload.seed } : {}),
           }
         } else {
-          // Soul Image 2.0 / Soul Standard / default
-          if (endpoint.includes('soul/cinema') || endpoint.includes('soul/standard')) {
+          // Soul v1 (soul/standard), Soul Cinema (soul/cinema), Soul Image 2.0 (soul/v2/standard, default)
+          if (endpoint.includes('soul/cinema')) {
+            endpoint = '/higgsfield-ai/soul/cinema'
+          } else if (endpoint.includes('soul/standard') && !endpoint.includes('soul/v2')) {
             endpoint = '/higgsfield-ai/soul/standard'
           } else {
             endpoint = '/higgsfield-ai/soul/v2/standard'
           }
+          const isSoulV1 = endpoint === '/higgsfield-ai/soul/standard'
 
           let resolution: '720p' | '1080p' = '720p'
           const resStr = String(payload?.resolution || '').toLowerCase().trim()
@@ -676,9 +736,12 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
             aspect_ratio,
             resolution,
             enhance_prompt: payload?.enhancePrompt ?? true,
-            ...(firstFrameUrl ? { image_url: firstFrameUrl } : {}),
-            ...(payload?.seed !== undefined ? { seed: payload.seed } : {}),
-            ...(payload?.batchSize ? { batch_size: payload.batchSize } : { batch_size: 1 }),
+            // Only Soul v1 takes an image, as image_reference_url (it guides prompt enhancement)
+            ...(isSoulV1 && firstFrameUrl ? { image_reference_url: firstFrameUrl } : {}),
+            // Cinema and v2 reject an explicit null seed
+            ...(payload?.seed != null ? { seed: payload.seed } : {}),
+            // The API takes 1 or 4, but only images[0] is saved, so a batch of 4 would bill 4 for 1
+            batch_size: 1,
           }
         }
       } else if (isKling) {

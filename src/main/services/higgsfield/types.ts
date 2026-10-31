@@ -281,8 +281,57 @@ export interface GenjutsuMotionTransferInput {
   resolution?: '480p' | '720p' | '1080p'
 }
 
+// ─── Cinema Studio 4.0 ──────────────────────────────────────
+
+/** Creative-control fields. Omit one to let the director pick it; "auto" is rejected */
+export const CINEMA_STUDIO_4_CONTROLS = {
+  era: ['1960s', '1980s', '1990s', '2000s', '2020s'],
+  genre: ['epic', 'drama', 'noir', 'comedy', 'horror', 'action'],
+  light: ['silhouette', 'practicals', 'window', 'overhead-fall', 'contre-jour', 'soft-cross'],
+  pacing: ['chaotic', 'dynamic', 'calm', 'single-shot'],
+  camera_lens: ['clean-sharp', 'anamorphic', 'vintage-anamorphic', 'warm-vintage', 'halation-vintage'],
+  camera_model: ['modern', '35mm-film', '8mm-film', 'dv-camcorder'],
+  camera_aperture: ['f14-wide-open', 'f4-moderate', 'f11-deep-focus'],
+  camera_movement: [
+    'snorricam', 'robot-arm', 'tilt-up', 'rack-focus', 'tilt-down', 'pov', 'pan-left', 'crane-up',
+    'pan-right', 'crane-down', 'side-tracking', 'pedestal-up', 'pedestal-down', 'handheld', 'tracking',
+    'drone-orbit', 'dolly-zoom', 'aerial-pullback', 'static-shot', 'bullet-time', 'whip-pan',
+    'slow-zoom-in', 'arc-left', 'slow-zoom-out', 'arc-right', 'truck-right', 'dolly-in', 'truck-left',
+    'dolly-out', 'slider-right', 'crush-zoom', 'slider-left', 'helicopter-shot',
+  ],
+  color_palette: [
+    'static-noon', 'twilight-fable', 'back-row-kissing-seats', 'on-the-other-side-of-the-porthole',
+    'the-emerald-ambush', 'highway-standoff', 'the-faded-fresco', 'oil-ochre', 'the-mountain-convent',
+    'ghost-in-the-code', 'pink-velvet', 'two-days-to-the-horizon', 'industrial-fog', 'stairs-go-up',
+    'field-post', 'home-is-the-next-gas-station', 'glossy-flesh', 'the-crimson-ballet',
+    'neon-rain-at-midnight', 'the-morning-after-rain', 'the-iron-borough', 'the-ground',
+    'the-investigation', 'turquoise-mirage', 'a-dream-in-color', 'breakfast-on-schedule', 'favela-gold',
+    'a-hotel-for-one', 'after-dark', 'crimson-vigi', 'the-neighbors-saw-everything', 'the-grey-channel',
+    'mirage-at-noon', 'bubblegum-boulevard', 'yellow-room', 'the-earth-keeps-things-reluctantly',
+    'tropic-fever-dream', 'bioluminescent-night', 'dont-turn-it-off-im-watching',
+    'the-silk-curtain-falls', 'the-butterfly', 'playtime', 'wallpaper-romance', 'overtime',
+    'the-way-home-is-longer', 'everyone-speaks-in-whispers', 'runaway-summer', 'amber-wasteland',
+    'the-circus', 'gasoline-sunset',
+  ],
+} as const
+
+export type CinemaStudio4Control = keyof typeof CINEMA_STUDIO_4_CONTROLS
+
+export type CinemaStudio4Input = {
+  prompt: string
+  /** 4 – 30 s, default 5 */
+  duration?: number
+  resolution?: '480p' | '720p'
+  aspect_ratio?: SeedanceAspectRatio
+  generate_audio?: boolean
+  /** Prompt tokens <<<image_1>>>, <<<video_1>>>, <<<audio_1>>> point into these, one-based */
+  image_urls?: string[]
+  video_urls?: string[]
+  audio_urls?: string[]
+} & { [K in CinemaStudio4Control]?: (typeof CINEMA_STUDIO_4_CONTROLS)[K][number] }
+
 export type HiggsfieldVideoInput = SeedanceInput | Kling30StdInput | Wan30Input | Wan30PrimeInput | MiniMaxH3Input | MiniMaxH3RefInput | MiniMaxHailuoInput
-export type HiggsfieldModelInput = HiggsfieldVideoInput | HiggsfieldImageInput | MarketingStudioImageInput | AiInfluencerInput | GenjutsuMotionTransferInput | Record<string, any>
+export type HiggsfieldModelInput = HiggsfieldVideoInput | HiggsfieldImageInput | MarketingStudioImageInput | AiInfluencerInput | GenjutsuMotionTransferInput | CinemaStudio4Input | Record<string, any>
 
 // ─── Storage / Uploads ──────────────────────────────────────
 
