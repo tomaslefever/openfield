@@ -66,7 +66,7 @@ const LOOPBACK_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i
 const WORKSPACE_SCOPED_TOOLS = new Set([
   'generate', 'recreate_generation', 'import_asset', 'list_assets',
   'generate_scene_image', 'generate_scene_video', 'generate_transition',
-  'voice_generate', 'music_generate', 'timeline_list', 'timeline_create',
+  'voice_generate', 'music_generate', 'video_to_music', 'timeline_list', 'timeline_create',
 ])
 const WORKSPACE_ID_PROP = {
   type: 'string',

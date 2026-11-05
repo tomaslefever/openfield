@@ -4,13 +4,19 @@ import {
   MUSIC_MIN_SECONDS,
   USD_PER_LINE,
   USD_PER_MUSIC_SECOND,
+  VIDEO_TO_MUSIC_MAX_DESCRIPTION,
+  VIDEO_TO_MUSIC_MAX_SECONDS,
+  VIDEO_TO_MUSIC_MAX_TAGS,
+  VIDEO_TO_MUSIC_MAX_VIDEOS,
   VOICE_DEFAULTS,
   composeMusic,
   creditsPerChar,
   hasElevenLabsKey,
   lastVoiceSettings,
   listVoices,
+  probeVideoInputs,
   synthesizeSpeech,
+  videoToMusic,
   type VoiceSettings,
 } from '../voice-service'
 import { type McpTool, ToolInputError, READ_ONLY, GENERATE, str, num, optStr } from './types'
@@ -67,7 +73,7 @@ export function getVoiceTools(): McpTool[] {
     {
       name: 'voice_generate',
       title: 'Generate voice lines (ElevenLabs)',
-      description: 'Text-to-speech with ElevenLabs, one library audio asset per line (prompt = the line, model_used = elevenlabs:<voice_id>, so the Timeline treats them as voices for autoducking). Several lines per call, generated in order; a failing line is reported and the rest still run. Settings default to those of the latest line made with the same voice (else eleven_v4, stability 0.5, similarity 0.75, style 0, speed 1). Spends the user\'s ElevenLabs credits: call with estimate_only: true first to get characters, credits and the estimated cost without generating. Audio tags like [pause] or [firmly] work with eleven_v3/v4.',
+      description: 'Text-to-speech with ElevenLabs, one library audio asset per line (prompt = the line, model_used = elevenlabs:<voice_id>, so the Timeline treats them as voices for autoducking). Several lines per call, generated in order; a failing line is reported and the rest still run. Settings default to those of the latest line made with the same voice (else eleven_v4, stability 0.5, similarity 0.75, style 0, speed 1). Spends the user\'s ElevenLabs credits: call with estimate_only: true first to get characters, credits and the estimated cost without generating. Audio tags like [pause] or [firmly] work with eleven_v3, eleven_v4 and eleven_v4_turbo (~100 ms latency, half the price per character of eleven_v4).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -86,7 +92,7 @@ export function getVoiceTools(): McpTool[] {
             },
             description: `Up to ${MAX_LINES} lines`,
           },
-          model: { type: 'string', description: 'ElevenLabs model id, e.g. eleven_v4, eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5' },
+          model: { type: 'string', description: 'ElevenLabs model id, e.g. eleven_v4, eleven_v4_turbo, eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5' },
           language_code: { type: 'string', description: 'ISO-639-1 language to enforce (models that support it)' },
           stability: { type: 'number', minimum: 0, description: '0..1' },
           similarity_boost: { type: 'number', minimum: 0, description: '0..1' },
@@ -197,6 +203,69 @@ export function getVoiceTools(): McpTool[] {
           ...r,
           estimate,
           next: 'Place it with timeline_add_clips on an audio track; timeline_autoducking or timeline_set_ducking lowers it under the voices.',
+        }
+      },
+    },
+    {
+      name: 'video_to_music',
+      title: 'Score videos with music (ElevenLabs Video to Music)',
+      description: `Compose music that follows one or more library videos with ElevenLabs Video to Music. Up to ${VIDEO_TO_MUSIC_MAX_VIDEOS} videos (200 MB and ${VIDEO_TO_MUSIC_MAX_SECONDS} s combined) are joined in the given order and scored as one piece, so the track lasts about as long as the videos together. add_sfx also adds sound effects matched to the picture; separate_tracks returns music and effects as two assets instead of one mix. Results go to the library as audio assets (model_used elevenlabs:music, or elevenlabs:sfx for a separate effects track). Spends the user's ElevenLabs credits; ElevenLabs publishes no separate Video to Music price, so estimate_only: true returns an estimate at the ElevenLabs Music rate without generating. Takes up to several minutes.`,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          video_asset_ids: { type: 'array', minItems: 1, items: { type: 'string' }, description: `Library video asset ids, in playback order (up to ${VIDEO_TO_MUSIC_MAX_VIDEOS})` },
+          description: { type: 'string', description: `Optional description of the music: genre, instruments, mood, arc (up to ${VIDEO_TO_MUSIC_MAX_DESCRIPTION} characters). Do not name real artists or copyrighted works.` },
+          tags: { type: 'array', items: { type: 'string' }, description: `Optional style tags, e.g. upbeat, cinematic (up to ${VIDEO_TO_MUSIC_MAX_TAGS})` },
+          use_audio_as_reference: { type: 'boolean', description: 'Take genre, BPM, instruments and mood from the videos\' own audio' },
+          add_sfx: { type: 'boolean', description: 'Also add sound effects matched to the picture' },
+          separate_tracks: { type: 'boolean', description: 'Return music and sound effects as separate assets (with add_sfx)' },
+          name: { type: 'string', description: 'Optional file name for the asset(s), e.g. ep1_score' },
+          estimate_only: { type: 'boolean', description: 'Only check the videos and return the estimated cost; nothing is generated or charged' },
+        },
+        required: ['video_asset_ids'],
+        additionalProperties: false,
+      },
+      annotations: GENERATE,
+      handler: async (args) => {
+        const ids: string[] = Array.isArray(args.video_asset_ids) ? args.video_asset_ids.map((v: any) => str(v).trim()).filter(Boolean) : []
+        if (ids.length === 0) throw new ToolInputError('video_asset_ids is empty')
+        if (ids.length > VIDEO_TO_MUSIC_MAX_VIDEOS) throw new ToolInputError(`video_to_music takes at most ${VIDEO_TO_MUSIC_MAX_VIDEOS} videos`)
+        const tags: string[] = Array.isArray(args.tags) ? args.tags.map((t: any) => str(t).trim()).filter(Boolean) : []
+        if (tags.length > VIDEO_TO_MUSIC_MAX_TAGS) throw new ToolInputError(`tags takes at most ${VIDEO_TO_MUSIC_MAX_TAGS} entries`)
+        const description = optStr(args.description)?.trim()
+        if (description && description.length > VIDEO_TO_MUSIC_MAX_DESCRIPTION) throw new ToolInputError(`description takes at most ${VIDEO_TO_MUSIC_MAX_DESCRIPTION} characters`)
+
+        let videos
+        try {
+          videos = await probeVideoInputs(ids)
+        } catch (err: any) {
+          throw new ToolInputError(err?.message || String(err))
+        }
+        const seconds = Math.round(videos.reduce((n, v) => n + v.seconds, 0) * 1000) / 1000
+        const estimate = {
+          videos: videos.length,
+          videoSeconds: seconds,
+          estimatedUsd: Math.round(seconds * USD_PER_MUSIC_SECOND * 1000) / 1000,
+          pricingNote: 'ElevenLabs publishes no Video to Music price; estimated at the ElevenLabs Music per-second rate',
+        }
+        if (args.estimate_only === true) {
+          return { ...estimate, note: 'Nothing was generated. Call again without estimate_only to run it.' }
+        }
+        requireKey()
+        const r = await videoToMusic({
+          videoAssetIds: ids,
+          description,
+          tags,
+          useAudioAsReference: args.use_audio_as_reference === true,
+          addSfx: args.add_sfx === true,
+          separateTracks: args.separate_tracks === true,
+          name: optStr(args.name),
+        })
+        try { notifyAssetsChanged() } catch {}
+        return {
+          ...r,
+          estimate,
+          next: 'Place the track(s) with timeline_add_clips on an audio track starting where the first video starts; timeline_autoducking lowers the music under the voices.',
         }
       },
     },

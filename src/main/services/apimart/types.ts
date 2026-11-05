@@ -107,12 +107,25 @@ export interface ApimartUploadResponse {
   }
 }
 
+/**
+ * Per-model request builder used by apimart-queue. Models without a builder use
+ * the legacy generic payload (model/prompt/mode/duration/aspect_ratio/audio/image_urls).
+ */
+export type ApimartRequestBuilder =
+  | 'kling-v4'
+  | 'vidu-q4'
+  | 'veo-official'
+  | 'minimax-h3-max'
+  | 'flux-3'
+  | 'nano-banana-2.1'
+  | 'flowmusic'
+
 export interface ApimartModelDef {
   id: string
   name: string
   category: string
-  type: 'image' | 'video'
-  supportedTasks: Array<'T2I' | 'I2I' | 'T2V' | 'I2V' | 'R2V' | 'FFLF' | 'EXTEND'>
+  type: 'image' | 'video' | 'audio'
+  supportedTasks: Array<'T2I' | 'I2I' | 'T2V' | 'I2V' | 'R2V' | 'FFLF' | 'EXTEND' | 'EDIT' | 'T2M'>
   resolutions?: string[]
   aspectRatios?: string[]
   durationOptions?: string[]
@@ -123,6 +136,47 @@ export interface ApimartModelDef {
   pricing?: {
     resolution: string
     cost: number
+    /** Per-second rate charged for input video seconds (edit / reference with video). */
+    costWithVideoInput?: number
+    /** Per-second rate when native audio is generated, if it differs from `cost`. */
+    costWithAudio?: number
   }[]
   unit: 'img' | 's' | 'video'
+  /** Model id sent to the API when it differs from `id` (e.g. Flow Music: id 'flowmusic-lyria-3.5', api 'flowmusic'). */
+  apiModel?: string
+  /** Flow Music `version` field. */
+  apiVersion?: string
+  builder?: ApimartRequestBuilder
+}
+
+export interface ApimartMusicRequest {
+  model: string
+  version?: string
+  sound_prompt?: string
+  lyrics?: string
+  title?: string
+  bpm?: string
+  length?: number
+  seed?: string
+  [key: string]: any
+}
+
+export interface ApimartMusicTaskData {
+  id?: string
+  task_id?: string
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled' | string
+  progress?: number
+  result?: {
+    music?: Array<{ audio_url?: string; wav_url?: string; title?: string; duration?: number; [key: string]: any }>
+    [key: string]: any
+  }
+  error?: { code?: number; message?: string; type?: string }
+  fail_reason?: string
+  [key: string]: any
+}
+
+export interface ApimartMusicTaskResponse {
+  code?: number
+  data?: ApimartMusicTaskData
+  error?: { code?: number; message?: string; type?: string }
 }

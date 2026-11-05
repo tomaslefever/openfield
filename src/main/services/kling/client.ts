@@ -2,6 +2,7 @@ import * as fs from 'fs/promises'
 import * as syncFs from 'fs'
 import type {
   KlingImageToVideoRequest,
+  KlingOmniVideoRequest,
   KlingResponse,
   KlingTask,
   KlingTaskSummary,
@@ -56,6 +57,14 @@ export class KlingApiClient {
 
   async imageToVideo(model: string, params: KlingImageToVideoRequest): Promise<KlingTaskSummary> {
     return this.request<KlingTaskSummary>(`/image-to-video/${encodeURIComponent(model)}`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
+  /** Omni reference generation (Kling 4.0 / 4.0 Flash): images, feature/base videos, Elements */
+  async omniVideo(model: string, params: KlingOmniVideoRequest): Promise<KlingTaskSummary> {
+    return this.request<KlingTaskSummary>(`/omni-video/${encodeURIComponent(model)}`, {
       method: 'POST',
       body: JSON.stringify(params),
     })

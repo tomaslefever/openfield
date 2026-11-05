@@ -7,7 +7,7 @@ import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
 import { redactPayload } from './payload-redact'
 import { persistMediaToAssets, hydratePayloadMedia } from './media-persist'
-import { ReplicateApiClient, REPLICATE_MODELS, getReplicateModel, type Prediction } from './replicate'
+import { ReplicateApiClient, getReplicateModel, resolveReplicateModelId, P_VIDEO_AVATAR_VOICES, P_VIDEO_AVATAR_LANGUAGES, type Prediction } from './replicate'
 import { pVideo2Kind, buildPVideo2Input, validatePVideo2Input, type MediaRef } from './pruna/inputs'
 import { registerRecoverableProvider, readApiKey, canAutoResume, RemoteJobFailedError, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
 
@@ -23,15 +23,43 @@ function logRun(raw: any, taskId: string, step: string, message: string, payload
 }
 
 function modelVersion(modelId: string): string {
-  const entry = REPLICATE_MODELS.find(m => m.id === modelId)
-  return entry?.version || ''
+  return getReplicateModel(modelId)?.version || ''
 }
 
-/** The owner/name Replicate expects for a catalog id */
+/** The owner/name Replicate expects for a catalog id (legacy ids resolve to their replacement) */
 function apiModelId(modelId: string): string {
-  const entry = REPLICATE_MODELS.find(m => m.id === modelId)
-  return entry?.apiModel || modelId
+  const entry = getReplicateModel(modelId)
+  return entry?.apiModel || entry?.id || modelId
 }
+
+/** Inline data URI, or the remote URL a ref already has (sync twin of replicateMediaUri) */
+function mediaUri(ref: MediaRef | undefined, fallbackMime: string): string | undefined {
+  if (ref?.base64) return /^(data:|https?:)/.test(ref.base64) ? ref.base64 : `data:${ref.mime || fallbackMime};base64,${ref.base64}`
+  return typeof ref?.url === 'string' && /^https?:\/\//.test(ref.url) ? ref.url : undefined
+}
+
+/**
+ * Media of a payload as data URIs / URLs. The composer sends Replicate models only imageBase64
+ * (the first image); imageRefs, when present, carry every image.
+ */
+function collectMedia(payload: any) {
+  const list = (refs: any, mime: string) => (Array.isArray(refs) ? refs : [])
+    .map((r: MediaRef) => mediaUri(r, mime)).filter(Boolean) as string[]
+  const refImages = list(payload.imageRefs, 'image/png')
+  const single = mediaUri({ base64: payload.imageBase64, url: payload.imageUrl, mime: payload.imageMime }, 'image/png')
+  return {
+    images: refImages.length ? refImages : single ? [single] : [],
+    videos: list(payload.videoRefs, 'video/mp4'),
+    audios: list(payload.audioRefs, 'audio/mpeg'),
+    firstFrame: mediaUri({ base64: payload.firstFrameBase64, url: payload.firstFrameUrl }, 'image/png'),
+    lastFrame: mediaUri({ base64: payload.lastFrameBase64, url: payload.lastFrameUrl }, 'image/png'),
+  }
+}
+
+type Media = ReturnType<typeof collectMedia>
+
+const clampInt = (v: unknown, min: number, max: number, fallback: number) =>
+  Math.min(max, Math.max(min, Math.round(Number(v) || fallback)))
 
 function isLipsync(modelId: string): boolean {
   return (modelId || '').startsWith('sync/lipsync')
@@ -44,8 +72,7 @@ async function replicateMediaUri(ref: MediaRef, fallbackMime: string): Promise<s
 }
 
 function modelName(modelId: string): string {
-  const entry = REPLICATE_MODELS.find(m => m.id === modelId)
-  return entry?.name || modelId
+  return getReplicateModel(modelId)?.name || modelId
 }
 
 export class ReplicateQueue extends EventEmitter implements RecoverableQueue {
@@ -111,7 +138,215 @@ export class ReplicateQueue extends EventEmitter implements RecoverableQueue {
     }
   }
 
+  /** Per-model inputs for models whose schema the generic builder below does not fit */
+  private buildModelInput(payload: any): Record<string, any> | null {
+    const id = resolveReplicateModelId(String(payload.model || ''))
+    const media = collectMedia(payload)
+    switch (apiModelId(id)) {
+      case 'kwaivgi/kling-v3-video': return this.buildKlingV3Input(payload, media)
+      case 'kwaivgi/kling-v4.0': return this.buildKlingV4Input(payload, media)
+      case 'minimax/h3-lite':
+      case 'minimax/h3-highspeed': return this.buildMinimaxH3Input(payload, media, apiModelId(id) === 'minimax/h3-lite')
+      case 'google/veo-3.1-lite':
+      case 'google/veo-3.1-fast': return this.buildVeo31Input(payload, media, id === 'google/veo-3.1-lite')
+      case 'prunaai/p-video-2-pro-avatar': return this.buildPVideo2ProAvatarInput(payload, media)
+      case 'openai/gpt-image-2.6-flare':
+      case 'openai/gpt-image-2.6-sunburst': return this.buildGptImage26Input(payload, media)
+      case 'black-forest-labs/flux-3-image': return this.buildFlux3ImageInput(payload, media)
+      case 'ideogram-ai/ideogram-4-5': return this.buildIdeogram45Input(payload, media)
+      case 'ideogram-ai/ideogram-4-5-precise-edit': return this.buildIdeogram45PreciseEditInput(payload, media)
+      case 'krea/krea-3': return this.buildKrea3Input(payload, media)
+    }
+    return null
+  }
+
+  /** Kling 3.0 (kwaivgi): start / end frame; mode standard (720p), pro (1080p) or 4k; 3–15 s */
+  private buildKlingV3Input(payload: any, m: Media): Record<string, any> {
+    const input: Record<string, any> = { prompt: payload.prompt || '' }
+    const start = m.firstFrame || m.images[0]
+    if (start) input.start_image = start
+    // The end frame needs a start frame
+    if (start && m.lastFrame) input.end_image = m.lastFrame
+    const res = String(payload.resolution || '').toLowerCase()
+    input.mode = res === '4k' ? '4k' : res === '1080p' ? 'pro' : 'standard'
+    if (!start && ['16:9', '9:16', '1:1'].includes(payload.aspectRatio)) input.aspect_ratio = payload.aspectRatio
+    if (payload.duration) input.duration = clampInt(payload.duration, 3, 15, 5)
+    // Audio raises the price by half; only on when asked for
+    input.generate_audio = payload.sound === true || payload.sound === 'on'
+    return input
+  }
+
+  /**
+   * Kling 4.0 (kwaivgi), one model for every mode, routed like the fal/KIE Kling 4.0: FF/LF →
+   * keyframes (other images become middle keyframes); 2+ images or any video → references
+   * (@image_N / @video_N); one image → start frame; else text. Up to 10 images in total.
+   */
+  private buildKlingV4Input(payload: any, m: Media): Record<string, any> {
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      resolution: String(payload.resolution || '').toLowerCase() === '720p' ? '720p' : '1080p',
+    }
+    let framed = false
+    if (m.firstFrame || m.lastFrame) {
+      framed = true
+      if (m.firstFrame) input.start_image = m.firstFrame
+      if (m.lastFrame) input.end_image = m.lastFrame
+      const room = 10 - (m.firstFrame ? 1 : 0) - (m.lastFrame ? 1 : 0)
+      if (m.images.length) input.middle_images = m.images.slice(0, Math.min(8, room))
+    } else if (m.videos.length || m.images.length > 1) {
+      if (m.images.length) input.reference_images = m.images.slice(0, 10)
+    } else if (m.images.length === 1) {
+      framed = true
+      input.start_image = m.images[0]
+    }
+    if (m.videos.length) input.reference_videos = m.videos.slice(0, 5)
+    // The aspect ratio comes from the frames when there are any
+    if (!framed && ['16:9', '9:16', '1:1', '21:9'].includes(payload.aspectRatio)) input.aspect_ratio = payload.aspectRatio
+    if (payload.duration) input.duration = clampInt(payload.duration, 3, 30, 5)
+    return input
+  }
+
+  /**
+   * MiniMax H3 Lite / Highspeed: first/last frame plus up to 9 reference images, 3 videos and
+   * 3 audios; 4–15 s. Lite renders 480P or 768P; Highspeed only 768P (and has an adaptive ratio).
+   */
+  private buildMinimaxH3Input(payload: any, m: Media, lite: boolean): Record<string, any> {
+    if (!payload.prompt) throw new Error('MiniMax H3 requiere un prompt.')
+    const input: Record<string, any> = { prompt: payload.prompt }
+    if (m.firstFrame) input.first_frame_image = m.firstFrame
+    if (m.lastFrame) input.last_frame_image = m.lastFrame
+    // The API asks for public URLs here; data URIs are sent for local files
+    if (m.images.length) input.reference_image_urls = m.images.slice(0, 9)
+    if (m.videos.length) input.reference_video_urls = m.videos.slice(0, 3)
+    if (m.audios.length) input.reference_audio_urls = m.audios.slice(0, 3)
+    input.duration = clampInt(payload.duration, 4, 15, 5)
+    if (lite) input.resolution = String(payload.resolution || '').toUpperCase() === '480P' ? '480P' : '768P'
+    const ratios = lite ? ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] : ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
+    if (!lite && m.firstFrame && (!payload.aspectRatio || payload.aspectRatio === 'auto')) input.ratio = 'adaptive'
+    else if (ratios.includes(payload.aspectRatio)) input.ratio = payload.aspectRatio
+    return input
+  }
+
+  /** Veo 3.1 Lite / Fast: start (+ end) frame, 16:9 or 9:16, 4/6/8 s. Lite at 1080p is 8 s only. */
+  private buildVeo31Input(payload: any, m: Media, lite: boolean): Record<string, any> {
+    const input: Record<string, any> = { prompt: payload.prompt || '' }
+    const image = m.firstFrame || m.images[0]
+    if (image) input.image = image
+    if (image && m.lastFrame) input.last_frame = m.lastFrame
+    if (['16:9', '9:16'].includes(payload.aspectRatio)) input.aspect_ratio = payload.aspectRatio
+    const res = String(payload.resolution || '720p').toLowerCase() === '1080p' ? '1080p' : '720p'
+    input.resolution = res
+    const wanted = Number(payload.duration) || 8
+    const duration = [4, 6, 8].reduce((best, d) => Math.abs(d - wanted) < Math.abs(best - wanted) ? d : best, 8)
+    input.duration = lite && res === '1080p' ? 8 : duration
+    // Fast: audio costs $0.15/s vs $0.10/s without; Lite always has audio
+    if (!lite) input.generate_audio = payload.sound !== false && payload.sound !== 'off'
+    return input
+  }
+
+  /**
+   * P-Video 2 Pro Avatar: a portrait speaks an audio track (the video matches its length) or, with
+   * no audio, the prompt as a script read with Gemini TTS (voice and language from the composer).
+   */
+  private buildPVideo2ProAvatarInput(payload: any, m: Media): Record<string, any> {
+    const image = m.firstFrame || m.images[0]
+    if (!image) throw new Error('P-Video 2 Pro Avatar requiere un retrato.')
+    const input: Record<string, any> = { image }
+    if (m.audios[0]) {
+      input.audio = m.audios[0]
+      if (payload.prompt) input.prompt = payload.prompt
+    } else {
+      if (!payload.prompt) throw new Error('P-Video 2 Pro Avatar requiere un audio o un guion en el prompt.')
+      input.voice_script = payload.prompt
+      if (P_VIDEO_AVATAR_VOICES.includes(payload.voice)) input.voice = payload.voice
+      if (P_VIDEO_AVATAR_LANGUAGES.includes(payload.voiceLanguage)) input.voice_language = payload.voiceLanguage
+    }
+    const res = String(payload.resolution || '768p').toLowerCase()
+    input.resolution = ['480p', '768p', '1080p', '2k', '4k'].includes(res) ? res : '768p'
+    return input
+  }
+
+  /** GPT Image 2.6 Flare / Sunburst: named ratios, or explicit 2K / 4K sizes; images edit */
+  private buildGptImage26Input(payload: any, m: Media): Record<string, any> {
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      // "auto" quality bills $0.25 an image; high is $0.128
+      quality: ['low', 'medium', 'high', 'xhigh', 'max'].includes(payload.quality) ? payload.quality : 'high',
+      output_format: 'png',
+    }
+    if (payload.batchSize && payload.batchSize > 1) input.number_of_images = Math.min(10, payload.batchSize)
+    const ar = String(payload.aspectRatio || '1:1')
+    const res = String(payload.resolution || '1K').toUpperCase()
+    const sized: Record<string, Record<string, string>> = {
+      '2K': { '1:1': '2048x2048', '16:9': '2048x1152', '9:16': '1152x2048' },
+      '4K': { '16:9': '3840x2160', '9:16': '2160x3840' },
+    }
+    input.aspect_ratio = sized[res]?.[ar] || (['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', 'auto'].includes(ar) ? ar : '1:1')
+    if (m.images.length) input.input_images = m.images.slice(0, 16)
+    return input
+  }
+
+  /** FLUX 3: text-to-image, or edit with up to 10 images (the request becomes an edit) */
+  private buildFlux3ImageInput(payload: any, m: Media): Record<string, any> {
+    const res = String(payload.resolution || '1K').toLowerCase()
+    const ar = String(payload.aspectRatio || 'auto')
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      resolution: ['768sq', '1k', '1.5k', '2k', '4k'].includes(res) ? res : '1k',
+      aspect_ratio: ['auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4', '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2', '9:21'].includes(ar) ? ar : 'auto',
+      output_format: 'png',
+    }
+    if (m.images.length) input.images = m.images.slice(0, 10)
+    return input
+  }
+
+  /** Ideogram 4.5: generate, or edit up to 5 source images ("source" keeps their proportions) */
+  private buildIdeogram45Input(payload: any, m: Media): Record<string, any> {
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      quality: ['very_low', 'low', 'medium', 'high'].includes(payload.quality) ? payload.quality : 'medium',
+    }
+    if (payload.batchSize && payload.batchSize > 1) input.num_images = Math.min(8, payload.batchSize)
+    if (m.images.length) input.images = m.images.slice(0, 5)
+    const ar = String(payload.aspectRatio || '')
+    const sizes: Record<string, string> = {
+      '1:1': '1024x1024', '4:3': '1280x896', '3:2': '1280x896', '5:4': '1280x896',
+      '3:4': '896x1280', '2:3': '896x1280', '4:5': '896x1280', '16:9': '1344x768', '9:16': '768x1344',
+      '21:9': '1536x640', '9:21': '640x1536',
+    }
+    input.size = sizes[ar] || (m.images.length ? 'source' : '1024x1024')
+    return input
+  }
+
+  /** Ideogram 4.5 Precise Edit: one source image (restores unchanged pixels) + up to 4 references */
+  private buildIdeogram45PreciseEditInput(payload: any, m: Media): Record<string, any> {
+    if (!m.images[0]) throw new Error('Ideogram 4.5 Precise Edit requiere una imagen de origen.')
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      image: m.images[0],
+      quality: ['very_low', 'low', 'medium', 'high'].includes(payload.quality) ? payload.quality : 'medium',
+    }
+    if (m.images.length > 1) input.reference_images = m.images.slice(1, 5)
+    if (payload.batchSize && payload.batchSize > 1) input.num_images = Math.min(8, payload.batchSize)
+    return input
+  }
+
+  /** Krea 3 (fast thinking): text-to-image, or edit / combine up to 8 images; 1k or 2k */
+  private buildKrea3Input(payload: any, m: Media): Record<string, any> {
+    const ar = String(payload.aspectRatio || 'auto')
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      thinking_mode: payload.thinkingMode === 'high' ? 'high' : 'fast',
+      resolution: String(payload.resolution || '1K').toUpperCase() === '1K' ? '1k' : '2k',
+      aspect_ratio: ['auto', '1:1', '4:5', '3:4', '2:3', '9:16', '5:4', '4:3', '3:2', '16:9', '21:9'].includes(ar) ? ar : 'auto',
+    }
+    if (m.images.length) input.images = m.images.slice(0, 8)
+    return input
+  }
+
   private buildInput(payload: any): Record<string, any> {
+    const custom = this.buildModelInput(payload)
+    if (custom) return custom
     const input: Record<string, any> = {}
     const isPVideo = payload.model === 'prunaai/p-video'
     const isAvatar = payload.model === 'prunaai/p-video-avatar'

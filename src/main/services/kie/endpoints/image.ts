@@ -41,6 +41,15 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
     ((params as any).imageUrl && typeof (params as any).imageUrl === 'string' && (params as any).imageUrl.startsWith('http')) ||
     ((params as any).image_url && typeof (params as any).image_url === 'string' && (params as any).image_url.startsWith('http'))
   )
+  // GPT Image 2.6 (Flare / Sunburst / Economy) and FLUX 3 Klein: one model, endpoint picked by input
+  const isGpt26 = model.startsWith('gpt-image-2-6/')
+  const isFlux3Klein = model === 'flux-3/klein-text-to-image' || model === 'flux-3/klein-edit-image'
+  if (isGpt26) {
+    model = hasImages ? model.replace(/-text-to-image$/, '-image-to-image') : model.replace(/-image-to-image$/, '-text-to-image')
+  } else if (isFlux3Klein) {
+    model = hasImages ? 'flux-3/klein-edit-image' : 'flux-3/klein-text-to-image'
+  }
+
   if (hasImages) {
     if (model === 'seedream/5-pro-text-to-image') model = 'seedream/5-pro-image-to-image'
     else if (model === 'seedream/5-lite-text-to-image') model = 'seedream/5-lite-image-to-image'
@@ -72,7 +81,7 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
   const isSeedream = model.startsWith('seedream')
   const isQwen = model.startsWith('qwen') || model.startsWith('alibaba/qwen')
   const isFlux = model.startsWith('flux-2') || model.startsWith('flux2')
-  const imageKey = (isGptImage || isFlux) ? 'input_urls' : (isSeedream || isQwen) ? 'image_urls' : 'image_input'
+  const imageKey = (isGptImage || isFlux) ? 'input_urls' : (isSeedream || isQwen || isFlux3Klein) ? 'image_urls' : 'image_input'
 
   const input: Record<string, any> = {
     prompt: params.prompt,
@@ -91,6 +100,20 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
     input.aspect_ratio = finalAr
     input.image_size = finalAr
     input.resolution = (res === '2K' || res === '4K') ? '2K' : '1K'
+  } else if (isGpt26) {
+    // Strict schemas (no extra fields). Economy is 1K only, with no resolution field and fewer ratios.
+    const isEconomy = model.startsWith('gpt-image-2-6/economy-')
+    const validAspectRatios = isEconomy
+      ? ['auto', '1:1', '16:9', '9:16', '3:2', '2:3', '21:9', '4:3']
+      : ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '2:1', '1:2', '21:9', '9:21', '3:1', '1:3']
+    input.aspect_ratio = validAspectRatios.includes(ar) ? ar : 'auto'
+    if (!isEconomy) input.resolution = (res === '2K' || res === '4K') ? res : '1K'
+  } else if (isFlux3Klein) {
+    // Edit adds "auto" (matches the first input image)
+    const validAspectRatios = ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '21:9', '9:21']
+    if (model === 'flux-3/klein-edit-image') validAspectRatios.push('auto')
+    input.aspect_ratio = validAspectRatios.includes(ar) ? ar : (model === 'flux-3/klein-edit-image' ? 'auto' : '1:1')
+    input.resolution = (res === '2K' || res === '4K') ? res : '1K'
   } else {
     input.resolution = res
   }
@@ -143,6 +166,18 @@ export async function generateImage(client: OpenfieldApiClient, params: Generate
   }
   if (model === 'qwen3/image-to-image' && (!input.image_urls || input.image_urls.length === 0)) {
     model = 'qwen3/text-to-image'
+  }
+  if (model === 'flux-3/klein-edit-image') {
+    if (!input.image_urls || input.image_urls.length === 0) {
+      model = 'flux-3/klein-text-to-image'
+      if (input.aspect_ratio === 'auto') input.aspect_ratio = '1:1'
+    } else {
+      input.image_urls = input.image_urls.slice(0, 10)
+    }
+  }
+  if (isGpt26 && model.endsWith('-image-to-image')) {
+    if (!input.input_urls || input.input_urls.length === 0) model = model.replace(/-image-to-image$/, '-text-to-image')
+    else input.input_urls = input.input_urls.slice(0, 16)
   }
 
   console.log('[OF] createTask:', model, JSON.stringify(input).substring(0, 250))

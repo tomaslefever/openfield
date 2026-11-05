@@ -2,10 +2,12 @@ import crypto from 'crypto'
 import os from 'os'
 import path from 'path'
 import fs from 'fs/promises'
+import zlib from 'zlib'
 import { getRawDb } from '../db'
 import { readSetting } from '../ipc/helpers'
 import { getAssetManager } from './asset-manager'
 import { getFFmpeg } from './ffmpeg'
+import { resolveAssetFile, resolveAssetFileForUpload } from './asset-file'
 
 /*
  * ElevenLabs text-to-speech for agents (MCP voice_generate / voice_list). Saves each line as a
@@ -280,4 +282,204 @@ export async function composeMusic(input: { prompt: string; durationSeconds: num
   } finally {
     fs.unlink(tmp).catch(() => {})
   }
+}
+
+// ─── Video to Music ──────────────────────────────────────────────────────────
+
+/**
+ * ElevenLabs Video to Music (`POST /v1/music/video-to-music`, multipart): scores up to 10 videos,
+ * joined in order, as one piece. https://elevenlabs.io/docs/api-reference/music/video-to-music
+ * ElevenLabs publishes no separate price for it, so estimates use the Music rate (an assumption).
+ */
+export const VIDEO_TO_MUSIC_MAX_VIDEOS = 10
+export const VIDEO_TO_MUSIC_MAX_BYTES = 200 * 1024 * 1024
+export const VIDEO_TO_MUSIC_MAX_SECONDS = 600
+export const VIDEO_TO_MUSIC_MAX_TAGS = 10
+export const VIDEO_TO_MUSIC_MAX_DESCRIPTION = 4100
+
+export interface VideoInput {
+  assetId: string
+  path: string
+  mime: string
+  bytes: number
+  seconds: number
+}
+
+/** Library video assets → local files with size and length, checked against the API limits */
+export async function probeVideoInputs(assetIds: string[], forUpload = false): Promise<VideoInput[]> {
+  if (assetIds.length === 0) throw new Error('At least one video is required')
+  if (assetIds.length > VIDEO_TO_MUSIC_MAX_VIDEOS) throw new Error(`Video to Music takes at most ${VIDEO_TO_MUSIC_MAX_VIDEOS} videos`)
+  const out: VideoInput[] = []
+  for (const assetId of assetIds) {
+    // The upload copy is MP4 (non-MP4 assets are converted once); an estimate reads the original
+    const file = forUpload ? await resolveAssetFileForUpload(assetId) : resolveAssetFile(assetId)
+    if (!file) throw new Error(`Asset ${assetId} has no local file`)
+    const mime = file.mime || 'video/mp4'
+    if (!mime.startsWith('video/')) throw new Error(`Asset ${assetId} is not a video (${mime})`)
+    const bytes = (await fs.stat(file.path)).size
+    let seconds = 0
+    try { seconds = (await getFFmpeg().probe(file.path)).duration || 0 } catch {}
+    out.push({ assetId, path: file.path, mime, bytes, seconds: Math.round(seconds * 1000) / 1000 })
+  }
+  const totalBytes = out.reduce((n, v) => n + v.bytes, 0)
+  const totalSeconds = out.reduce((n, v) => n + v.seconds, 0)
+  if (totalBytes > VIDEO_TO_MUSIC_MAX_BYTES) throw new Error(`The videos weigh ${Math.round(totalBytes / 1048576)} MB; Video to Music takes 200 MB combined`)
+  if (totalSeconds > VIDEO_TO_MUSIC_MAX_SECONDS) throw new Error(`The videos last ${Math.round(totalSeconds)} s; Video to Music takes ${VIDEO_TO_MUSIC_MAX_SECONDS} s in total`)
+  return out
+}
+
+/** Entries of a ZIP archive (stored or deflated; no ZIP64), for the separate_tracks response */
+function unzip(buf: Buffer): Array<{ name: string; data: Buffer }> {
+  let eocd = -1
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break }
+  }
+  if (eocd < 0) throw new Error('ElevenLabs sent an unreadable ZIP')
+  const count = buf.readUInt16LE(eocd + 10)
+  let p = buf.readUInt32LE(eocd + 16)
+  const entries: Array<{ name: string; data: Buffer }> = []
+  for (let k = 0; k < count; k++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) break
+    const method = buf.readUInt16LE(p + 10)
+    const compressed = buf.readUInt32LE(p + 20)
+    const nameLen = buf.readUInt16LE(p + 28)
+    const extraLen = buf.readUInt16LE(p + 30)
+    const commentLen = buf.readUInt16LE(p + 32)
+    const local = buf.readUInt32LE(p + 42)
+    const name = buf.subarray(p + 46, p + 46 + nameLen).toString('utf8')
+    p += 46 + nameLen + extraLen + commentLen
+    if (name.endsWith('/') || buf.readUInt32LE(local) !== 0x04034b50) continue
+    const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28)
+    const raw = buf.subarray(start, start + compressed)
+    if (method === 0) entries.push({ name, data: Buffer.from(raw) })
+    else if (method === 8) entries.push({ name, data: zlib.inflateRawSync(raw) })
+  }
+  return entries
+}
+
+export interface VideoToMusicTrack {
+  assetId: string
+  /** 'mix' unless separate_tracks split it into music and sfx */
+  role: 'mix' | 'music' | 'sfx'
+  fileName: string
+  durationSeconds: number | null
+}
+
+export interface VideoToMusicResult {
+  tracks: VideoToMusicTrack[]
+  /** ElevenLabs id of the generated song (song-id response header), when sent */
+  songId: string | null
+  videoSeconds: number
+  generationSeconds: number
+}
+
+/**
+ * Scores the given library videos with ElevenLabs. Each returned track becomes a library audio
+ * asset: model_used `elevenlabs:music` (the Timeline ducks it as music), or `elevenlabs:sfx` for
+ * the effects track of a separate_tracks result.
+ */
+export async function videoToMusic(input: {
+  videoAssetIds: string[]
+  description?: string
+  tags?: string[]
+  useAudioAsReference?: boolean
+  addSfx?: boolean
+  separateTracks?: boolean
+  name?: string
+}): Promise<VideoToMusicResult> {
+  const started = Date.now()
+  const description = input.description?.trim()
+  if (description && description.length > VIDEO_TO_MUSIC_MAX_DESCRIPTION) throw new Error(`description takes at most ${VIDEO_TO_MUSIC_MAX_DESCRIPTION} characters`)
+  const tags = (input.tags ?? []).map((t) => t.trim()).filter(Boolean)
+  if (tags.length > VIDEO_TO_MUSIC_MAX_TAGS) throw new Error(`At most ${VIDEO_TO_MUSIC_MAX_TAGS} tags`)
+  const videos = await probeVideoInputs(input.videoAssetIds, true)
+
+  const form = new FormData()
+  for (const [i, v] of videos.entries()) {
+    form.append('videos', new Blob([new Uint8Array(await fs.readFile(v.path))], { type: v.mime }), `video-${i + 1}${path.extname(v.path) || '.mp4'}`)
+  }
+  if (description) form.append('description', description)
+  for (const tag of tags) form.append('tags', tag)
+  if (input.useAudioAsReference) form.append('use_audio_as_reference', 'true')
+  if (input.addSfx) form.append('add_sfx', 'true')
+  if (input.separateTracks) form.append('separate_tracks', 'true')
+
+  const res = await fetch(`${BASE}/v1/music/video-to-music`, {
+    method: 'POST',
+    headers: { 'xi-api-key': apiKey() },
+    body: form,
+    signal: AbortSignal.timeout(15 * 60_000),
+  })
+  if (!res.ok) {
+    let detail = `ElevenLabs (${res.status})`
+    try {
+      const j: any = await res.json()
+      const d = j?.detail
+      if (d) detail = `ElevenLabs: ${typeof d === 'string' ? d : d.message || JSON.stringify(d)}`
+    } catch {}
+    if (res.status === 401) detail = 'ElevenLabs rejected the API key'
+    if (res.status === 403) detail = 'ElevenLabs: Video to Music needs a paid subscription'
+    throw new Error(detail)
+  }
+  const songId = res.headers.get('song-id')
+  const buffer = Buffer.from(await res.arrayBuffer())
+  const isZip = /zip/i.test(res.headers.get('content-type') || '') || buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+  const parts = isZip
+    ? unzip(buffer).filter((e) => /\.(mp3|wav|ogg|opus|m4a|aac|flac)$/i.test(e.name))
+    : [{ name: 'music.mp3', data: buffer }]
+  if (parts.length === 0) throw new Error('ElevenLabs returned no audio')
+
+  const videoSeconds = Math.round(videos.reduce((n, v) => n + v.seconds, 0) * 1000) / 1000
+  const elapsedMs = Date.now() - started
+  const secs = Number((elapsedMs / 1000).toFixed(1))
+  const prompt = description || (tags.length ? tags.join(', ') : 'Video to Music')
+  const base = input.name ? input.name.replace(/\.[a-z0-9]+$/i, '') : null
+  const tracks: VideoToMusicTrack[] = []
+  const db = getRawDb()
+  for (const part of parts) {
+    const role: VideoToMusicTrack['role'] = !isZip ? 'mix' : /sfx|effect/i.test(part.name) ? 'sfx' : 'music'
+    const ext = path.extname(part.name) || '.mp3'
+    const tmp = path.join(os.tmpdir(), `openfield-video-to-music-${crypto.randomUUID()}${ext}`)
+    await fs.writeFile(tmp, part.data)
+    try {
+      const asset = await getAssetManager().importFile(tmp, 'audio')
+      let duration: number | null = null
+      try {
+        const info = await getFFmpeg().probe((asset as any).localPath || (asset as any).filePath)
+        duration = info.duration > 0 ? Math.round(info.duration * 1000) / 1000 : null
+      } catch {}
+      const fileName = base ? `${base}${role === 'mix' ? '' : `_${role}`}${ext}` : null
+      db.prepare(
+        `UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, provider = 'elevenlabs', credits_used = 0${duration ? ', duration = ?' : ''}${fileName ? ', file_name = ?' : ''} WHERE id = ?`,
+      ).run(
+        prompt,
+        role === 'sfx' ? 'elevenlabs:sfx' : 'elevenlabs:music',
+        JSON.stringify({
+          kind: role === 'sfx' ? 'sfx' : 'music',
+          mode: 'video-to-music',
+          role,
+          videoAssetIds: input.videoAssetIds,
+          videoSeconds,
+          ...(description ? { description } : {}),
+          ...(tags.length ? { tags } : {}),
+          ...(input.useAudioAsReference ? { use_audio_as_reference: true } : {}),
+          ...(input.addSfx ? { add_sfx: true } : {}),
+          ...(input.separateTracks ? { separate_tracks: true } : {}),
+          ...(songId ? { songId } : {}),
+          source: 'mcp',
+          generationTimeSeconds: secs,
+          generationTime: `${secs}s`,
+          generationTimeMs: elapsedMs,
+        }),
+        ...(duration ? [duration] : []),
+        ...(fileName ? [fileName] : []),
+        asset.id,
+      )
+      tracks.push({ assetId: asset.id, role, fileName: fileName || part.name, durationSeconds: duration })
+    } finally {
+      fs.unlink(tmp).catch(() => {})
+    }
+  }
+  db.saveSync?.()
+  return { tracks, songId, videoSeconds, generationSeconds: secs }
 }

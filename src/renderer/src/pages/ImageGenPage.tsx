@@ -27,6 +27,30 @@ const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5 Flare I2I',
   'gpt-image-2-5-sunburst-text-to-image': 'GPT Image 2.5 Sunburst',
   'gpt-image-2-5-sunburst-image-to-image': 'GPT Image 2.5 Sunburst I2I',
+  'gpt-image-2-6/flare-text-to-image': 'GPT Image 2.6 Flare',
+  'gpt-image-2-6/flare-image-to-image': 'GPT Image 2.6 Flare I2I',
+  'gpt-image-2-6/sunburst-text-to-image': 'GPT Image 2.6 Sunburst',
+  'gpt-image-2-6/sunburst-image-to-image': 'GPT Image 2.6 Sunburst I2I',
+  'gpt-image-2-6/economy-text-to-image': 'GPT Image 2.6 Economy',
+  'gpt-image-2-6/economy-image-to-image': 'GPT Image 2.6 Economy I2I',
+  'openai/gpt-image-2.6/flare/text-to-image': 'GPT Image 2.6 Flare',
+  'openai/gpt-image-2.6/flare/edit': 'GPT Image 2.6 Flare Edit',
+  'openai/gpt-image-2.6/sunburst/text-to-image': 'GPT Image 2.6 Sunburst',
+  'openai/gpt-image-2.6/sunburst/edit': 'GPT Image 2.6 Sunburst Edit',
+  'openai/gpt-image-2.6-flare': 'GPT Image 2.6 Flare',
+  'openai/gpt-image-2.6-sunburst': 'GPT Image 2.6 Sunburst',
+  'blackforestlabs/flux-3/text-to-image': 'FLUX 3',
+  'blackforestlabs/flux-3/edit-image': 'FLUX 3 Edit',
+  'black-forest-labs/flux-3-image': 'FLUX 3',
+  'ideogram/v4.5': 'Ideogram 4.5',
+  'ideogram/v4.5/edit': 'Ideogram 4.5 Edit',
+  'ideogram-ai/ideogram-4-5': 'Ideogram 4.5',
+  'ideogram-ai/ideogram-4-5-precise-edit': 'Ideogram 4.5 Precise Edit',
+  'krea/v3/text-to-image': 'Krea 3',
+  'krea/v3/edit': 'Krea 3 Edit',
+  'krea/krea-3': 'Krea 3',
+  'flux-3/klein-text-to-image': 'FLUX 3 Klein',
+  'flux-3/klein-edit-image': 'FLUX 3 Klein Edit',
   'recraft/remove-background': 'Remove Background',
   'nano-banana-2': 'Nano Banana 2',
   'nano-banana-2-1': 'Nano Banana 2.1',
@@ -370,16 +394,17 @@ export function ImageGenPage() {
     try {
       const api = (window as any).electronAPI
       const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('imagineart/')
-      const isHiggsfieldModel = params?.provider === 'higgsfield' ||
+      // Id prefixes only decide when no other provider was chosen (fal's ideogram/v4.5 vs Higgsfield's ideogram/v4)
+      const isHiggsfieldModel = params?.provider === 'higgsfield' || (!params?.provider || params?.provider === 'kie') && (
         params?.model?.startsWith('higgsfield/') ||
         params?.model?.startsWith('higgsfield-ai/') ||
         params?.model?.startsWith('flux-pro/') ||
         params?.model?.startsWith('xai/grok-imagine') ||
         params?.model?.startsWith('marketing-studio/') ||
-        params?.model?.startsWith('ideogram/v4') ||
+        (params?.model?.startsWith('ideogram/v4') && !params?.model?.startsWith('ideogram/v4.5')) ||
         params?.model?.startsWith('recraft/v4') ||
         params?.model?.startsWith('alibaba/qwen-image') ||
-        params?.model?.startsWith('z-image/')
+        params?.model?.startsWith('z-image/'))
       const isApimartModel = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('black-forest-labs/') || params?.model?.startsWith('ideogram-ai/')

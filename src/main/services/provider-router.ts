@@ -11,7 +11,7 @@ export const QUEUE_PROVIDERS: QueueProvider[] = ['openfield', 'fal', 'higgsfield
 const HIGGSFIELD_PREFIXES = [
   'higgsfield/', 'higgsfield-ai/', 'flux-pro/', 'xai/grok-imagine', 'marketing-studio/', 'ideogram/v4',
   'recraft/v4', 'alibaba/qwen-image', 'z-image/', 'bytedance/seedance-2.0', 'bytedance/seedance-2.5',
-  'kling-video/', 'minimax/h3/', 'alibaba/wan-3.0',
+  'kling-video/', 'minimax/h3/', 'alibaba/wan-3.0', 'alibaba/happy-horse',
 ]
 const FAL_PREFIXES = ['fal-ai/', 'imagineart/', 'minimax/']
 const REPLICATE_PREFIXES = ['prunaai/', 'philz1337x/', 'black-forest-labs/', 'ideogram-ai/']
@@ -37,6 +37,10 @@ export function routeModelToProvider(model: string, providerHint?: string | null
   if (m.startsWith('pruna/')) return 'pruna'
   if (m.startsWith('apimart/') || getApimartModel(m)) return 'apimart'
   if (m.startsWith('machgen/') || m.includes('MachGen') || getMachgenModel(m)) return 'machgen'
+  // fal's US-hosted Seedance 2.5 shares the bytedance/seedance-2.5 prefix with Higgsfield
+  if (m.startsWith('bytedance/seedance-2.5/us/')) return 'fal'
+  // Ideogram 4.5 is fal's; Higgsfield's ideogram/v4 prefix would catch it
+  if (m.startsWith('ideogram/v4.5')) return 'fal'
   if (HIGGSFIELD_PREFIXES.some(p => m.startsWith(p))) return 'higgsfield'
   if (FAL_PREFIXES.some(p => m.startsWith(p)) || getFalModel(m)) return 'fal'
   if (REPLICATE_PREFIXES.some(p => m.startsWith(p)) || getReplicateModel(m)) return 'replicate'
