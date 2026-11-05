@@ -14,6 +14,7 @@ import {
   nextStep,
 } from '../content-studio-agent'
 import { type McpTool, ToolInputError, READ_ONLY, EDIT, CREATE, GENERATE, str, num, optStr } from './types'
+import { requireSkillsRead, type SkillId } from './skills'
 
 const ELEVEN_VOICE_ID = /^[A-Za-z0-9]{16,}$/
 
@@ -22,9 +23,23 @@ const WORKFLOW = [
   'A stage can only be generated once every earlier stage is complete AND approved by the user with content_studio_approve_stage.',
   'Never approve a stage on your own: show the user the results (preview_assets with the asset ids from content_studio_get_project) and approve only after they explicitly say so.',
   'Voices always come before videos: the dialogue audio is attached to each shot\'s video as its lip-sync reference.',
+  'Every recurring character (people and animals), location and must-match object is a character / scenario / prop of the project, so each shot attaches it by name.',
+  'Videos run in reference mode (video_input_mode "ref"): the keyframe goes as one more reference next to the shot\'s characters, location and props, never pinned as the first frame, which loses the characters\' consistency.',
 ].join(' ')
 
 // ─── Helpers ─────────────────────────────────────────────────
+
+/** Writing a short drama or Seedance clip prompts needs the matching writing skill read first */
+function requireWritingSkills(args: any, current?: any) {
+  const needed: SkillId[] = []
+  const contentType = str(args.content_type ?? current?.contentType)
+  const writesScript = !current && (!contentType || /drama|micro|serie|episod|novela|film|corto/i.test(contentType))
+  if (writesScript) needed.push('short-drama-screenwriter')
+  const videoModel = str(args.video_model ?? current?.videoModel)
+  const writesVideoPrompts = Array.isArray(args.shots) && args.shots.some((sh: any) => str(sh?.video_prompt).trim())
+  if (writesVideoPrompts && (!videoModel || /seedance/i.test(videoModel))) needed.push('seedance-2-5-prompt-writer')
+  if (needed.length) requireSkillsRead(needed, current ? 'these Seedance clip prompts' : 'a short drama')
+}
 
 function stageOf(name: string): Stage {
   if (!(STAGES as readonly string[]).includes(name)) throw new ToolInputError(`Unknown stage '${name}'. Use one of: ${STAGES.join(', ')}`)
@@ -211,6 +226,8 @@ function applyPatch(project: any, args: any): Stage | null {
       sh.order = i + 1
       sh.shotNumber = i + 1
       sh.sceneNumber = sh.sceneNumber || 1
+      // New shots: keyframe + references (ingredients), not a pinned first frame
+      if (!sh.videoInputMode) sh.videoInputMode = 'ref'
     })
     project.shotsCount = project.shots.length
   }
@@ -266,7 +283,11 @@ const shotSchema = {
     keyframe_prompt: { type: 'string' },
     keyframe_asset_id: { type: 'string', description: 'Attach an existing library image as the keyframe' },
     video_prompt: { type: 'string' },
-    video_input_mode: { type: 'string', enum: ['ff', 'fflf', 'ref', 't2v'] },
+    video_input_mode: {
+      type: 'string',
+      enum: ['ff', 'fflf', 'ref', 't2v'],
+      description: 'ref (default for new shots): keyframe + characters + location + props as references. ff pins the keyframe as first frame and fflf also the last one: only when the user asks, they lose character consistency.',
+    },
     remove: { type: 'boolean' },
   },
   additionalProperties: false,
@@ -334,7 +355,7 @@ export function getContentStudioTools(): McpTool[] {
     {
       name: 'content_studio_create_project',
       title: 'Create Content Studio project',
-      description: `Create a piece in Content Studio (the script stage): settings, characters, locations, props and shots. Nothing is generated. ${WORKFLOW}`,
+      description: `Create a piece in Content Studio (the script stage): settings, characters, locations, props and shots. Nothing is generated. Write short dramas with get_skill("short-drama-screenwriter") and every Seedance video_prompt with get_skill("seedance-2-5-prompt-writer") first. ${WORKFLOW}`,
       inputSchema: {
         type: 'object',
         properties: { ...projectFieldsSchema, workspace_id: { type: 'string', description: 'Default: the active workspace' } },
@@ -343,6 +364,7 @@ export function getContentStudioTools(): McpTool[] {
       },
       annotations: CREATE,
       handler: async (args) => {
+        requireWritingSkills(args)
         const project: any = {
           id: crypto.randomUUID(),
           workspaceId: optStr(args.workspace_id),
@@ -373,6 +395,7 @@ export function getContentStudioTools(): McpTool[] {
       annotations: EDIT,
       handler: async (args) => {
         const projectId = str(args.project_id)
+        requireWritingSkills(args, requireProject(projectId))
         let touched: Stage | null = null
         const project = await writeProject(projectId, (p) => { touched = applyPatch(p, args) })
         if (touched) clearApprovalsFrom(projectId, touched)
@@ -406,7 +429,8 @@ export function getContentStudioTools(): McpTool[] {
     {
       name: 'content_studio_generate_references',
       title: 'Generate characters, locations and props',
-      description: 'Stage 2: generate the character sheets, location and prop images with Content Studio (project image model and style). Needs the script stage approved. Returns task ids for wait_for_tasks.',
+      description: 'Stage 2: generate the character sheets, location and prop images with Content Studio (project image model and style). Needs the script stage approved. Returns task ids for wait_for_tasks. ' +
+        'A character the user has photos of (a real person, their pet) gets its sheet from generate instead, with the photos as references and the user\'s 4-view layout (see get_skill notes), attached with content_studio_update_project image_asset_id; then skip it here (only_missing).',
       inputSchema: {
         type: 'object',
         properties: { ...projectIdSchema, ...idsSchema, ...onlyMissingSchema },
@@ -480,7 +504,7 @@ export function getContentStudioTools(): McpTool[] {
     {
       name: 'content_studio_generate_videos',
       title: 'Generate shot videos',
-      description: 'Stage 5: generate each shot\'s video with Content Studio (project video model and resolution), from its keyframe, with the shot\'s ElevenLabs audio as lip-sync reference. Needs the voices stage complete and approved.',
+      description: 'Stage 5: generate each shot\'s video with Content Studio (project video model and resolution), with the shot\'s ElevenLabs audio as lip-sync reference. Each shot follows its video_input_mode: "ref" sends the keyframe as one more reference next to its characters, location and props (recommended; set it with content_studio_update_project on shots still in "ff"), "ff" pins the keyframe as the first frame. Needs the voices stage complete and approved.',
       inputSchema: {
         type: 'object',
         properties: { ...projectIdSchema, ...idsSchema, ...onlyMissingSchema },
