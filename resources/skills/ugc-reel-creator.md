@@ -11,7 +11,7 @@ Make a short vertical reel that looks shot on a phone by a real person, with a r
 ## Rules with the user
 
 - Talk in the user's language, briefly. Prompts stay in English.
-- Before spending, say model, count and estimated cost.
+- Before spending, say model, count and estimated cost. Before any video, offer 2 or 3 models that fit the shot with their estimated cost (price per second × seconds × clips), recommend one and wait for the user's choice; pass their words as user_model_confirmation.
 - **The user validates the keyframes before any video is generated.** Never skip it.
 - One generation per test (count 1). Variants only when asked.
 - Look at every result yourself before showing it (read the image; for video, a contact sheet of one frame per second plus one large frame of the key moment) and report honestly what went wrong: misspelled signs, motion that contradicts the story, the character's outfit or markings changing, over-acting extras.
