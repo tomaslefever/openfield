@@ -908,6 +908,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isPixverseV6 = !!(currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.fflfId?.startsWith('pixverse-v6/'))
   const isGrok = !!(currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/')) || currentModel.extendId?.startsWith('grok-imagine/')
   const isMinimaxH3 = !!(currentModel.t2vId?.startsWith('minimax-h3/') || currentModel.i2vId?.startsWith('minimax-h3/'))
+  const isFlux3Max = !!currentModel.t2vId?.startsWith('blackforestlabs/flux-3-max/')
   // Kling 4.0 on KIE and fal: separate keyframe/image and reference endpoints behind one model
   const isKling4Routed = !!(currentModel.t2vId?.startsWith('kling-4.0/') || currentModel.t2vId?.startsWith('kling/v4/'))
   // P-Video 2 Pro (Replicate or official Pruna API): one model; any image/video/audio reference
@@ -1020,6 +1021,14 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       // FF/LF or one image → keyframe/image-to-video; 2+ images or a video → references; else text
       if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || ''
       if (hasVideoRef) return currentModel.refId || ''
+      const imgCount = (imageBase64 ? 1 : 0) + refs.filter(r => r.mime.startsWith('image/')).length + imageRefEntries.filter(e => e.base64).length
+      if (imgCount > 1) return currentModel.refId || ''
+      if (imgCount === 1) return currentModel.i2vId || ''
+      return currentModel.t2vId || ''
+    }
+    if (isFlux3Max) {
+      // Single FLUX 3 Max model: FF/LF or one image → image-to-video, 2+ images → keyframes, else text-to-video
+      if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || ''
       const imgCount = (imageBase64 ? 1 : 0) + refs.filter(r => r.mime.startsWith('image/')).length + imageRefEntries.filter(e => e.base64).length
       if (imgCount > 1) return currentModel.refId || ''
       if (imgCount === 1) return currentModel.i2vId || ''

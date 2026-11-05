@@ -59,6 +59,9 @@ const MODEL_NAMES: Record<string, string> = {
   'kling/v4/image-to-video': 'Kling 4.0',
   'kling/v4/reference-to-video': 'Kling 4.0',
   'klingai/kling-4.0': 'Kling 4.0',
+  'blackforestlabs/flux-3-max/text-to-video': 'FLUX 3 Max',
+  'blackforestlabs/flux-3-max/image-to-video': 'FLUX 3 Max',
+  'blackforestlabs/flux-3-max/keyframes-to-video': 'FLUX 3 Max',
   'machgen/MiniMax-H3/t2v': 'MiniMax H3',
   'machgen/MiniMax-H3/i2v': 'MiniMax H3',
   'machgen/MiniMax-H3/fflf': 'MiniMax H3',
@@ -328,7 +331,7 @@ export function VideoGenPage() {
       const isPrunaModel = params?.provider === 'pruna' || params?.model?.startsWith('pruna/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen') || params?.model?.includes('MiniMax-H3') || params?.model?.includes('Wan2.2') || params?.model?.includes('LTX-2.3') || params?.model?.includes('Vidu-Q3') || params?.model?.includes('Topaz-')
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/')
-      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('kling/v4/')
+      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('blackforestlabs/') || params?.model?.startsWith('kling/v4/')
       if (isKlingModel) {
         await api?.kling.generate(params)
       } else if (isPrunaModel) {
