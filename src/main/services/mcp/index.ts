@@ -32,6 +32,7 @@ import { getWorkspaceTools } from './workspace-tools'
 import { getPromptLibraryTools } from './prompt-library-tools'
 import { getTimelineTools } from './timeline-tools'
 import { getVoiceTools } from './voice-tools'
+import { getVoiceCloneTools } from './voice-clone-tools'
 import { getLayoutTools } from './layout-tools'
 import { getSkillTools, skillResources, readSkillResource, listSkillPrompts, getSkillPrompt, CHARACTER_VIDEO_RULES } from './skills'
 import { MODEL_CONFIRMATION_PROP, requireVideoModelConfirmation, VIDEO_MODEL_RULE } from './video-confirmation'
@@ -607,6 +608,7 @@ function getTools(): McpTool[] {
 
     // ─── Voice lines (ElevenLabs) ───────────────────────────────
     ...getVoiceTools(),
+    ...getVoiceCloneTools(),
 
     // ─── Writing skills (short dramas, Seedance prompts) ────────
     ...getSkillTools(),

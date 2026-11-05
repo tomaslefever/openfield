@@ -1,13 +1,14 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { VoiceGenView } from '../components/voice/VoiceGenView'
 import { VoiceDesignPanel } from '../components/voice/VoiceDesignPanel'
+import { VoiceClonePanel } from '../components/voice/VoiceClonePanel'
 import { usePagedAssets } from '../hooks/usePagedAssets'
 import { getAudioKind } from '../lib/audio'
 
 export function VoiceGenPage() {
   const [audioStatus, setAudioStatus] = useState<{ status: string; message: string; pct: number } | null>(null)
   const [audioError, setAudioError] = useState('')
-  const [tab, setTab] = useState<'generate' | 'design'>('generate')
+  const [tab, setTab] = useState<'generate' | 'clone' | 'design'>('generate')
 
   const { assets, reset, hasMore, loadingMore, loadMore, sentinelRef } = usePagedAssets({ type: 'audio', pageSize: 20, excludeUploads: true })
   const voiceAssets = useMemo(() => assets.filter((a: any) => getAudioKind(a) === 'voice'), [assets])
@@ -108,7 +109,7 @@ export function VoiceGenPage() {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex items-center gap-1 px-4 pt-3 shrink-0" role="tablist">
-        {([['generate', 'Generar voz'], ['design', 'Diseñar voz']] as const).map(([id, label]) => (
+        {([['generate', 'Generar voz'], ['clone', 'Clonar voz'], ['design', 'Diseñar voz']] as const).map(([id, label]) => (
           <button
             key={id}
             role="tab"
@@ -120,7 +121,7 @@ export function VoiceGenPage() {
           </button>
         ))}
       </div>
-      {tab === 'design' ? <VoiceDesignPanel onSaved={reset} /> : <VoiceGenView
+      {tab === 'design' ? <VoiceDesignPanel onSaved={reset} /> : tab === 'clone' ? <VoiceClonePanel voiceAssets={voiceAssets} onGenerated={reset} /> : <VoiceGenView
         onGenerate={handleGenerate}
         voiceAssets={voiceAssets}
         hasMore={hasMore}

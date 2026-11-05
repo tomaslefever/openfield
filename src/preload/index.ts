@@ -109,6 +109,17 @@ const electronAPI = {
     designVoice: (params: any) => ipcRenderer.invoke('elevenlabs:designVoice', params),
     createDesignedVoice: (params: any) => ipcRenderer.invoke('elevenlabs:createDesignedVoice', params),
   },
+  voiceClone: {
+    info: () => ipcRenderer.invoke('voiceClone:info'),
+    list: () => ipcRenderer.invoke('voiceClone:list'),
+    transcribe: (params: any) => ipcRenderer.invoke('voiceClone:transcribe', params),
+    create: (params: any) => ipcRenderer.invoke('voiceClone:create', params),
+    update: (id: string, patch: any) => ipcRenderer.invoke('voiceClone:update', id, patch),
+    delete: (id: string) => ipcRenderer.invoke('voiceClone:delete', id),
+    reference: (id: string) => ipcRenderer.invoke('voiceClone:reference', id),
+    reclone: (id: string) => ipcRenderer.invoke('voiceClone:reclone', id),
+    generate: (params: any) => ipcRenderer.invoke('voiceClone:generate', params),
+  },
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),
     get: (id: string) => ipcRenderer.invoke('projects:get', id),
