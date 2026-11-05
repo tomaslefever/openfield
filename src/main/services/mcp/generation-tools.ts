@@ -22,6 +22,7 @@ import '../replicate-queue'
 import '../apimart-queue'
 import '../kling-queue'
 import '../pruna-queue'
+import { MODEL_CONFIRMATION_PROP, requireVideoModelConfirmation } from './video-confirmation'
 import {
   type McpTool,
   ToolInputError,
@@ -551,6 +552,7 @@ export function getGenerationTools(): McpTool[] {
           end_frame_asset_id: { type: 'string', description: 'Video: image asset used as last frame' },
           count: { type: 'number', minimum: 1, description: 'Variants to queue, 1–4. Default 1' },
           extra_params: { type: 'object', description: 'Advanced provider fields merged into the payload as-is (e.g. {"sound": true, "fps": 24})' },
+          user_model_confirmation: MODEL_CONFIRMATION_PROP,
         },
         required: ['prompt', 'model'],
         additionalProperties: false,
@@ -558,6 +560,7 @@ export function getGenerationTools(): McpTool[] {
       annotations: GENERATE,
       handler: async (args) => {
         const type = str(args.type, 'image')
+        if (type === 'video') requireVideoModelConfirmation(args, str(args.model), 'this video')
         requireLibraryCheck(str(args.prompt), type === 'video' ? 'video' : 'image', str(args.model))
         const count = Math.floor(num(args.count, 1))
         if (count > 4) throw new ToolInputError('count must be between 1 and 4')
@@ -618,6 +621,7 @@ export function getGenerationTools(): McpTool[] {
           remove_reference_asset_ids: { type: 'array', items: { type: 'string' } },
           keep_references: { type: 'boolean', description: 'false drops every original reference and frame (default true)' },
           count: { type: 'number', minimum: 1, description: 'Variants to queue, 1–4. Default 1' },
+          user_model_confirmation: MODEL_CONFIRMATION_PROP,
         },
         required: ['asset_id'],
         additionalProperties: false,
@@ -629,6 +633,7 @@ export function getGenerationTools(): McpTool[] {
         const source = requireAsset(str(args.asset_id))
         const gen = loadGeneration(source)
         if (!gen) throw new ToolInputError(`Asset '${source.id}' was ${source.modelUsed === 'upload' ? 'uploaded' : 'imported'}, not generated — there is nothing to recreate`)
+        if (gen.type === 'video') requireVideoModelConfirmation(args, str(args.model, gen.payload?.model), 'recreating this video')
 
         const { payload, droppedRefs } = prepareForResubmit(gen.payload)
         if (args.keep_references === false) removeReferences(payload, extractReferences(payload, false).map(r => r.assetId!).filter(Boolean))

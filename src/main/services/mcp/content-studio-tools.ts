@@ -15,6 +15,7 @@ import {
 } from '../content-studio-agent'
 import { type McpTool, ToolInputError, READ_ONLY, EDIT, CREATE, GENERATE, str, num, optStr } from './types'
 import { requireSkillsRead, type SkillId } from './skills'
+import { MODEL_CONFIRMATION_PROP, requireVideoModelConfirmation } from './video-confirmation'
 
 const ELEVEN_VOICE_ID = /^[A-Za-z0-9]{16,}$/
 
@@ -507,7 +508,7 @@ export function getContentStudioTools(): McpTool[] {
       description: 'Stage 5: generate each shot\'s video with Content Studio (project video model and resolution), with the shot\'s ElevenLabs audio as lip-sync reference. Each shot follows its video_input_mode: "ref" sends the keyframe as one more reference next to its characters, location and props (recommended; set it with content_studio_update_project on shots still in "ff"), "ff" pins the keyframe as the first frame. Needs the voices stage complete and approved.',
       inputSchema: {
         type: 'object',
-        properties: { ...projectIdSchema, ...idsSchema, ...onlyMissingSchema },
+        properties: { ...projectIdSchema, ...idsSchema, ...onlyMissingSchema, user_model_confirmation: MODEL_CONFIRMATION_PROP },
         required: ['project_id'],
         additionalProperties: false,
       },
@@ -515,6 +516,7 @@ export function getContentStudioTools(): McpTool[] {
       handler: async (args) => {
         const project = requireProject(str(args.project_id))
         assertStageOpen(project, 'videos')
+        requireVideoModelConfirmation(args, `${project.videoModel || 'project video model'}, ${project.videoResolution || 'default resolution'}`, 'these shot videos')
         const ids = pick(project.shots, args.ids, (sh: any) => sh.videoStatus !== 'completed', args.only_missing !== false && !args.ids?.length)
         clearApprovalsFrom(project.id, 'videos')
         const results = await dispatch(project.id, 'video', ids, 5 * 60_000)

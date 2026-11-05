@@ -34,6 +34,7 @@ import { getTimelineTools } from './timeline-tools'
 import { getVoiceTools } from './voice-tools'
 import { getLayoutTools } from './layout-tools'
 import { getSkillTools, skillResources, readSkillResource, listSkillPrompts, getSkillPrompt, CHARACTER_VIDEO_RULES } from './skills'
+import { MODEL_CONFIRMATION_PROP, requireVideoModelConfirmation, VIDEO_MODEL_RULE } from './video-confirmation'
 import {
   type McpTool,
   ToolInputError,
@@ -525,6 +526,7 @@ function getTools(): McpTool[] {
           prompt: { type: 'string', description: 'Optional prompt override' },
           model: { type: 'string', description: 'Default kling-3.0/video. Available: ' + dynamicVideoModels },
           duration: { type: 'number', minimum: 1, description: 'Seconds. Default 5' },
+          user_model_confirmation: MODEL_CONFIRMATION_PROP,
         },
         required: ['scene_id'],
         additionalProperties: false,
@@ -532,6 +534,7 @@ function getTools(): McpTool[] {
       annotations: GENERATE,
       handler: async (args) => {
         const scene = requireScene(str(args.scene_id))
+        requireVideoModelConfirmation(args, str(args.model, 'kling-3.0/video'), 'this scene video')
         if (!scene.imageAssetId) {
           throw new ToolInputError(`Scene '${scene.id}' has no image yet — run generate_scene_image and wait for it to complete first`)
         }
@@ -553,17 +556,20 @@ function getTools(): McpTool[] {
           prompt: { type: 'string', description: 'Default "Smooth cinematic transition"' },
           model: { type: 'string', description: 'Default pixverse-v6/image-to-video. Must support first + last frame, e.g. pixverse-v6/image-to-video, bytedance/seedance-2' },
           duration: { type: 'number', minimum: 1, description: "Seconds. Default: the transition's duration" },
+          user_model_confirmation: MODEL_CONFIRMATION_PROP,
         },
         required: ['transition_id'],
         additionalProperties: false,
       },
       annotations: GENERATE,
-      handler: async (args) =>
-        generateTransition(str(args.transition_id), {
+      handler: async (args) => {
+        requireVideoModelConfirmation(args, str(args.model, 'pixverse-v6/image-to-video'), 'this transition video')
+        return generateTransition(str(args.transition_id), {
           prompt: optStr(args.prompt),
           model: optStr(args.model),
           duration: args.duration !== undefined ? num(args.duration, 5) : undefined,
-        }),
+        })
+      },
     },
     {
       name: 'get_task',
@@ -854,6 +860,7 @@ export class McpBridgeServer {
               'Content Studio (short films, microdramas): use the content_studio_* tools, never generate/import_asset, so the piece is built by the app itself. Stages run in order — script → references → keyframes → voices (ElevenLabs) → videos → final — and each one only opens after the user approved the previous one (content_studio_approve_stage, called only on the user\'s explicit approval). Voices always precede videos: the audio is each video\'s lip-sync reference.',
               'SHORT DRAMAS (micro-dramas, AI series, episodes, short films with dialogue): read get_skill("short-drama-screenwriter") before writing anything and follow it — idea scoring (short_drama_ideas when the user has no idea), the four-part episode (hook, context, escalation, cliffhanger), cast with fixed voice descriptions, continuity, character-sheet and location prompts, clips of 4–30 s — and build the result as a Content Studio project. Write EVERY Seedance prompt (Content Studio video_prompt or generate with a Seedance model) with get_skill("seedance-2-5-prompt-writer"). The MCP prompts short_drama and seedance_prompt bundle the same skills.',
               `REELS AND VIDEOS WITH CHARACTERS (Content Studio or generate):\n${CHARACTER_VIDEO_RULES}`,
+              VIDEO_MODEL_RULE,
               'PROMPT LIBRARY FIRST: before writing ANY image or video prompt (generate, storyboard scenes, edits), call search_prompt_library with the kind of piece (ads, character sheet, storyboard, UGC, product, editing…) and the model you will use, then open the best match with get_library_prompt. The templates are researched for visual quality and consistency per model family. Use it as a reference — fill its {{variables}} from the brand, product and request of the user, follow its guidance and rewrite whatever does not fit; never paste it unchanged when the brief differs. For a series (campaign, storyboard, recurring character) start from the character-sheet / consistency templates and repeat the same character and style description in every prompt. Prompts the user approved in review rank first; user-saved prompts (source workspace/global) reflect their own style. generate refuses its first call without a recent library check. When the user likes a result or asks to keep a prompt, save_library_prompt (with {{variables}}, models and types).',
               'Playground / library: list_assets and get_asset find generations and the references each one used; generate creates new images/videos with reference_asset_ids or reuse_references_from (e.g. "latest" = the previous generation); recreate_generation re-runs one with optional overrides; update_assets / delete_assets / import_asset manage the library.',
               'To let the user choose between options: generate with count: 4, then wait_for_tasks with preview: true shows the results numbered #1..#4; use the chosen asset id as a reference next. preview_assets shows any existing assets the same way.',
