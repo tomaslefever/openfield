@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, ChevronDown, Download, LayoutTemplate, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, Download, LayoutTemplate, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useWorkspaceStore } from '../stores/workspace-store'
@@ -7,6 +7,7 @@ import { docDuration, useMontageStore } from '../stores/montage-store'
 import { MediaBin } from '../components/montage/MediaBin'
 import { MontagePreview } from '../components/montage/MontagePreview'
 import { MontageTimeline } from '../components/montage/MontageTimeline'
+import { TimelineGallery } from '../components/montage/TimelineGallery'
 import { useMontageShortcuts } from '../components/montage/shortcuts'
 
 /** Minimal montage editor: media on the left, preview on top, one timeline below */
@@ -23,11 +24,16 @@ export function MontagePage() {
 
   useMontageShortcuts()
 
+  const view = useMontageStore((s) => s.view)
+  const activeId = useMontageStore((s) => s.activeId)
+  if (!loaded) return null
+  if (view === 'gallery' || !activeId) return <TimelineGallery />
+
   return (
     <div className="relative z-10 flex h-full min-h-0 gap-3 p-3">
       <aside className="flex w-[300px] shrink-0 flex-col">
         <MontageTitle />
-        <div className="min-h-0 flex-1">{loaded && <MediaBin />}</div>
+        <div className="min-h-0 flex-1"><MediaBin /></div>
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col gap-3">
@@ -80,6 +86,13 @@ function MontageTitle() {
         />
       ) : (
         <>
+          <button
+            onClick={() => { void useMontageStore.getState().showGallery() }}
+            title="Todos los timelines"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-800 hover:text-ink"
+          >
+            <ArrowLeft size={15} />
+          </button>
           <Popover open={menuOpen} onOpenChange={setMenuOpen}>
             <PopoverTrigger asChild>
               <button className="flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-left transition-colors hover:bg-surface-800">

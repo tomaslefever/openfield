@@ -200,3 +200,84 @@ export async function synthesizeSpeech(input: { text: string; voiceId: string; l
     fs.unlink(tmp).catch(() => {})
   }
 }
+
+/** Same per-second estimate the app shows for ElevenLabs Music (lib/models.ts AUDIO_MODELS) */
+export const USD_PER_MUSIC_SECOND = 0.004
+
+export const MUSIC_MIN_SECONDS = 3
+export const MUSIC_MAX_SECONDS = 600
+
+export interface MusicResult {
+  assetId: string
+  durationSeconds: number | null
+  generationSeconds: number
+}
+
+/**
+ * ElevenLabs Music (`/v1/music`) for agents (MCP music_generate). Saved like the composer's
+ * `elevenlabs:music` (ipc/elevenlabs.ts): model_used `elevenlabs:music`, kind music, so the
+ * Timeline treats it as background music for ducking.
+ */
+export async function composeMusic(input: { prompt: string; durationSeconds: number; modelId?: string; forceInstrumental?: boolean; name?: string }): Promise<MusicResult> {
+  const started = Date.now()
+  const musicLengthMs = Math.max(MUSIC_MIN_SECONDS * 1000, Math.min(MUSIC_MAX_SECONDS * 1000, Math.round(input.durationSeconds * 1000)))
+  const modelId = input.modelId || 'music_v2'
+  const body: any = { prompt: input.prompt.trim(), music_length_ms: musicLengthMs, model_id: modelId }
+  if (input.forceInstrumental) body.force_instrumental = true
+  const res = await fetch(`${BASE}/v1/music`, {
+    method: 'POST',
+    headers: { 'xi-api-key': apiKey(), 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(300_000),
+  })
+  if (!res.ok) {
+    let detail = `ElevenLabs (${res.status})`
+    try {
+      const j: any = await res.json()
+      const d = j?.detail
+      if (d) detail = `ElevenLabs: ${typeof d === 'string' ? d : d.message || JSON.stringify(d)}`
+    } catch {}
+    if (res.status === 401) detail = 'ElevenLabs rejected the API key'
+    throw new Error(detail)
+  }
+  const buffer = Buffer.from(await res.arrayBuffer())
+
+  const tmp = path.join(os.tmpdir(), `openfield-elevenlabs-music-${crypto.randomUUID()}.mp3`)
+  await fs.writeFile(tmp, buffer)
+  try {
+    const asset = await getAssetManager().importFile(tmp, 'audio')
+    let duration: number | null = null
+    try {
+      const info = await getFFmpeg().probe((asset as any).localPath || (asset as any).filePath)
+      duration = info.duration > 0 ? Math.round(info.duration * 1000) / 1000 : null
+    } catch {}
+    const elapsedMs = Date.now() - started
+    const secs = Number((elapsedMs / 1000).toFixed(1))
+    const db = getRawDb()
+    db.prepare(
+      `UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, provider = 'elevenlabs', credits_used = 0${duration ? ', duration = ?' : ''}${input.name ? ', file_name = ?' : ''} WHERE id = ?`,
+    ).run(
+      input.prompt.trim(),
+      'elevenlabs:music',
+      JSON.stringify({
+        // Same keys as the composer, plus where it came from
+        kind: 'music',
+        duration: Math.round(musicLengthMs / 1000),
+        music_length_ms: musicLengthMs,
+        model_id: modelId,
+        ...(input.forceInstrumental ? { force_instrumental: true } : {}),
+        source: 'mcp',
+        generationTimeSeconds: secs,
+        generationTime: `${secs}s`,
+        generationTimeMs: elapsedMs,
+      }),
+      ...(duration ? [duration] : []),
+      ...(input.name ? [input.name.endsWith('.mp3') ? input.name : `${input.name}.mp3`] : []),
+      asset.id,
+    )
+    db.saveSync?.()
+    return { assetId: asset.id, durationSeconds: duration, generationSeconds: secs }
+  } finally {
+    fs.unlink(tmp).catch(() => {})
+  }
+}

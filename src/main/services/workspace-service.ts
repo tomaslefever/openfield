@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'async_hooks'
 import * as crypto from 'crypto'
 import * as fs from 'fs/promises'
 import * as path from 'path'
@@ -51,7 +52,23 @@ export function getDefaultWorkspaceId(): string {
   return ws?.id || ''
 }
 
+// A workspace an agent call targets without switching the one the app shows.
+// The scope closes when the call returns, so queue loops it happened to start
+// fall back to the real active workspace instead of inheriting it.
+const workspaceScope = new AsyncLocalStorage<{ id: string; open: boolean }>()
+
+export async function runInWorkspace<T>(workspaceId: string, fn: () => Promise<T>): Promise<T> {
+  const scope = { id: workspaceId, open: true }
+  try {
+    return await workspaceScope.run(scope, fn)
+  } finally {
+    scope.open = false
+  }
+}
+
 export function getActiveWorkspaceId(): string {
+  const scope = workspaceScope.getStore()
+  if (scope?.open) return scope.id
   const raw = getRawDb()
   const row = raw.prepare("SELECT value FROM settings WHERE key = 'activeWorkspaceId'").get() as any
   let id = ''

@@ -107,6 +107,48 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
   }
 
   /**
+   * FLUX 3 Max: text-to-video, image-to-video (start frame, optional end frame) and
+   * keyframes-to-video (up to 10 images spread evenly over the clip, 24 fps).
+   */
+  private buildFlux3MaxInput(payload: any): Record<string, any> {
+    const toImageUrl = (v: string | undefined, mime = 'image/png') =>
+      !v ? undefined : (/^(https?:|data:)/.test(v) ? v : `data:${mime};base64,${v}`)
+    const duration = Math.min(20, Math.max(5, Math.round(Number(payload.duration) || 5)))
+    const resolution = String(payload.resolution || '720p').toLowerCase() === '1080p' ? '1080p' : '720p'
+    const aspectRatio = payload.aspectRatio && payload.aspectRatio !== 'adaptive' ? payload.aspectRatio : 'auto'
+
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      // fal validates duration as an integer literal: the string "5" answers 422
+      duration,
+      resolution,
+      aspect_ratio: aspectRatio,
+      generate_audio: payload.sound !== false && payload.sound !== 'off',
+    }
+
+    const images = [
+      ...(payload.imageRefs || []).filter((r: any) => r?.base64 || /^https?:/.test(r?.url || ''))
+        .map((r: any) => toImageUrl(r.base64 || r.url, r.mime || 'image/png')),
+      ...(payload.imageRefs?.length ? [] : [toImageUrl(payload.imageBase64, payload.imageMime || 'image/png')]),
+    ].filter(Boolean) as string[]
+    const firstFrame = toImageUrl(payload.firstFrameBase64) || toImageUrl(/^https?:/.test(payload.firstFrameUrl || '') ? payload.firstFrameUrl : undefined)
+    const lastFrame = toImageUrl(payload.lastFrameBase64) || toImageUrl(/^https?:/.test(payload.lastFrameUrl || '') ? payload.lastFrameUrl : undefined)
+
+    if (payload.model.endsWith('/keyframes-to-video')) {
+      const frames = images.slice(0, 10)
+      const lastIndex = duration * 24 - 1
+      input.keyframes = frames.map((image_url, i) => ({
+        image_url,
+        frame_index: frames.length === 1 ? 0 : Math.round((i * lastIndex) / (frames.length - 1)),
+      }))
+    } else if (payload.model.endsWith('/image-to-video')) {
+      input.image_url = firstFrame || images[0]
+      if (lastFrame) input.end_image_url = lastFrame
+    }
+    return input
+  }
+
+  /**
    * Kling 4.0: text-to-video; image-to-video (start frame, up to 8 middle keyframes, end frame);
    * reference-to-video (up to 10 images and 5 videos, cited in the prompt as @Image1 / @Video1).
    */
@@ -148,6 +190,7 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
   }
 
   private buildVideoInput(payload: any): Record<string, any> {
+    if (String(payload.model || '').startsWith('blackforestlabs/flux-3-max/')) return this.buildFlux3MaxInput(payload)
     if (String(payload.model || '').startsWith('kling/v4/')) return this.buildKlingV4Input(payload)
     const isTextToVideo = payload.model?.includes('text-to-video')
 

@@ -66,6 +66,35 @@ export const FAL_MODELS: FalModelCatalogEntry[] = [
     freeReferenceImages: 5,
     extraReferenceImageCost: 0.08,
   },
+  // FLUX 3 Max (fal Research + Black Forest Labs): launch promo $0.0425/s 720p, $0.0725/s 1080p
+  // until 2026-11-07; list price afterwards $0.17/s 720p, $0.29/s 1080p
+  {
+    id: 'blackforestlabs/flux-3-max/text-to-video',
+    name: 'FLUX 3 Max',
+    category: 'Flux',
+    type: 'video',
+    costPerSecond: 0.0425,
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['auto', '21:9', '2:1', '16:9', '4:3', '1:1', '3:4', '9:16'],
+  },
+  {
+    id: 'blackforestlabs/flux-3-max/image-to-video',
+    name: 'FLUX 3 Max I2V',
+    category: 'Flux',
+    type: 'video',
+    costPerSecond: 0.0425,
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['auto', '21:9', '2:1', '16:9', '4:3', '1:1', '3:4', '9:16'],
+  },
+  {
+    id: 'blackforestlabs/flux-3-max/keyframes-to-video',
+    name: 'FLUX 3 Max Keyframes',
+    category: 'Flux',
+    type: 'video',
+    costPerSecond: 0.0425,
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['auto', '21:9', '2:1', '16:9', '4:3', '1:1', '3:4', '9:16'],
+  },
   // Kling 4.0: $0.157/s 720p, $0.235/s 1080p (native audio included)
   {
     id: 'kling/v4/text-to-video',

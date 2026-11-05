@@ -939,6 +939,17 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '720p', cost: 0.036 }],
     durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
     falAspectRatios: ['16:9', '9:16', '1:1'] },
+  // One model, routed by input: FF/LF and a single image → image-to-video; 2+ images →
+  // keyframes-to-video (spread evenly over the clip). Launch promo prices until 2026-11-07,
+  // then $0.17/s (720p) and $0.29/s (1080p).
+  { name: 'FLUX 3 Max (Fal)', category: 'Flux', unit: 's', provider: 'fal',
+    t2vId: 'blackforestlabs/flux-3-max/text-to-video',
+    i2vId: 'blackforestlabs/flux-3-max/image-to-video',
+    fflfId: 'blackforestlabs/flux-3-max/image-to-video',
+    refId: 'blackforestlabs/flux-3-max/keyframes-to-video',
+    prices: [{ resolution: '720p', cost: 0.0425 }, { resolution: '1080p', cost: 0.0725 }],
+    durationMax: 20, durationOptions: secondsRange(5, 20), resolutions: ['720p', '1080p'],
+    falAspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '2:1'] },
 
 
   // Higgsfield video models

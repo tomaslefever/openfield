@@ -2525,6 +2525,8 @@ Visual Style (MANDATORY TO EMBED): ${state.visualStyle || 'Cinematic, 8k, photor
       const inputMode =
         multiVoice && (requestedMode === 'ff' || requestedMode === 't2v') && targetModel.refId && !customParams?.imageRefs
           ? 'ref'
+          : requestedMode === 'ref' && !targetModel.refId && !customParams?.imageRefs
+          ? 'ff' // the model has no reference-to-video endpoint: pin the keyframe instead of dropping it
           : requestedMode
       const useElevenVoices = state.voiceSource === 'eleven'
 

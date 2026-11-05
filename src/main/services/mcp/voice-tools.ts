@@ -1,7 +1,11 @@
 import { notifyAssetsChanged } from '../../ipc/assets'
 import {
+  MUSIC_MAX_SECONDS,
+  MUSIC_MIN_SECONDS,
   USD_PER_LINE,
+  USD_PER_MUSIC_SECOND,
   VOICE_DEFAULTS,
+  composeMusic,
   creditsPerChar,
   hasElevenLabsKey,
   lastVoiceSettings,
@@ -148,6 +152,51 @@ export function getVoiceTools(): McpTool[] {
           estimate,
           results,
           next: 'Place them with timeline_add_clips (asset_id per line); timeline_autoducking ducks the music under them.',
+        }
+      },
+    },
+    {
+      name: 'music_generate',
+      title: 'Generate music (ElevenLabs Music)',
+      description: `Compose one music track with ElevenLabs Music, like the composer's ElevenLabs Music model, into the library as an audio asset (model_used = elevenlabs:music, kind music, so the Timeline treats it as background music for ducking). duration_seconds sets the exact length (${MUSIC_MIN_SECONDS}–${MUSIC_MAX_SECONDS} s). Describe genre, instruments, tempo, mood and a time-coded structure in the prompt; do not name real artists or copyrighted works. Spends the user's ElevenLabs credits: estimate_only: true returns the estimated cost without generating. Takes up to a few minutes.`,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Style, instruments, tempo, mood and structure of the track' },
+          duration_seconds: { type: 'number', minimum: MUSIC_MIN_SECONDS, description: `Track length in seconds, ${MUSIC_MIN_SECONDS}–${MUSIC_MAX_SECONDS}` },
+          model: { type: 'string', description: 'ElevenLabs music model id (default music_v2)' },
+          force_instrumental: { type: 'boolean', description: 'Guarantee no vocals' },
+          name: { type: 'string', description: 'Optional file name for the asset, e.g. ep1_theme' },
+          estimate_only: { type: 'boolean', description: 'Only return the estimated cost; nothing is generated or charged' },
+        },
+        required: ['prompt', 'duration_seconds'],
+        additionalProperties: false,
+      },
+      annotations: GENERATE,
+      handler: async (args) => {
+        const prompt = str(args.prompt).trim()
+        if (!prompt) throw new ToolInputError('prompt is empty')
+        const seconds = num(args.duration_seconds, NaN)
+        if (!Number.isFinite(seconds) || seconds < MUSIC_MIN_SECONDS || seconds > MUSIC_MAX_SECONDS) {
+          throw new ToolInputError(`duration_seconds must be between ${MUSIC_MIN_SECONDS} and ${MUSIC_MAX_SECONDS}`)
+        }
+        const estimate = { durationSeconds: seconds, estimatedUsd: Math.round(seconds * USD_PER_MUSIC_SECOND * 1000) / 1000 }
+        if (args.estimate_only === true) {
+          return { ...estimate, note: 'Nothing was generated. Call again without estimate_only to run it.' }
+        }
+        requireKey()
+        const r = await composeMusic({
+          prompt,
+          durationSeconds: seconds,
+          modelId: optStr(args.model),
+          forceInstrumental: args.force_instrumental === true,
+          name: optStr(args.name),
+        })
+        try { notifyAssetsChanged() } catch {}
+        return {
+          ...r,
+          estimate,
+          next: 'Place it with timeline_add_clips on an audio track; timeline_autoducking or timeline_set_ducking lowers it under the voices.',
         }
       },
     },
