@@ -597,12 +597,13 @@ export const VIDEO_MODELS: ModelPricing[] = [
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Seedance 2.5', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-5', i2vId: 'bytedance/seedance-2-5', fflfId: 'bytedance/seedance-2-5',
     // kie.ai/seedance-2-5: 28 / 63 / 158 credits/s; with a reference video 17 / 38 / 95 over input + output.
-    // "Draft 480p" sends draft: true (480p rate); its 1080p final runs bytedance/seedance-2-5-draft.
+    // No "Draft 480p" here yet: the Finalize button and IPC only finalize MachGen drafts, so a KIE
+    // draft (draft: true → bytedance/seedance-2-5-draft) could never get its 1080p final.
     prices: [
       { resolution: '480p', cost: 0.14, costWithVideoInput: 0.085 }, { resolution: '720p', cost: 0.315, costWithVideoInput: 0.19 },
       { resolution: '1080p', cost: 0.79, costWithVideoInput: 0.475 },
     ], durationMax: 30,
-    durationOptions: secondsRange(4, 30), resolutions: [SEEDANCE_DRAFT_RES, '480p', '720p', '1080p'], supportsVideoRef: true, supportsAudioRef: true,
+    durationOptions: secondsRange(4, 30), resolutions: ['480p', '720p', '1080p'], supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Seedance 2 Fast', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-fast', i2vId: 'bytedance/seedance-2-fast', fflfId: 'bytedance/seedance-2-fast',
     prices: [{ resolution: '480p', cost: 0.059 }, { resolution: '720p', cost: 0.124 }], durationMax: 15,
@@ -1165,7 +1166,7 @@ export const VIDEO_MODELS: ModelPricing[] = [
   // Edits the first video (@Video1) with optional image/video references; billed $0.063/s on output + max(input, output)
   { name: 'Kling 4.0 Flash Edit (Fal)', category: 'Kling', unit: 's', provider: 'fal',
     t2vId: 'kling/v4/flash/video-to-video', i2vId: 'kling/v4/flash/video-to-video', refId: 'kling/v4/flash/video-to-video',
-    prices: [{ resolution: '720p', cost: 0.063, costWithVideoInput: 0.063 }],
+    prices: [{ resolution: '720p', cost: 0.063, costWithVideoInput: 0.063 }, { resolution: '720p-audio', cost: 0.063, costWithVideoInput: 0.063 }],
     resolutions: ['720p'], durationFromInputVideo: true,
     supportsVideoRef: true, maxVideoRefs: 5,
     refTags: { image: '@Image%d', video: '@Video%d' } },

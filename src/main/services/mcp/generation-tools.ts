@@ -274,6 +274,9 @@ function modelForReferences(model: string, type: string, payload: any): string {
   return IMAGE_MODELS.some(m => m.id === candidate) ? candidate : model
 }
 
+/** Replicate models whose queue builder takes every image (mirrors REPLICATE_ALL_IMAGES in PromptComposer) */
+const REPLICATE_ALL_IMAGES = new Set(['kwaivgi/kling-v4.0', 'replicate/minimax/h3-lite', 'replicate/minimax/h3-highspeed', 'openai/gpt-image-2.6-flare', 'openai/gpt-image-2.6-sunburst', 'black-forest-labs/flux-3-image', 'ideogram-ai/ideogram-4-5', 'ideogram-ai/ideogram-4-5-precise-edit', 'krea/krea-3'])
+
 /** Provider-specific payload shape the renderer produces before sending. */
 function adaptPayloadForProvider(provider: QueueProvider, type: string, payload: any): void {
   payload.type = type
@@ -281,8 +284,8 @@ function adaptPayloadForProvider(provider: QueueProvider, type: string, payload:
   // P-Video 2 Pro (Pruna or Replicate) with references runs its -reference variant, which
   // takes the reference lists as they are
   if (pVideo2Kind(payload.model)) payload.model = routePVideo2Model(payload.model, payload)
-  // Replicate takes a single input image instead of a reference list
-  if (provider === 'replicate' && pVideo2Kind(payload.model) !== 'p-video-2-pro-reference' && Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0) {
+  // Replicate takes a single input image instead of a reference list, except the models that take them all
+  if (provider === 'replicate' && pVideo2Kind(payload.model) !== 'p-video-2-pro-reference' && !REPLICATE_ALL_IMAGES.has(payload.model) && Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0) {
     const [first] = payload.imageRefs
     if (!payload.imageAssetId && first.assetId) {
       payload.imageAssetId = first.assetId
