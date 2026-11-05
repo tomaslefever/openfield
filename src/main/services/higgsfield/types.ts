@@ -109,6 +109,34 @@ export interface Kling30StdInput {
     prompt: string
     duration: number
   }>
+  /** image-to-video only (std / pro / 4k): optional final frame */
+  last_image_url?: string
+}
+
+/** Kling 3.0 Turbo (/kling-video/v3.0-turbo/{text,image}-to-video): no sound, shots, elements or last frame. */
+export interface Kling30TurboInput {
+  prompt: string
+  duration?: number
+  resolution?: '720p' | '1080p'
+  /** text-to-video only */
+  aspect_ratio?: '16:9' | '9:16' | '1:1'
+  /** image-to-video only (required there) */
+  image_url?: string
+}
+
+// --- HappyHorse 1.1 (Alibaba) ---
+
+export interface HappyHorse11Input {
+  prompt?: string
+  /** image-to-video: first frame */
+  image_url?: string
+  /** reference-to-video: 1-9 images */
+  image_urls?: string[]
+  duration?: number
+  resolution?: '720p' | '1080p'
+  /** text-to-video only */
+  aspect_ratio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4'
+  seed?: number
 }
 
 // ─── Wan 3.0 ────────────────────────────────────────────────
@@ -281,7 +309,7 @@ export interface GenjutsuMotionTransferInput {
   resolution?: '480p' | '720p' | '1080p'
 }
 
-export type HiggsfieldVideoInput = SeedanceInput | Kling30StdInput | Wan30Input | Wan30PrimeInput | MiniMaxH3Input | MiniMaxH3RefInput | MiniMaxHailuoInput
+export type HiggsfieldVideoInput = SeedanceInput | Kling30StdInput | Kling30TurboInput | HappyHorse11Input | Wan30Input | Wan30PrimeInput | MiniMaxH3Input | MiniMaxH3RefInput | MiniMaxHailuoInput
 export type HiggsfieldModelInput = HiggsfieldVideoInput | HiggsfieldImageInput | MarketingStudioImageInput | AiInfluencerInput | GenjutsuMotionTransferInput | Record<string, any>
 
 // ─── Storage / Uploads ──────────────────────────────────────

@@ -8,7 +8,7 @@ import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
 import { redactPayload } from './payload-redact'
 import { persistMediaToAssets } from './media-persist'
-import { ApimartApiClient, getApimartModel, type ApimartTaskStatusResponse } from './apimart'
+import { ApimartApiClient, getApimartModel, APIMART_MODE_SUFFIX_RE, type ApimartTaskStatusResponse, type ApimartModelDef } from './apimart'
 import { registerRecoverableProvider, readApiKey, RemoteJobFailedError, forgetFailedJob, markPlaceholderFailed, canAutoResume, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
 import { resolveAssetFileForUpload, prepareUploadFile } from './asset-file'
 
@@ -21,6 +21,33 @@ function logRun(raw: any, taskId: string, step: string, message: string, payload
     raw.prepare('INSERT INTO run_logs (id, task_id, step, level, message, payload, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(crypto.randomUUID(), taskId, step, level, message, payload ? JSON.stringify(redactPayload(payload)) : null, ws, Date.now())
   } catch {}
+}
+
+const HTTP_RE = /^https?:\/\//i
+
+function clampInt(value: any, min: number, max: number, fallback: number): number {
+  const n = Math.round(Number(value))
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
+function hasAny(payload: any, keys: string[]): boolean {
+  return keys.some((k) => !!payload?.[k])
+}
+
+const FIRST_FRAME_KEYS = ['firstFrameUrl', 'firstFrameBase64', 'firstFrameAssetId']
+const LAST_FRAME_KEYS = ['lastFrameUrl', 'lastFrameBase64', 'lastFrameAssetId']
+
+/** Media for the per-model builders: images are uploaded to APIMart, video/audio must be public URLs. */
+interface ApimartMedia {
+  firstFrame: string | null
+  lastFrame: string | null
+  /** Reference images (excludes explicit first/last frames). */
+  images: string[]
+  videos: string[]
+  audios: string[]
+  hasExplicitFirst: boolean
+  hasExplicitLast: boolean
 }
 
 export class ApimartQueue extends EventEmitter implements RecoverableQueue {
@@ -40,7 +67,9 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
     this.apiClient.setApiKey(apiKey)
   }
 
-  async enqueue(type: string, payload: any): Promise<string> {
+  async enqueue(requestedType: string, payload: any): Promise<string> {
+    // Flow Music models are audio tasks whatever the caller passed
+    const type = getApimartModel(payload?.model)?.type === 'audio' ? 'audio' : requestedType
     const taskId = crypto.randomUUID()
     const raw = getRawDb()
     const now = Date.now()
@@ -144,7 +173,7 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
       const existingJobId = task.requestId || task.externalId
       if (existingJobId) {
         logRun(raw, taskId, 'recovery', `Resuming existing APIMart task: ${existingJobId}`)
-        const resumed = await this.pollTask(taskId, existingJobId)
+        const resumed = await this.pollTask(taskId, existingJobId, task)
         await this.handleSuccess(task, resumed)
         return
       }
@@ -154,16 +183,26 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
 
       const rawModel = payload?.model || ''
       const modelDef = getApimartModel(rawModel)
-      const modelId = modelDef?.id || rawModel.replace(/^apimart\//, '').replace(/\/(t2v|i2v|fflf|ref|t2i|i2i|extend)$/, '').trim()
+      const modelId = modelDef?.id || rawModel.replace(/^apimart\//, '').replace(APIMART_MODE_SUFFIX_RE, '').trim()
+      const modeSuffix = (String(rawModel).match(APIMART_MODE_SUFFIX_RE)?.[1] || '').toLowerCase()
 
       if (!modelId) {
         throw new Error('APIMart error: Model ID is empty or invalid.')
       }
 
-      logRun(raw, taskId, 'submit', `Submitting to APIMart: model=${modelId}, type=${isImage ? 'image' : 'video'}`, payload)
+      logRun(raw, taskId, 'submit', `Submitting to APIMart: model=${modelId}, type=${task.type === 'audio' ? 'audio' : isImage ? 'image' : 'video'}${modeSuffix ? `, mode=${modeSuffix}` : ''}`, payload)
 
       let submitRes: any
-      if (isImage) {
+      if (modelDef?.builder) {
+        // Models with a documented per-model request shape (added 2026-11)
+        const body = await this.buildModelRequest(modelDef, modeSuffix, payload)
+        logRun(raw, taskId, 'submit-body', `APIMart ${modelDef.builder} request`, body)
+        submitRes = modelDef.builder === 'flowmusic'
+          ? await this.apiClient.generateMusic(body)
+          : modelDef.type === 'image'
+            ? await this.apiClient.generateImage(body)
+            : await this.apiClient.generateVideo(body)
+      } else if (isImage) {
         // Collect reference images if any
         const imageUrls: string[] = []
         if (payload.imageBase64 || payload.imageAssetId || payload.imageUrl) {
@@ -246,7 +285,7 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
       raw.prepare('UPDATE tasks SET request_id = ?, external_id = ?, updated_at = ? WHERE task_id = ?')
         .run(apimartTaskId, apimartTaskId, Date.now(), taskId)
 
-      const finalStatus = await this.pollTask(taskId, apimartTaskId)
+      const finalStatus = await this.pollTask(taskId, apimartTaskId, task)
       await this.handleSuccess(task, finalStatus)
     } catch (err: any) {
       logRun(raw, taskId, 'error', `Task failed: ${err.message}`, null, 'error')
@@ -258,10 +297,370 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
     }
   }
 
-  private async pollTask(taskId: string, apimartTaskId: string): Promise<ApimartTaskStatusResponse> {
+  /**
+   * Video and audio references: APIMart only offers an image upload endpoint, so these must
+   * already be public URLs (a pasted https URL, or an asset whose provider URL is still stored).
+   */
+  private resolveRemoteMedia(ref: any, kind: 'video' | 'audio'): string {
+    const src = typeof ref === 'string' ? ref : ref?.url
+    if (typeof src === 'string' && HTTP_RE.test(src.trim())) return src.trim()
+    const assetId = typeof ref === 'object' ? ref?.assetId : undefined
+    if (assetId) {
+      try {
+        const asset = getRawDb().prepare('SELECT file_path FROM assets WHERE id = ?').get(assetId) as any
+        const fp = asset?.filePath ?? asset?.file_path
+        if (typeof fp === 'string' && HTTP_RE.test(fp)) return fp
+      } catch {}
+    }
+    throw new Error(
+      kind === 'video'
+        ? 'APIMart necesita una URL pública para el video de referencia (su API solo permite subir imágenes). Usa un video generado por un proveedor o una URL https.'
+        : 'APIMart necesita una URL pública para el audio de referencia (su API solo permite subir imágenes). Usa un audio generado por un proveedor o una URL https.'
+    )
+  }
+
+  private async collectMedia(payload: any): Promise<ApimartMedia> {
+    const hasExplicitFirst = hasAny(payload, FIRST_FRAME_KEYS)
+    const hasExplicitLast = hasAny(payload, LAST_FRAME_KEYS)
+
+    const firstFrame = hasExplicitFirst
+      ? await this.resolveSource(payload.firstFrameUrl || payload.firstFrameBase64, payload.firstFrameAssetId, 'image/png')
+      : null
+    if (hasExplicitFirst && !firstFrame) throw new Error('APIMart: no se pudo subir el primer fotograma.')
+    const lastFrame = hasExplicitLast
+      ? await this.resolveSource(payload.lastFrameUrl || payload.lastFrameBase64, payload.lastFrameAssetId, 'image/png')
+      : null
+    if (hasExplicitLast && !lastFrame) throw new Error('APIMart: no se pudo subir el último fotograma.')
+
+    const images: string[] = []
+    const pushImage = (u: string | null) => {
+      if (u && u !== firstFrame && u !== lastFrame && !images.includes(u)) images.push(u)
+    }
+    const refs = Array.isArray(payload.imageRefs) ? payload.imageRefs : []
+    for (const ref of refs) {
+      pushImage(await this.resolveSource(ref?.url || ref?.base64 || ref?.localPath, ref?.assetId, ref?.mime || 'image/png'))
+    }
+    // The composer duplicates imageRefs[0] into imageBase64; only use it when there are no refs
+    if (refs.length === 0 && (payload.imageBase64 || payload.imageAssetId || payload.imageUrl)) {
+      pushImage(await this.resolveSource(payload.imageUrl || payload.imageBase64, payload.imageAssetId, payload.imageMime || 'image/png'))
+    }
+    if (Array.isArray(payload.image_urls)) {
+      for (const u of payload.image_urls) if (typeof u === 'string' && HTTP_RE.test(u)) pushImage(u)
+    }
+
+    const videoSources: any[] = [
+      ...(Array.isArray(payload.videoRefs) ? payload.videoRefs : []),
+      ...(Array.isArray(payload.video_urls) ? payload.video_urls : []),
+      ...(payload.videoUrl ? [payload.videoUrl] : []),
+      ...(payload.video_url ? [payload.video_url] : []),
+    ]
+    const videos: string[] = []
+    for (const v of videoSources) {
+      const u = this.resolveRemoteMedia(v, 'video')
+      if (!videos.includes(u)) videos.push(u)
+    }
+
+    const audioSources: any[] = [
+      ...(Array.isArray(payload.audioRefs) ? payload.audioRefs : []),
+      ...(Array.isArray(payload.audio_urls) ? payload.audio_urls : []),
+    ]
+    const audios: string[] = []
+    for (const a of audioSources) {
+      const u = this.resolveRemoteMedia(a, 'audio')
+      if (!audios.includes(u)) audios.push(u)
+    }
+
+    return { firstFrame, lastFrame, images, videos, audios, hasExplicitFirst, hasExplicitLast }
+  }
+
+  /** Request body for models with a `builder` in the catalog. Only documented fields are sent. */
+  private async buildModelRequest(modelDef: ApimartModelDef, modeSuffix: string, payload: any): Promise<any> {
+    const prompt = String(payload?.prompt || '').trim()
+    const aspect = String(payload?.aspectRatio || payload?.aspect_ratio || payload?.size || '').trim()
+    const resStr = String(payload?.resolution || '').trim().toLowerCase()
+    const apiModel = modelDef.apiModel || modelDef.id
+
+    switch (modelDef.builder) {
+      case 'flowmusic': {
+        // docs.apimart.ai/en/api-reference/audios/flow-music/music-lyria-3-5
+        const lyrics = String(payload?.lyrics || '').trim()
+        const soundPrompt = String(payload?.soundPrompt || payload?.style || prompt).trim()
+        if (!soundPrompt && !lyrics) throw new Error('Lyria 3.5 necesita un prompt de estilo o una letra.')
+        const length = payload?.duration ?? payload?.length
+        const bpm = Math.round(Number(payload?.bpm))
+        return {
+          model: apiModel,
+          version: modelDef.apiVersion,
+          ...(soundPrompt ? { sound_prompt: soundPrompt } : {}),
+          ...(lyrics ? { lyrics } : {}),
+          ...(payload?.title ? { title: String(payload.title).slice(0, 200) } : {}),
+          ...(Number.isFinite(bpm) && bpm >= 1 ? { bpm: String(bpm) } : {}),
+          ...(length != null && Number.isFinite(Number(length)) ? { length: clampInt(length, 1, 240, 60) } : {}),
+          ...(payload?.seed != null && payload.seed !== '' ? { seed: String(payload.seed) } : {}),
+        }
+      }
+
+      case 'nano-banana-2.1': {
+        // docs.apimart.ai/en/api-reference/images/gemini-nano-banana-2.1/generation
+        const media = await this.collectMedia(payload)
+        const images = [media.firstFrame, ...media.images].filter((u): u is string => !!u)
+        const resolution = resStr.includes('4k') ? '4K' : resStr.includes('2k') ? '2K' : '1K'
+        const allowed = modelDef.aspectRatios || []
+        return {
+          model: apiModel,
+          prompt,
+          size: allowed.includes(aspect) ? aspect : 'auto',
+          resolution,
+          n: 1,
+          ...(images.length > 0 ? { image_urls: images.slice(0, 14) } : {}),
+        }
+      }
+
+      case 'flux-3': {
+        // docs.apimart.ai/en/api-reference/images/flux-3-image(-klein)/generation
+        const media = await this.collectMedia(payload)
+        const images = [media.firstFrame, ...media.images].filter((u): u is string => !!u)
+        const resolutions = modelDef.resolutions || []
+        const resolution = resolutions.includes(resStr) ? resStr : '1k'
+        const allowed = modelDef.aspectRatios || []
+        const isKlein = modelDef.id === 'flux-3-image-klein'
+        const seed = Math.round(Number(payload?.seed))
+        return {
+          model: apiModel,
+          prompt,
+          aspect_ratio: allowed.includes(aspect) ? aspect : 'auto',
+          resolution,
+          n: 1,
+          ...(images.length > 0 ? { image_urls: images.slice(0, 10) } : {}),
+          ...(isKlein && payload?.seed != null && Number.isFinite(seed) ? { seed } : {}),
+        }
+      }
+
+      case 'veo-official': {
+        // docs.apimart.ai/en/api-reference/videos/veo3/generation-official
+        const media = await this.collectMedia(payload)
+        // A single attached image (no FF toggle) is used as the first frame
+        const firstFrame = media.firstFrame || media.images[0] || null
+        if (media.videos.length > 0 || media.audios.length > 0) {
+          throw new Error('Veo 3.1 (APIMart) no acepta videos ni audios de referencia.')
+        }
+        const requested = clampInt(payload?.duration, 4, 8, 8)
+        const duration = requested <= 4 ? 4 : requested <= 6 ? 6 : 8
+        const resolution = resStr.includes('4k') ? '4K' : resStr.includes('1080') ? '1080p' : '720p'
+        const generateAudio = payload?.sound != null ? Boolean(payload.sound) : payload?.audio != null ? Boolean(payload.audio) : false
+        const negative = String(payload?.negativePrompt || payload?.negative_prompt || '').trim()
+        const seed = Math.round(Number(payload?.seed))
+        if (!prompt) throw new Error('Veo 3.1 necesita un prompt.')
+        return {
+          model: apiModel,
+          prompt,
+          duration,
+          aspect_ratio: aspect === '9:16' ? '9:16' : '16:9',
+          resolution,
+          generate_audio: generateAudio,
+          ...(firstFrame ? { first_frame_image: firstFrame } : {}),
+          ...(media.lastFrame && firstFrame ? { last_frame_image: media.lastFrame } : {}),
+          ...(negative ? { negative_prompt: negative } : {}),
+          ...(payload?.seed != null && Number.isFinite(seed) ? { seed } : {}),
+        }
+      }
+
+      case 'kling-v4': {
+        // docs.apimart.ai/en/api-reference/videos/kling-v4/generation
+        const media = await this.collectMedia(payload)
+        const resolution = resStr.includes('1080') ? '1080p' : '720p'
+        const duration = clampInt(payload?.duration, 3, 30, 5)
+        const baseAspects = ['16:9', '9:16', '1:1', '21:9']
+
+        if (modeSuffix === 'edit' || modeSuffix === 'extend') {
+          if (media.videos.length === 0) throw new Error(`Kling V4 ${modeSuffix === 'edit' ? 'Edit' : 'Extend'} necesita un video de origen.`)
+          if (!prompt) throw new Error('Kling V4 necesita un prompt para editar o extender un video.')
+          if (modeSuffix === 'edit') {
+            // Duration and aspect ratio follow the input video; original audio is kept by default
+            const editImages = [media.firstFrame, ...media.images].filter((u): u is string => !!u).slice(0, 10)
+            return {
+              model: apiModel,
+              prompt,
+              omni_reference_task_type: 'edit',
+              video_url: media.videos[0],
+              resolution,
+              ...(editImages.length > 0 ? { image_urls: editImages } : {}),
+            }
+          }
+          return {
+            model: apiModel,
+            prompt,
+            omni_reference_task_type: 'extend',
+            video_url: media.videos[0],
+            duration,
+            resolution,
+            ...(media.lastFrame ? { last_frame_image: media.lastFrame } : {}),
+          }
+        }
+
+        // Like KIE Kling 4.0: one image and nothing else is a first frame (image-to-video)
+        const singleImage = !media.hasExplicitFirst && !media.hasExplicitLast && media.images.length === 1 && media.videos.length === 0 && media.audios.length === 0
+        if (singleImage) {
+          return {
+            model: apiModel,
+            ...(prompt ? { prompt } : {}),
+            duration,
+            resolution,
+            image_with_roles: [{ url: media.images[0], role: 'first_frame' }],
+          }
+        }
+
+        if (media.hasExplicitFirst || media.hasExplicitLast) {
+          if (!media.firstFrame) throw new Error('Kling V4: el último fotograma necesita también un primer fotograma.')
+          if (media.videos.length > 0 || media.audios.length > 0) {
+            throw new Error('Kling V4: los fotogramas inicial/final no se pueden combinar con videos o audios de referencia.')
+          }
+          // Other attached images become intermediate keyframes (max 8, 10 images in total)
+          const keyframes = media.images.slice(0, 8)
+          return {
+            model: apiModel,
+            ...(prompt ? { prompt } : {}),
+            duration,
+            resolution,
+            image_with_roles: [
+              { url: media.firstFrame, role: 'first_frame' },
+              ...keyframes.map((url) => ({ url, role: 'keyframe' })),
+              ...(media.lastFrame ? [{ url: media.lastFrame, role: 'last_frame' }] : []),
+            ],
+          }
+        }
+
+        const refImages = media.images.slice(0, 10)
+        const refVideos = media.videos.slice(0, 5)
+        const refAudios = media.audios.slice(0, 3)
+        if (refImages.length + refVideos.length + refAudios.length > 0) {
+          if (!prompt) throw new Error('Kling V4 necesita un prompt en modo referencias.')
+          if (refImages.length + refVideos.length + refAudios.length > 15) {
+            throw new Error('Kling V4 admite como máximo 15 referencias en total (imágenes, videos y audios).')
+          }
+          return {
+            model: apiModel,
+            prompt,
+            omni_reference_task_type: 'reference',
+            duration,
+            resolution,
+            aspect_ratio: [...baseAspects, 'auto'].includes(aspect) ? aspect : 'auto',
+            ...(refImages.length > 0 ? { image_with_roles: refImages.map((url) => ({ url, role: 'reference_image' })) } : {}),
+            ...(refVideos.length > 0 ? { video_urls: refVideos } : {}),
+            ...(refAudios.length > 0 ? { audio_urls: refAudios } : {}),
+          }
+        }
+
+        if (!prompt) throw new Error('Kling V4 necesita un prompt.')
+        return {
+          model: apiModel,
+          prompt,
+          duration,
+          resolution,
+          aspect_ratio: baseAspects.includes(aspect) ? aspect : '16:9',
+        }
+      }
+
+      case 'vidu-q4': {
+        // docs.apimart.ai/en/api-reference/videos/vidu-q4-preview/generation
+        const media = await this.collectMedia(payload)
+        if (media.lastFrame) throw new Error('Vidu Q4 no admite último fotograma.')
+        if (media.videos.length > 0) throw new Error('Vidu Q4 no admite videos de referencia.')
+        const duration = clampInt(payload?.duration, 3, 16, 5)
+        const resolutions: Record<string, string> = { '540p': '540p', '720p': '720p', '1080p': '1080p', '2k': '2K', '4k': '4K' }
+        const resolution = resolutions[resStr] || '720p'
+        const audio = payload?.sound != null ? Boolean(payload.sound) : true
+        const seed = Math.round(Number(payload?.seed))
+        const common = {
+          model: apiModel,
+          duration,
+          resolution,
+          audio,
+          ...(payload?.seed != null && Number.isFinite(seed) ? { seed } : {}),
+        }
+
+        if (media.firstFrame) {
+          if (media.images.length > 0 || media.audios.length > 0) {
+            throw new Error('Vidu Q4: el primer fotograma no se puede combinar con otras imágenes o audios de referencia.')
+          }
+          return { ...common, ...(prompt ? { prompt } : {}), first_frame_image: media.firstFrame }
+        }
+        // Like KIE Vidu Q4: one image without audio is image-to-video; 2+ images or audio are references
+        if (media.images.length === 1 && media.audios.length === 0) {
+          return { ...common, ...(prompt ? { prompt } : {}), first_frame_image: media.images[0] }
+        }
+
+        if (media.images.length === 0) throw new Error('Vidu Q4 necesita al menos una imagen (no tiene texto a video).')
+        if (!prompt) throw new Error('Vidu Q4 necesita un prompt en modo referencias.')
+        return {
+          ...common,
+          prompt,
+          aspect_ratio: (modelDef.aspectRatios || []).includes(aspect) ? aspect : '16:9',
+          image_with_roles: media.images.slice(0, 15).map((url) => ({ url, role: 'reference_image' })),
+          ...(media.audios.length > 0 ? { audio_urls: media.audios.slice(0, 3) } : {}),
+        }
+      }
+
+      case 'minimax-h3-max': {
+        // docs.apimart.ai/en/api-reference/videos/minimax-h3/max
+        const media = await this.collectMedia(payload)
+        if (!prompt) throw new Error('MiniMax H3 Max necesita un prompt.')
+        const duration = clampInt(payload?.duration, 5, 15, 5)
+        const resolution = resStr.includes('1080') ? '1080P' : resStr.includes('480') ? '480P' : '768P'
+        const aspects = modelDef.aspectRatios || []
+        const common = { model: apiModel, prompt: prompt.slice(0, 7000), duration, resolution }
+
+        if (media.firstFrame || media.lastFrame) {
+          if (media.videos.length > 0 || media.audios.length > 0) {
+            throw new Error('MiniMax H3 Max: los fotogramas no se pueden combinar con videos o audios de referencia.')
+          }
+          return {
+            ...common,
+            ...(media.firstFrame ? { first_frame_image: media.firstFrame } : {}),
+            ...(media.lastFrame ? { last_frame_image: media.lastFrame } : {}),
+          }
+        }
+
+        // Like MachGen MiniMax H3: one image and nothing else is a first frame
+        if (media.images.length === 1 && media.videos.length === 0 && media.audios.length === 0) {
+          return { ...common, first_frame_image: media.images[0] }
+        }
+
+        const refImages = media.images.slice(0, 9)
+        const refVideos = media.videos.slice(0, 3)
+        const refAudios = media.audios.slice(0, 3)
+        if (refAudios.length > 0 && refImages.length === 0 && refVideos.length === 0) {
+          throw new Error('MiniMax H3 Max: el audio de referencia necesita al menos una imagen o un video.')
+        }
+        if (refImages.length + refVideos.length + refAudios.length > 0) {
+          return {
+            ...common,
+            ...(aspects.includes(aspect) ? { aspect_ratio: aspect } : {}),
+            ...(refImages.length > 0 ? { image_urls: refImages } : {}),
+            ...(refVideos.length > 0 ? { video_urls: refVideos } : {}),
+            ...(refAudios.length > 0 ? { audio_urls: refAudios } : {}),
+          }
+        }
+        return { ...common, aspect_ratio: aspects.includes(aspect) ? aspect : '16:9' }
+      }
+
+      default:
+        throw new Error(`APIMart: builder desconocido para ${modelDef.id}`)
+    }
+  }
+
+  private async getStatus(task: any, apimartTaskId: string): Promise<ApimartTaskStatusResponse> {
+    // Flow Music tasks have their own query endpoint
+    if (task?.type === 'audio') {
+      return (await this.apiClient.getMusicTaskStatus(apimartTaskId)) as unknown as ApimartTaskStatusResponse
+    }
+    return this.apiClient.getTaskStatus(apimartTaskId)
+  }
+
+  private async pollTask(taskId: string, apimartTaskId: string, task?: any): Promise<ApimartTaskStatusResponse> {
     const raw = getRawDb()
     while (true) {
-      const statusRes = await this.apiClient.getTaskStatus(apimartTaskId)
+      const statusRes = await this.getStatus(task, apimartTaskId)
       const data = statusRes.data || (statusRes as any)
       const status = data.status || statusRes.status
 
@@ -313,6 +712,14 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
       }
     }
 
+    // Flow Music: result.music[0].audio_url (m4a); wav_url as fallback
+    if (Array.isArray(result.music) && result.music.length > 0) {
+      const item = result.music[0]
+      if (typeof item === 'string') return item
+      if (item?.audio_url) return item.audio_url
+      if (item?.wav_url) return item.wav_url
+    }
+
     if (result.url) {
       return Array.isArray(result.url) ? result.url[0] : result.url
     }
@@ -339,12 +746,14 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
     let localAssetId: string | null = null
 
     if (remoteUrl) {
-      const isImage = task.type === 'image' || taskPayload?.mode === 'image'
-      const ext = isImage ? 'png' : 'mp4'
-      const mime = isImage ? 'image/png' : 'video/mp4'
+      const isAudio = task.type === 'audio'
+      const isImage = !isAudio && (task.type === 'image' || taskPayload?.mode === 'image')
+      const isWav = isAudio && /\.wav(\?|$)/i.test(remoteUrl)
+      const ext = isImage ? 'png' : isAudio ? (isWav ? 'wav' : 'm4a') : 'mp4'
+      const mime = isImage ? 'image/png' : isAudio ? (isWav ? 'audio/wav' : 'audio/mp4') : 'video/mp4'
       const fileName = `${assetId}.${ext}`
       const taskWs = task.workspace_id || getTaskWorkspace(taskId)
-      const subDir = workspaceAssetSubDir(isImage ? 'image' : 'video', taskWs)
+      const subDir = workspaceAssetSubDir(isImage ? 'image' : isAudio ? 'audio' : 'video', taskWs)
       const localPath = `${subDir}/${fileName}`
 
       try {
@@ -354,7 +763,7 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
         await fs.writeFile(localPath, buffer)
 
         let fileSize = buffer.length
-        if (!isImage) {
+        if (!isImage && !isAudio) {
           try {
             const res = await ensurePlayableVideo(localPath)
             fileSize = res.size
@@ -385,7 +794,7 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
       }
     } else {
       const isImage = task.type === 'image'
-      const mime = isImage ? 'image/png' : 'video/mp4'
+      const mime = isImage ? 'image/png' : task.type === 'audio' ? 'audio/mp4' : 'video/mp4'
       localAssetId = updatePlaceholder({
         file_path: '',
         file_name: `completed-${assetId}`,
@@ -442,8 +851,8 @@ export class ApimartQueue extends EventEmitter implements RecoverableQueue {
 
   // ─── RecoverableQueue (see task-recovery.ts) ─────────────────
 
-  async checkRemote(_task: any, apimartTaskId: string): Promise<RemoteTaskStatus> {
-    const statusRes = await this.apiClient.getTaskStatus(apimartTaskId)
+  async checkRemote(task: any, apimartTaskId: string): Promise<RemoteTaskStatus> {
+    const statusRes = await this.getStatus(task, apimartTaskId)
     const data = statusRes.data || (statusRes as any)
     const status = data.status || statusRes.status
     if (status === 'completed' || status === 'SUCCESS') return { state: 'completed', result: statusRes }

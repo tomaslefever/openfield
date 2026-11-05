@@ -63,6 +63,9 @@ export interface ModelPricing {
 /** Resolution option that runs Seedance 2.5 (MachGen) in draft mode: a 480p sample */
 export const SEEDANCE_DRAFT_RES = 'Draft 480p'
 
+/** FLUX 3 Max launch promo on fal ran until 2026-11-07 (US time); list price applies from 2026-11-08 */
+const FLUX3_MAX_PROMO_ACTIVE = Date.now() < Date.UTC(2026, 10, 8, 8)
+
 /** Every whole second from min to max, as duration options */
 function secondsRange(min: number, max: number): string[] {
   return Array.from({ length: max - min + 1 }, (_, i) => String(min + i))
@@ -92,6 +95,32 @@ export const IMAGE_MODELS: ModelPricing[] = [
     resolutions: ['1K', '2K', '4K'],
     aspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9', '16:27', '27:16', '8:9', '9:8'],
     refTags: { image: 'Image %d', skipTagValidation: true } },
+  // GPT Image 2.6 (KIE): Flare/Sunburst bill by tokens (image output $27 per 1M); per-image prices
+  // are estimates carried over from 2.5. Economy: flat $0.025, 1K only, fewer aspect ratios.
+  { name: 'GPT Image 2.6 Flare', category: 'OpenAI', unit: 'img',
+    t2iId: 'gpt-image-2-6/flare-text-to-image', i2iId: 'gpt-image-2-6/flare-image-to-image',
+    prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.05 }, { resolution: '4K', cost: 0.08 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '2:1', '1:2', '21:9', '9:21', '3:1', '1:3'],
+    refTags: { image: 'Image %d', skipTagValidation: true } },
+  { name: 'GPT Image 2.6 Sunburst', category: 'OpenAI', unit: 'img',
+    t2iId: 'gpt-image-2-6/sunburst-text-to-image', i2iId: 'gpt-image-2-6/sunburst-image-to-image',
+    prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.05 }, { resolution: '4K', cost: 0.08 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '2:1', '1:2', '21:9', '9:21', '3:1', '1:3'],
+    refTags: { image: 'Image %d', skipTagValidation: true } },
+  { name: 'GPT Image 2.6 Economy', category: 'OpenAI', unit: 'img',
+    t2iId: 'gpt-image-2-6/economy-text-to-image', i2iId: 'gpt-image-2-6/economy-image-to-image',
+    prices: [{ resolution: '1K', cost: 0.025 }],
+    resolutions: ['1K'],
+    aspectRatios: ['auto', '1:1', '16:9', '9:16', '3:2', '2:3', '21:9', '4:3'],
+    refTags: { image: 'Image %d', skipTagValidation: true } },
+  // FLUX 3 Klein (KIE): 1.6 / 2.5 / 6.5 credits per 1K / 2K / 4K image; edit takes 1–10 refs at no extra cost
+  { name: 'FLUX 3 Klein', category: 'Flux', unit: 'img',
+    t2iId: 'flux-3/klein-text-to-image', editId: 'flux-3/klein-edit-image',
+    prices: [{ resolution: '1K', cost: 0.008 }, { resolution: '2K', cost: 0.0125 }, { resolution: '4K', cost: 0.0325 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '21:9', '9:21'] },
   { name: 'GPT Image 2', category: 'OpenAI', unit: 'img', t2iId: 'gpt-image-2-text-to-image', i2iId: 'gpt-image-2-image-to-image',
     prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.05 }, { resolution: '4K', cost: 0.08 }],
     refTags: { image: 'Image %d', skipTagValidation: true } },
@@ -184,6 +213,30 @@ export const IMAGE_MODELS: ModelPricing[] = [
     t2iId: 'fal-ai/kling-o1/image-to-image', i2iId: 'fal-ai/kling-o1/image-to-image',
     prices: [{ resolution: '1K', cost: 0.040 }],
     falAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
+  // GPT Image 2.6 (Fal): token-billed like GPT Image 2 at quality high (estimates)
+  { name: 'GPT Image 2.6 Flare (Fal)', category: 'OpenAI', unit: 'img', provider: 'fal',
+    t2iId: 'openai/gpt-image-2.6/flare/text-to-image', i2iId: 'openai/gpt-image-2.6/flare/edit',
+    prices: [{ resolution: '1K', cost: 0.13 }, { resolution: '2K', cost: 0.50 }, { resolution: '4K', cost: 1.00 }],
+    falAspectRatios: ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'] },
+  { name: 'GPT Image 2.6 Sunburst (Fal)', category: 'OpenAI', unit: 'img', provider: 'fal',
+    t2iId: 'openai/gpt-image-2.6/sunburst/text-to-image', i2iId: 'openai/gpt-image-2.6/sunburst/edit',
+    prices: [{ resolution: '1K', cost: 0.13 }, { resolution: '2K', cost: 0.50 }, { resolution: '4K', cost: 1.00 }],
+    falAspectRatios: ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'] },
+  // FLUX 3 (Fal): $0.048 per 1 MP; 2K/4K estimated. Edit: 1–10 images
+  { name: 'FLUX 3 (Fal)', category: 'Flux', unit: 'img', provider: 'fal',
+    t2iId: 'blackforestlabs/flux-3/text-to-image', editId: 'blackforestlabs/flux-3/edit-image',
+    prices: [{ resolution: '1K', cost: 0.048 }, { resolution: '2K', cost: 0.10 }, { resolution: '4K', cost: 0.61 }],
+    falAspectRatios: ['auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4', '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2'] },
+  // Ideogram 4.5 (Fal): medium quality $0.06 at any size. Edit: source + up to 4 references
+  { name: 'Ideogram 4.5 (Fal)', category: 'Ideogram', unit: 'img', provider: 'fal',
+    t2iId: 'ideogram/v4.5', editId: 'ideogram/v4.5/edit',
+    prices: [{ resolution: '1K', cost: 0.06 }, { resolution: '2K', cost: 0.06 }],
+    falAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '2:1', '1:2', '3:1', '1:3'] },
+  // Krea 3 (Fal): $0.025 per output megapixel (+ references). Edit: 1–8 images
+  { name: 'Krea 3 (Fal)', category: 'Krea', unit: 'img', provider: 'fal',
+    t2iId: 'krea/v3/text-to-image', editId: 'krea/v3/edit',
+    prices: [{ resolution: '1K', cost: 0.025 }, { resolution: '2K', cost: 0.10 }],
+    falAspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '21:9'] },
 
   // Missing Replicate image models
   { name: 'FLUX.1 Dev (Replicate)', category: 'Flux', unit: 'img', provider: 'replicate',
@@ -227,6 +280,37 @@ export const IMAGE_MODELS: ModelPricing[] = [
     prices: [{ resolution: '1K', cost: 0.040 }, { resolution: '2K', cost: 0.060 }],
     resolutions: ['1K', '2K'],
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
+  // GPT Image 2.6 (Replicate): per image by quality; Openfield sends "high" ($0.128; "auto" bills $0.25)
+  { name: 'GPT Image 2.6 Flare (Replicate)', category: 'OpenAI', unit: 'img', provider: 'replicate',
+    t2iId: 'openai/gpt-image-2.6-flare',
+    prices: [{ resolution: '1K', cost: 0.128 }, { resolution: '2K', cost: 0.128 }, { resolution: '4K', cost: 0.128 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16'] },
+  { name: 'GPT Image 2.6 Sunburst (Replicate)', category: 'OpenAI', unit: 'img', provider: 'replicate',
+    t2iId: 'openai/gpt-image-2.6-sunburst',
+    prices: [{ resolution: '1K', cost: 0.128 }, { resolution: '2K', cost: 0.128 }, { resolution: '4K', cost: 0.128 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16'] },
+  { name: 'FLUX 3 (Replicate)', category: 'Flux', unit: 'img', provider: 'replicate',
+    t2iId: 'black-forest-labs/flux-3-image',
+    prices: [{ resolution: '1K', cost: 0.024 }, { resolution: '2K', cost: 0.05 }, { resolution: '4K', cost: 0.3035 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '21:9', '2:1', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16', '1:2', '9:21'] },
+  { name: 'Ideogram 4.5 (Replicate)', category: 'Ideogram', unit: 'img', provider: 'replicate',
+    t2iId: 'ideogram-ai/ideogram-4-5',
+    prices: [{ resolution: '1K', cost: 0.06 }],
+    resolutions: ['1K'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] },
+  // Edits one source image (first image) restoring unchanged pixels; images 2–5 are references
+  { name: 'Ideogram 4.5 Precise Edit (Replicate)', category: 'Ideogram', unit: 'img', provider: 'replicate',
+    t2iId: 'ideogram-ai/ideogram-4-5-precise-edit',
+    prices: [{ resolution: '1K', cost: 0.06 }],
+    resolutions: ['1K'] },
+  { name: 'Krea 3 (Replicate)', category: 'Krea', unit: 'img', provider: 'replicate',
+    t2iId: 'krea/krea-3',
+    prices: [{ resolution: '1K', cost: 0.03 }, { resolution: '2K', cost: 0.06 }],
+    resolutions: ['1K', '2K'],
+    aspectRatios: ['auto', '1:1', '4:5', '3:4', '2:3', '9:16', '5:4', '4:3', '3:2', '16:9', '21:9'] },
 
   // MachGen image models (https://www.machgen.ai)
   { name: 'FLUX.2 Dev (MachGen)', category: 'Flux', unit: 'img', provider: 'machgen',
@@ -413,6 +497,27 @@ export const IMAGE_MODELS: ModelPricing[] = [
     prices: [{ resolution: '1K', cost: 0.04 }, { resolution: '2K', cost: 0.08 }],
     resolutions: ['1K', '2K'],
     aspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2'] },
+  { name: 'Nano Banana 2.1 (APIMart)', category: 'Google', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/gemini-nano-banana-2.1', i2iId: 'apimart/gemini-nano-banana-2.1',
+    // Official channel is token billed ($24/M output tokens): estimate, input tokens not included
+    prices: [{ resolution: '1K', cost: 0.027 }, { resolution: '2K', cost: 0.04 }, { resolution: '4K', cost: 0.06 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9', '1:4', '4:1', '1:8', '8:1'] },
+  { name: 'Nano Banana 2.1 Ext (APIMart)', category: 'Google', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/gemini-nano-banana-2.1-ext', i2iId: 'apimart/gemini-nano-banana-2.1-ext',
+    prices: [{ resolution: '1K', cost: 0.012 }, { resolution: '2K', cost: 0.014 }, { resolution: '4K', cost: 0.018 }],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9', '1:4', '4:1', '1:8', '8:1'] },
+  { name: 'FLUX 3 Image (APIMart)', category: 'Flux', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/flux-3-image', i2iId: 'apimart/flux-3-image',
+    prices: [{ resolution: '768sq', cost: 0.0328 }, { resolution: '1k', cost: 0.0384 }, { resolution: '1.5k', cost: 0.056 }, { resolution: '2k', cost: 0.08 }, { resolution: '4k', cost: 0.4856 }],
+    resolutions: ['768sq', '1k', '1.5k', '2k', '4k'],
+    aspectRatios: ['auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4', '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2', '9:21'] },
+  { name: 'FLUX 3 Klein (APIMart)', category: 'Flux', unit: 'img', provider: 'apimart',
+    t2iId: 'apimart/flux-3-image-klein', i2iId: 'apimart/flux-3-image-klein',
+    prices: [{ resolution: '768sq', cost: 0.0064 }, { resolution: '1k', cost: 0.0072 }, { resolution: '1.5k', cost: 0.0088 }, { resolution: '2k', cost: 0.0112 }, { resolution: '4k', cost: 0.0288 }],
+    resolutions: ['768sq', '1k', '1.5k', '2k', '4k'],
+    aspectRatios: ['auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4', '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2', '9:21'] },
 ]
 
 // ─── Video models ──────────────────────────────────────────────────────────
@@ -446,6 +551,20 @@ export const VIDEO_MODELS: ModelPricing[] = [
     supportsVideoRef: true, maxVideoRefs: 5,
     aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
     refTags: { image: '@image_%d', video: '@video_%d' } },
+  // Kling 4.0 Flash (KIE): 720p only, 3–20 s, native audio. FF or one image → flash keyframe (first
+  // frame only: no keyframes, no last frame); 2+ images or a video → flash references, also the
+  // text-to-video path. With a video: $0.0565/s of max(output × 2, input + output), already covered
+  // by the kling-4.0/ rule in calcVideoCost.
+  { name: 'Kling 4.0 Flash', category: 'Kling', unit: 's',
+    t2vId: 'kling-4.0/flash-reference-to-video', i2vId: 'kling-4.0/flash-keyframe-to-video',
+    fflfId: 'kling-4.0/flash-keyframe-to-video', refId: 'kling-4.0/flash-reference-to-video',
+    prices: [
+      { resolution: '720p', cost: 0.085, costWithVideoInput: 0.0565 }, { resolution: '720p-audio', cost: 0.085, costWithVideoInput: 0.0565 },
+    ],
+    durationMax: 20, durationOptions: secondsRange(3, 20), resolutions: ['720p'],
+    supportsVideoRef: true, maxVideoRefs: 5,
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    refTags: { image: '@image_%d', video: '@video_%d' } },
   { name: 'Kling 3.0', category: 'Kling', unit: 's', t2vId: 'kling-3.0/video', i2vId: 'kling-3.0/video',
     prices: [{ resolution: 'std', cost: 0.07 }, { resolution: 'std-audio', cost: 0.10 }, { resolution: 'pro', cost: 0.09 }, { resolution: 'pro-audio', cost: 0.135 }, { resolution: '4k', cost: 0.335 }],
     durationMax: 15, resolutions: ['std', 'pro', '4k'] },
@@ -455,13 +574,26 @@ export const VIDEO_MODELS: ModelPricing[] = [
     t2vId: 'grok-imagine/text-to-video', i2vId: 'grok-imagine/image-to-video', extendId: 'grok-imagine/extend',
     prices: [{ resolution: '480p', cost: 0.012 }, { resolution: '720p', cost: 0.0225 }, { resolution: '1080p', cost: 0.04 }],
     durationMax: 30, resolutions: ['480p', '720p', '1080p'], supportsVideoRef: true },
+  // Grok Imagine Video 1.5 Preview (KIE): needs one image or a first frame (optional last frame), 1–15 s.
+  // KIE's third rate (8 credits/s) is labelled "720p" on its page; taken here as 1080p.
+  { name: 'Grok Imagine Video 1.5', category: 'Grok', unit: 's',
+    t2vId: 'grok-imagine-video-1-5-preview', i2vId: 'grok-imagine-video-1-5-preview', fflfId: 'grok-imagine-video-1-5-preview',
+    prices: [{ resolution: '480p', cost: 0.012 }, { resolution: '720p', cost: 0.0225 }, { resolution: '1080p', cost: 0.04 }],
+    durationMax: 15, durationOptions: secondsRange(1, 15), resolutions: ['480p', '720p', '1080p'],
+    aspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'],
+    refTags: { image: '@image%d' } },
   { name: 'Seedance 2', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2', i2vId: 'bytedance/seedance-2', fflfId: 'bytedance/seedance-2',
     prices: [{ resolution: '480p', cost: 0.095 }, { resolution: '720p', cost: 0.205 }, { resolution: '1080p', cost: 0.51 }, { resolution: '4k', cost: 1.04 }], durationMax: 15,
     durationOptions: secondsRange(4, 15), resolutions: ['480p', '720p', '1080p', '4k'], supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Seedance 2.5', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-5', i2vId: 'bytedance/seedance-2-5', fflfId: 'bytedance/seedance-2-5',
-    prices: [{ resolution: '480p', cost: 0.14 }, { resolution: '720p', cost: 0.315 }], durationMax: 30,
-    durationOptions: secondsRange(4, 30), resolutions: ['480p', '720p'], supportsVideoRef: true, supportsAudioRef: true,
+    // kie.ai/seedance-2-5: 28 / 63 / 158 credits/s; with a reference video 17 / 38 / 95 over input + output.
+    // "Draft 480p" sends draft: true (480p rate); its 1080p final runs bytedance/seedance-2-5-draft.
+    prices: [
+      { resolution: '480p', cost: 0.14, costWithVideoInput: 0.085 }, { resolution: '720p', cost: 0.315, costWithVideoInput: 0.19 },
+      { resolution: '1080p', cost: 0.79, costWithVideoInput: 0.475 },
+    ], durationMax: 30,
+    durationOptions: secondsRange(4, 30), resolutions: [SEEDANCE_DRAFT_RES, '480p', '720p', '1080p'], supportsVideoRef: true, supportsAudioRef: true,
     refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Seedance 2 Fast', category: 'ByteDance', unit: 's', t2vId: 'bytedance/seedance-2-fast', i2vId: 'bytedance/seedance-2-fast', fflfId: 'bytedance/seedance-2-fast',
     prices: [{ resolution: '480p', cost: 0.059 }, { resolution: '720p', cost: 0.124 }], durationMax: 15,
@@ -509,11 +641,46 @@ export const VIDEO_MODELS: ModelPricing[] = [
   { name: 'Kling 3.0 Standard (Higgsfield)', category: 'Kling', unit: 's', provider: 'higgsfield',
     t2vId: 'kling-video/v3.0/std/text-to-video',
     i2vId: 'kling-video/v3.0/std/image-to-video',
-    prices: [{ resolution: 'std', cost: 0.07 }],
+    prices: [{ resolution: 'std', cost: 0.063 }],
     durationMax: 15,
     durationOptions: ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
     resolutions: ['std'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
+  // Kling 3.0 tiers on Higgsfield (open.higgsfield.ai/pricing, Nov 2026, sound on). Pro/4K take a
+  // last frame (FF toggle); Turbo has no sound, multi-shot, elements or last frame.
+  { name: 'Kling 3.0 Pro (Higgsfield)', category: 'Kling', unit: 's', provider: 'higgsfield',
+    t2vId: 'kling-video/v3.0/pro/text-to-video', i2vId: 'kling-video/v3.0/pro/image-to-video',
+    prices: [{ resolution: 'pro', cost: 0.084 }],
+    durationMax: 15, durationOptions: secondsRange(3, 15), resolutions: ['pro'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling 3.0 4K (Higgsfield)', category: 'Kling', unit: 's', provider: 'higgsfield',
+    t2vId: 'kling-video/v3.0/4k/text-to-video', i2vId: 'kling-video/v3.0/4k/image-to-video',
+    prices: [{ resolution: '4k', cost: 0.21 }],
+    durationMax: 15, durationOptions: secondsRange(3, 15), resolutions: ['4k'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  { name: 'Kling 3.0 Turbo (Higgsfield)', category: 'Kling', unit: 's', provider: 'higgsfield',
+    t2vId: 'kling-video/v3.0-turbo/text-to-video', i2vId: 'kling-video/v3.0-turbo/image-to-video',
+    prices: [{ resolution: '720p', cost: 0.056 }, { resolution: '1080p', cost: 0.07 }],
+    durationMax: 15, durationOptions: secondsRange(3, 15), resolutions: ['720p', '1080p'], aspectRatios: ['16:9', '9:16', '1:1'] },
+  // HappyHorse 1.1 (Higgsfield): $0.09/s published at 1080p; 720p not published (assumed equal)
+  { name: 'HappyHorse 1.1 (Higgsfield)', category: 'Alibaba', unit: 's', provider: 'higgsfield',
+    t2vId: 'alibaba/happy-horse/v1.1/text-to-video', i2vId: 'alibaba/happy-horse/v1.1/image-to-video',
+    refId: 'alibaba/happy-horse/v1.1/reference-to-video',
+    prices: [{ resolution: '1080p', cost: 0.09 }, { resolution: '720p', cost: 0.09 }],
+    durationMax: 15, durationOptions: secondsRange(3, 15), resolutions: ['1080p', '720p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
+  // Seedance 2.5 Edit / Extend (Higgsfield): first attached video = source; extra videos, images and
+  // audio are references. 480p/1080p published ($0.1736 / $0.9553); 720p estimated (x2.25 of 480p)
+  { name: 'Seedance 2.5 Edit (Higgsfield)', category: 'ByteDance', unit: 's', provider: 'higgsfield',
+    t2vId: 'bytedance/seedance-2.5/video-edit', i2vId: 'bytedance/seedance-2.5/video-edit', refId: 'bytedance/seedance-2.5/video-edit',
+    prices: [{ resolution: '480p', cost: 0.1736 }, { resolution: '720p', cost: 0.39 }, { resolution: '1080p', cost: 0.9553 }],
+    durationFromInputVideo: true, resolutions: ['480p', '720p', '1080p'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
+  { name: 'Seedance 2.5 Extend (Higgsfield)', category: 'ByteDance', unit: 's', provider: 'higgsfield',
+    t2vId: 'bytedance/seedance-2.5/video-extend', i2vId: 'bytedance/seedance-2.5/video-extend', refId: 'bytedance/seedance-2.5/video-extend',
+    prices: [{ resolution: '480p', cost: 0.1736 }, { resolution: '720p', cost: 0.39 }, { resolution: '1080p', cost: 0.9553 }],
+    durationMax: 30, durationOptions: secondsRange(4, 30), resolutions: ['480p', '720p', '1080p'],
+    supportsVideoRef: true, supportsAudioRef: true,
+    refTags: { image: '@image_%d', video: '@video_%d', audio: '@audio_%d' } },
   { name: 'Wan 2.7', category: 'Wan', unit: 's', t2vId: 'wan-2-7-text-to-video', i2vId: 'wan-2-7-image-to-video',
     prices: [{ resolution: 's', cost: 0.04 }], durationMax: 10 },
   { name: 'Wan 3.0', category: 'Wan', unit: 's',
@@ -530,6 +697,14 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '360p', cost: 0.315 }, { resolution: '720p', cost: 0.315 }, { resolution: '1080p', cost: 0.315 }, { resolution: '4k', cost: 0.735 }],
     durationOptions: ['4', '6', '8', '10'], resolutions: ['360p', '720p', '1080p', '4k'],
     supportsVideoRef: true },
+  // Gemini Omni Video (KIE): no first/last frame (FF/LF images become references); images + video × 2
+  // + Omni characters ≤ 7 slots; same per-video price table as 1.1 Flash (calcVideoCost already handles the id)
+  { name: 'Gemini Omni Video', category: 'Google', unit: 'video',
+    t2vId: 'gemini-omni-video', i2vId: 'gemini-omni-video',
+    prices: [{ resolution: '720p', cost: 0.315 }, { resolution: '1080p', cost: 0.315 }, { resolution: '4k', cost: 0.735 }],
+    durationOptions: ['4', '6', '8', '10'], resolutions: ['720p', '1080p', '4k'],
+    aspectRatios: ['16:9', '9:16'],
+    supportsVideoRef: true, maxVideoRefs: 1 },
   { name: 'PixVerse V6', category: 'PixVerse', unit: 's',
     t2vId: 'pixverse-v6/text-to-video', i2vId: 'pixverse-v6/image-to-video', fflfId: 'pixverse-v6/image-to-video', refId: 'pixverse-v6/reference-to-video',
     prices: PIXVERSE_T2V_PRICES,
@@ -538,10 +713,45 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '1080', cost: 0.135 }],
     durationMax: 15, durationOptions: ['4', '5', '6', '8', '10', '12', '15'], resolutions: ['1080', '720'],
     supportsAudioRef: true },
+  // OmniHuman 2.0 (KIE): portrait + driving audio (wav/mp3, 4–300 s; other formats converted to mp3),
+  // 720p, billed on the output length (= the audio's length)
+  { name: 'OmniHuman 2.0', category: 'OmniHuman', unit: 's', t2vId: 'omnihuman-2-0',
+    prices: [{ resolution: '720p', cost: 0.07 }],
+    durationMax: 300, resolutions: ['720p'],
+    supportsAudioRef: true },
+  // Vidu Q4 Preview (KIE): no text to video. FF or one image → image-to-video; 2+ images or audio →
+  // reference-to-video (1–15 images, up to 3 voice clips of 3–12 s; converted to MP3). No last frame.
+  { name: 'Vidu Q4', category: 'Vidu', unit: 's',
+    t2vId: 'vidu-q4/image-to-video', i2vId: 'vidu-q4/image-to-video', refId: 'vidu-q4/reference-to-video',
+    prices: [
+      { resolution: '540p', cost: 0.036 }, { resolution: '720p', cost: 0.076 }, { resolution: '1080p', cost: 0.096 },
+      { resolution: '2k', cost: 0.152 }, { resolution: '4k', cost: 0.312 },
+    ],
+    durationMax: 16, durationOptions: secondsRange(3, 16), resolutions: ['540p', '720p', '1080p', '2k', '4k'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+    supportsAudioRef: true },
   { name: 'P-Video Avatar', category: 'Replicate', unit: 's', provider: 'replicate',
     t2vId: 'prunaai/p-video-avatar', i2vId: 'prunaai/p-video-avatar',
     prices: [{ resolution: '720p', cost: 0.025 }, { resolution: '1080p', cost: 0.045 }],
     durationMax: 15, resolutions: ['720p', '1080p'], supportsAudioRef: true,
+    replicateVoices: [
+      'Zephyr (Female)', 'Puck (Male)', 'Charon (Male)', 'Kore (Female)', 'Fenrir (Male)',
+      'Leda (Female)', 'Orus (Male)', 'Aoede (Female)', 'Callirrhoe (Female)', 'Autonoe (Female)',
+      'Enceladus (Male)', 'Iapetus (Male)', 'Umbriel (Male)', 'Algenib (Male)', 'Despina (Female)',
+      'Erinome (Female)', 'Laomedeia (Female)', 'Achernar (Female)', 'Algieba (Male)', 'Schedar (Male)',
+      'Gacrux (Female)', 'Pulcherrima (Female)', 'Achird (Male)', 'Zubenelgenubi (Male)',
+      'Vindemiatrix (Female)', 'Sadachbia (Male)', 'Sadaltager (Male)', 'Sulafat (Female)',
+      'Alnilam (Male)', 'Rasalgethi (Male)',
+    ],
+    replicateLanguages: [
+      'English (US)', 'English (UK)', 'Spanish', 'French', 'German', 'Italian',
+      'Portuguese (Brazil)', 'Japanese', 'Korean', 'Hindi',
+    ] },
+  // P-Video 2 Pro Avatar: portrait + audio (length follows the audio), or the prompt as a script read by a Gemini voice
+  { name: 'P-Video 2 Pro Avatar', category: 'PrunaAI', unit: 's', provider: 'replicate',
+    t2vId: 'prunaai/p-video-2-pro-avatar', i2vId: 'prunaai/p-video-2-pro-avatar',
+    prices: [{ resolution: '768p', cost: 0.04 }, { resolution: '480p', cost: 0.02 }, { resolution: '1080p', cost: 0.06 }, { resolution: '2k', cost: 0.08 }, { resolution: '4k', cost: 0.12 }],
+    durationMax: 15, resolutions: ['768p', '480p', '1080p', '2k', '4k'], supportsAudioRef: true,
     replicateVoices: [
       'Zephyr (Female)', 'Puck (Male)', 'Charon (Male)', 'Kore (Female)', 'Fenrir (Male)',
       'Leda (Female)', 'Orus (Male)', 'Aoede (Female)', 'Callirrhoe (Female)', 'Autonoe (Female)',
@@ -601,6 +811,24 @@ export const VIDEO_MODELS: ModelPricing[] = [
     durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['768p', '480p'],
     supportsVideoRef: true, maxVideoRefs: 3, supportsAudioRef: true,
     pvAspectRatios: ['16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:1'] },
+  // Billed on the speech length (attached audio, or the script read by TTS); 1080p/2k/4k upscale 768p
+  { name: 'P-Video 2 Pro Avatar (Pruna)', category: 'PrunaAI', unit: 's', provider: 'pruna',
+    t2vId: 'pruna/p-video-2-pro-avatar', i2vId: 'pruna/p-video-2-pro-avatar',
+    prices: [{ resolution: '480p', cost: 0.02 }, { resolution: '768p', cost: 0.04 }, { resolution: '1080p', cost: 0.06 }, { resolution: '2k', cost: 0.08 }, { resolution: '4k', cost: 0.12 }],
+    durationMax: 180, resolutions: ['768p', '480p', '1080p', '2k', '4k'], supportsAudioRef: true,
+    replicateVoices: [
+      'Zephyr (Female)', 'Puck (Male)', 'Charon (Male)', 'Kore (Female)', 'Fenrir (Male)',
+      'Leda (Female)', 'Orus (Male)', 'Aoede (Female)', 'Callirrhoe (Female)', 'Autonoe (Female)',
+      'Enceladus (Male)', 'Iapetus (Male)', 'Umbriel (Male)', 'Algenib (Male)', 'Despina (Female)',
+      'Erinome (Female)', 'Laomedeia (Female)', 'Achernar (Female)', 'Algieba (Male)', 'Schedar (Male)',
+      'Gacrux (Female)', 'Pulcherrima (Female)', 'Achird (Male)', 'Zubenelgenubi (Male)',
+      'Vindemiatrix (Female)', 'Sadachbia (Male)', 'Sadaltager (Male)', 'Sulafat (Female)',
+      'Alnilam (Male)', 'Rasalgethi (Male)',
+    ],
+    replicateLanguages: [
+      'English (US)', 'English (UK)', 'Spanish', 'French', 'German', 'Italian',
+      'Portuguese (Brazil)', 'Japanese', 'Korean', 'Hindi',
+    ] },
   { name: 'MiniMax H3', category: 'MiniMax', unit: 's',
     t2vId: 'minimax-h3/text-to-video', i2vId: 'minimax-h3/image-to-video', fflfId: 'minimax-h3/image-to-video', refId: 'minimax-h3/reference-to-video',
     prices: [{ resolution: '768P', cost: 0.04 }, { resolution: '2K', cost: 0.065 }],
@@ -816,12 +1044,7 @@ export const VIDEO_MODELS: ModelPricing[] = [
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['4K'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
 
-  // Missing KIE video models
-  { name: 'Sora 2 (KIE)', category: 'OpenAI', unit: 's', provider: 'kie',
-    t2vId: 'sora-2', i2vId: 'sora-2',
-    prices: [{ resolution: '720p', cost: 0.25 }],
-    durationMax: 20, durationOptions: ['5', '10', '15', '20'], resolutions: ['720p', '1080p'],
-    aspectRatios: ['16:9', '9:16', '1:1'] },
+  // Missing KIE video models (Sora 2 removed: OpenAI shut down the Videos API on 2026-09-24)
   { name: 'Runway Gen-4.5 (KIE)', category: 'Runway', unit: 's', provider: 'kie',
     t2vId: 'runway-gen-4-5', i2vId: 'runway-gen-4-5',
     prices: [{ resolution: '720p', cost: 0.10 }, { resolution: '1080p', cost: 0.15 }],
@@ -844,16 +1067,50 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.20 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p', '1080p'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
+  // kwaivgi/kling-v3-video (the old kling-ai/kling-video-3.0 id is aliased in the main process).
+  // mode standard = 720p, pro = 1080p, 4k; audio raises the rate by half. Kling 1.5 Pro removed:
+  // its Replicate model answers 404.
   { name: 'Kling 3.0 (Replicate)', category: 'Kling', unit: 's', provider: 'replicate',
-    t2vId: 'kling-ai/kling-video-3.0', i2vId: 'kling-ai/kling-video-3.0',
-    prices: [{ resolution: '720p', cost: 0.08 }],
-    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
+    t2vId: 'kwaivgi/kling-v3-video', i2vId: 'kwaivgi/kling-v3-video', fflfId: 'kwaivgi/kling-v3-video',
+    prices: [
+      { resolution: '720p', cost: 0.168 }, { resolution: '720p-audio', cost: 0.252 },
+      { resolution: '1080p', cost: 0.224 }, { resolution: '1080p-audio', cost: 0.336 },
+      { resolution: '4K', cost: 0.42 },
+    ],
+    durationMax: 15, durationOptions: secondsRange(3, 15), resolutions: ['720p', '1080p', '4K'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
-  { name: 'Kling 1.5 Pro (Replicate)', category: 'Kling', unit: 's', provider: 'replicate',
-    t2vId: 'kling-ai/kling-v1.5-pro', i2vId: 'kling-ai/kling-v1.5-pro',
-    prices: [{ resolution: '720p', cost: 0.05 }],
-    durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
-    aspectRatios: ['16:9', '9:16', '1:1'] },
+  // Kling 4.0 (Replicate): FF/LF → keyframes (other images become middle keyframes); 2+ images or a
+  // video → references; one image → start frame. With video input $0.094/$0.141 on output + max(in, out)
+  { name: 'Kling 4.0 (Replicate)', category: 'Kling', unit: 's', provider: 'replicate',
+    t2vId: 'kwaivgi/kling-v4.0', i2vId: 'kwaivgi/kling-v4.0', fflfId: 'kwaivgi/kling-v4.0', refId: 'kwaivgi/kling-v4.0',
+    prices: [{ resolution: '1080p', cost: 0.235, costWithVideoInput: 0.141 }, { resolution: '720p', cost: 0.157, costWithVideoInput: 0.094 }],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['1080p', '720p'],
+    supportsVideoRef: true, maxVideoRefs: 5,
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'] },
+  // MiniMax H3 on Replicate (ids prefixed replicate/ so the pages' minimax/ → fal rule does not catch them)
+  { name: 'MiniMax H3 Lite (Replicate)', category: 'MiniMax', unit: 's', provider: 'replicate',
+    t2vId: 'replicate/minimax/h3-lite', i2vId: 'replicate/minimax/h3-lite', fflfId: 'replicate/minimax/h3-lite', refId: 'replicate/minimax/h3-lite',
+    prices: [{ resolution: '768P', cost: 0.02 }, { resolution: '480P', cost: 0.0125 }],
+    durationMax: 15, durationOptions: secondsRange(4, 15), resolutions: ['768P', '480P'],
+    supportsVideoRef: true, maxVideoRefs: 3, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
+  { name: 'MiniMax H3 Highspeed (Replicate)', category: 'MiniMax', unit: 's', provider: 'replicate',
+    t2vId: 'replicate/minimax/h3-highspeed', i2vId: 'replicate/minimax/h3-highspeed', fflfId: 'replicate/minimax/h3-highspeed', refId: 'replicate/minimax/h3-highspeed',
+    prices: [{ resolution: '768P', cost: 0.03 }],
+    durationMax: 15, durationOptions: secondsRange(4, 15), resolutions: ['768P'],
+    supportsVideoRef: true, maxVideoRefs: 3, supportsAudioRef: true,
+    aspectRatios: ['adaptive', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
+  { name: 'Veo 3.1 Lite (Replicate)', category: 'Google', unit: 's', provider: 'replicate',
+    t2vId: 'google/veo-3.1-lite', i2vId: 'google/veo-3.1-lite', fflfId: 'google/veo-3.1-lite',
+    prices: [{ resolution: '720p', cost: 0.05 }, { resolution: '1080p', cost: 0.08 }],
+    durationMax: 8, durationOptions: ['4', '6', '8'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16'] },
+  // Audio on by default ($0.15/s); without audio $0.10/s
+  { name: 'Veo 3.1 Fast (Replicate)', category: 'Google', unit: 's', provider: 'replicate',
+    t2vId: 'google/veo-3.1-fast', i2vId: 'google/veo-3.1-fast', fflfId: 'google/veo-3.1-fast',
+    prices: [{ resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.15 }],
+    durationMax: 8, durationOptions: ['4', '6', '8'], resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16'] },
   { name: 'Wan 2.1 Video (Replicate)', category: 'Wan', unit: 's', provider: 'replicate',
     t2vId: 'wan-video/wan-2.1', i2vId: 'wan-video/wan-2.1',
     prices: [{ resolution: '720p', cost: 0.025 }],
@@ -885,6 +1142,42 @@ export const VIDEO_MODELS: ModelPricing[] = [
     supportsVideoRef: true, maxVideoRefs: 5,
     falAspectRatios: ['16:9', '9:16', '1:1', '21:9'],
     refTags: { image: '@Image%d', video: '@Video%d' } },
+  // Kling 4.0 Flash (Fal): 720p, 3–20 s. FF or one image → image-to-video (start frame only, no end
+  // frame); 2+ images or a video → reference-to-video. With reference videos $0.063/s on output +
+  // max(input, output) seconds (calcVideoCost kling rule)
+  { name: 'Kling 4.0 Flash (Fal)', category: 'Kling', unit: 's', provider: 'fal',
+    t2vId: 'kling/v4/flash/text-to-video', i2vId: 'kling/v4/flash/image-to-video',
+    fflfId: 'kling/v4/flash/image-to-video', refId: 'kling/v4/flash/reference-to-video',
+    prices: [{ resolution: '720p', cost: 0.094, costWithVideoInput: 0.063 }, { resolution: '720p-audio', cost: 0.094, costWithVideoInput: 0.063 }],
+    durationMax: 20, durationOptions: secondsRange(3, 20), resolutions: ['720p'],
+    supportsVideoRef: true, maxVideoRefs: 5,
+    falAspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    refTags: { image: '@Image%d', video: '@Video%d' } },
+  // Edits the first video (@Video1) with optional image/video references; billed $0.063/s on output + max(input, output)
+  { name: 'Kling 4.0 Flash Edit (Fal)', category: 'Kling', unit: 's', provider: 'fal',
+    t2vId: 'kling/v4/flash/video-to-video', i2vId: 'kling/v4/flash/video-to-video', refId: 'kling/v4/flash/video-to-video',
+    prices: [{ resolution: '720p', cost: 0.063, costWithVideoInput: 0.063 }],
+    resolutions: ['720p'], durationFromInputVideo: true,
+    supportsVideoRef: true, maxVideoRefs: 5,
+    refTags: { image: '@Image%d', video: '@Video%d' } },
+  // Re-lights a source video (≤15 s) to match a lighting-sphere image (first image / first frame); billed on source length
+  { name: 'MiniMax H3 Max Relight (Fal)', category: 'MiniMax', unit: 's', provider: 'fal',
+    t2vId: 'minimax/h3-max/relight', i2vId: 'minimax/h3-max/relight', refId: 'minimax/h3-max/relight',
+    prices: [{ resolution: '768P', cost: 0.08 }, { resolution: '480P', cost: 0.05 }, { resolution: '1080P', cost: 0.16 }, { resolution: '2K', cost: 0.32 }],
+    durationMax: 15, resolutions: ['768P', '480P', '1080P', '2K'], durationFromInputVideo: true,
+    supportsVideoRef: true, maxVideoRefs: 1,
+    falAspectRatios: ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'] },
+  // Sync-3: video + audio → lipsync; image + audio → talking video (the queue picks the endpoint)
+  { name: 'Sync-3 Lipsync (Fal)', category: 'Sync', unit: 's', provider: 'fal',
+    t2vId: 'fal-ai/sync-lipsync/v3', i2vId: 'fal-ai/sync-lipsync/v3/image-to-video', refId: 'fal-ai/sync-lipsync/v3',
+    prices: [{ resolution: 'video', cost: 0.1333 }],
+    supportsVideoRef: true, maxVideoRefs: 1, supportsAudioRef: true, durationFromInputVideo: true },
+  // Per second at ≤30 fps (above 30 fps ×2); standard tier
+  { name: 'ByteDance Video Upscaler (Fal)', category: 'ByteDance', unit: 's', provider: 'fal',
+    t2vId: 'fal-ai/bytedance-upscaler/upscale/video', i2vId: 'fal-ai/bytedance-upscaler/upscale/video',
+    prices: [{ resolution: '1080p', cost: 0.0072 }, { resolution: '2K', cost: 0.0144 }, { resolution: '4K', cost: 0.0288 }],
+    resolutions: ['1080p', '2K', '4K'], durationFromInputVideo: true,
+    supportsVideoRef: true, maxVideoRefs: 1 },
   { name: 'Kling 3.0 Video (Fal)', category: 'Kling', unit: 's', provider: 'fal',
     t2vId: 'fal-ai/kling-video/v3/text-to-video', i2vId: 'fal-ai/kling-video/v3/image-to-video',
     prices: [{ resolution: 'std', cost: 0.08 }],
@@ -895,26 +1188,31 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: 'std', cost: 0.05 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['std'],
     falAspectRatios: ['16:9', '9:16', '1:1'] },
+  // Wan 3.0 on fal: start frame (+ optional end frame) → image-to-video, else text-to-video
   { name: 'Wan 3.0 Video (Fal)', category: 'Wan', unit: 's', provider: 'fal',
-    t2vId: 'fal-ai/wan/v3/text-to-video', i2vId: 'fal-ai/wan/v3/image-to-video',
-    prices: [{ resolution: '720p', cost: 0.05 }],
-    durationMax: 15, durationOptions: ['5', '10', '15'], resolutions: ['720p'],
+    t2vId: 'alibaba/wan-3.0/text-to-video', i2vId: 'alibaba/wan-3.0/image-to-video',
+    fflfId: 'alibaba/wan-3.0/image-to-video',
+    prices: [{ resolution: '480p', cost: 0.05 }, { resolution: '720p', cost: 0.10 }, { resolution: '1080p', cost: 0.20 }],
+    durationMax: 30, durationOptions: secondsRange(2, 30), resolutions: ['480p', '720p', '1080p'],
     falAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
   { name: 'Wan 2.1 Video (Fal)', category: 'Wan', unit: 's', provider: 'fal',
     t2vId: 'fal-ai/wan/v2.1/text-to-video', i2vId: 'fal-ai/wan/v2.1/image-to-video',
     prices: [{ resolution: '720p', cost: 0.025 }],
     durationMax: 10, durationOptions: ['5', '10'], resolutions: ['720p'],
     falAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
+  // US-hosted endpoints. FF/LF → image-to-video; images, videos or audio → reference-to-video
   { name: 'Seedance 2.5 (Fal)', category: 'ByteDance', unit: 's', provider: 'fal',
-    t2vId: 'fal-ai/bytedance/seedance-2-5', i2vId: 'fal-ai/bytedance/seedance-2-5',
+    t2vId: 'bytedance/seedance-2.5/us/text-to-video', i2vId: 'bytedance/seedance-2.5/us/image-to-video',
+    fflfId: 'bytedance/seedance-2.5/us/image-to-video', refId: 'bytedance/seedance-2.5/us/reference-to-video',
+    supportsVideoRef: true, supportsAudioRef: true,
     // fal's per-second figures for its token pricing; with video inputs × 0.6 on input + output seconds
     prices: [
       { resolution: '480p', cost: 0.2205, costWithVideoInput: 0.1323 },
       { resolution: '720p', cost: 0.473, costWithVideoInput: 0.2838 },
       { resolution: '1080p', cost: 1.164, costWithVideoInput: 0.6984 },
     ],
-    durationMax: 20, durationOptions: ['5', '10', '15', '20'], resolutions: ['480p', '720p', '1080p'],
-    falAspectRatios: ['16:9', '9:16', '1:1'] },
+    durationMax: 30, durationOptions: secondsRange(4, 30), resolutions: ['480p', '720p', '1080p'],
+    falAspectRatios: ['16:9', '9:16', '1:1', '21:9', '4:3', '3:4'] },
   { name: 'HunyuanVideo (Fal)', category: 'Tencent', unit: 's', provider: 'fal',
     t2vId: 'fal-ai/hunyuan-video', i2vId: 'fal-ai/hunyuan-video',
     prices: [{ resolution: '720p', cost: 0.03 }],
@@ -938,7 +1236,9 @@ export const VIDEO_MODELS: ModelPricing[] = [
     i2vId: 'blackforestlabs/flux-3-max/image-to-video',
     fflfId: 'blackforestlabs/flux-3-max/image-to-video',
     refId: 'blackforestlabs/flux-3-max/keyframes-to-video',
-    prices: [{ resolution: '720p', cost: 0.0425 }, { resolution: '1080p', cost: 0.0725 }],
+    prices: FLUX3_MAX_PROMO_ACTIVE
+      ? [{ resolution: '720p', cost: 0.0425 }, { resolution: '1080p', cost: 0.0725 }]
+      : [{ resolution: '720p', cost: 0.17 }, { resolution: '1080p', cost: 0.29 }],
     durationMax: 20, durationOptions: secondsRange(5, 20), resolutions: ['720p', '1080p'],
     falAspectRatios: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '2:1'] },
 
@@ -1001,16 +1301,6 @@ export const VIDEO_MODELS: ModelPricing[] = [
     durationMax: 30, durationOptions: secondsRange(4, 30), resolutions: ['480p', '720p', '1080p'],
     supportsVideoRef: true, supportsAudioRef: true,
     aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
-  { name: 'Sora 2 (APIMart)', category: 'OpenAI', unit: 's', provider: 'apimart',
-    t2vId: 'apimart/sora-2', i2vId: 'apimart/sora-2',
-    prices: [{ resolution: '720p', cost: 0.20 }, { resolution: '1080p', cost: 0.35 }],
-    durationMax: 20, durationOptions: ['5', '10', '15', '20'], resolutions: ['720p', '1080p'],
-    aspectRatios: ['16:9', '9:16', '1:1'] },
-  { name: 'VEO 3 (APIMart)', category: 'Google', unit: 's', provider: 'apimart',
-    t2vId: 'apimart/veo3', i2vId: 'apimart/veo3', fflfId: 'apimart/veo3', extendId: 'apimart/veo3',
-    prices: [{ resolution: '720p', cost: 0.15 }, { resolution: '1080p', cost: 0.25 }, { resolution: '4k', cost: 0.50 }],
-    durationMax: 15, durationOptions: ['4', '6', '8', '10', '15'], resolutions: ['720p', '1080p', '4k'],
-    aspectRatios: ['16:9', '9:16', '1:1'] },
   { name: 'MiniMax-Hailuo-2.3 (APIMart)', category: 'MiniMax', unit: 's', provider: 'apimart',
     t2vId: 'apimart/minimax-hailuo-2.3', i2vId: 'apimart/minimax-hailuo-2.3',
     prices: [{ resolution: '768p', cost: 0.05 }, { resolution: '1080p', cost: 0.08 }],
@@ -1050,10 +1340,21 @@ export const VIDEO_MODELS: ModelPricing[] = [
     aspectRatios: ['16:9', '9:16', '1:1'] },
   // Kling AI official API (https://kling.ai/document-api), prices per second in USD
   // Kling 4.0 needs the Flagship Resource Pack; image refs after the first frame become keyframes
+  // Kling 4.0 Flash (Kling AI): 720p, 3-20 s, native audio always on. A first frame or one image →
+  // image-to-video; first frame + refs, 2+ images or a video → Omni (cite @image_1 / @video_1).
+  // Reference videos must be public URLs (Kling takes no uploads); with one, Omni bills
+  // $0.063/s × max(output × 2, input + output)
+  { name: 'Kling 4.0 Flash (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
+    t2vId: 'klingai/kling-4.0-flash', i2vId: 'klingai/kling-4.0-flash', refId: 'klingai/kling-4.0-flash/omni',
+    prices: [{ resolution: '720p', cost: 0.094, costWithVideoInput: 0.063 }, { resolution: '720p-audio', cost: 0.094, costWithVideoInput: 0.063 }],
+    durationMax: 20, durationOptions: secondsRange(3, 20), resolutions: ['720p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    refTags: { image: '@image_%d', video: '@video_%d' } },
   { name: 'Kling 4.0 (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
     t2vId: 'klingai/kling-4.0', i2vId: 'klingai/kling-4.0', fflfId: 'klingai/kling-4.0',
     // Always generates native audio: same rate with or without the sound switch
-    prices: [{ resolution: '720p', cost: 0.14 }, { resolution: '720p-audio', cost: 0.14 }, { resolution: '1080p', cost: 0.21 }, { resolution: '1080p-audio', cost: 0.21 }],
+    // kling.ai/document-api/pricing (Nov 2026): 1.0 / 1.5 units = $0.157 / $0.235 per second
+    prices: [{ resolution: '720p', cost: 0.157 }, { resolution: '720p-audio', cost: 0.157 }, { resolution: '1080p', cost: 0.235 }, { resolution: '1080p-audio', cost: 0.235 }],
     durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
     aspectRatios: ['16:9', '9:16', '1:1', '21:9'] },
   { name: 'Kling 3.0 (Kling AI)', category: 'Kling', unit: 's', provider: 'klingai',
@@ -1132,6 +1433,48 @@ export const VIDEO_MODELS: ModelPricing[] = [
     prices: [{ resolution: '720p', cost: 0.10 }],
     durationMax: 10, durationOptions: ['3', '5', '8', '10'], resolutions: ['720p'],
     aspectRatios: ['16:9', '9:16', '1:1'] },
+  // APIMart Kling V4: one entry routes t2v / i2v (FF-LF + keyframes) / references by input.
+  // Video/audio refs must be public URLs (APIMart only uploads images).
+  { name: 'Kling V4 (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/kling-v4', i2vId: 'apimart/kling-v4', fflfId: 'apimart/kling-v4', refId: 'apimart/kling-v4',
+    prices: [{ resolution: '720p', cost: 0.14, costWithVideoInput: 0.084 }, { resolution: '1080p', cost: 0.21, costWithVideoInput: 0.126 }],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
+    supportsVideoRef: true, maxVideoRefs: 5, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9', 'auto'],
+    refTags: { image: '@Image%d', video: '@Video%d', audio: '@Audio%d' } },
+  // Output follows the source video; billed video-input rate x (output + max(output, input))
+  { name: 'Kling V4 Edit (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/kling-v4/edit', i2vId: 'apimart/kling-v4/edit', refId: 'apimart/kling-v4/edit',
+    prices: [{ resolution: '720p', cost: 0.084, costWithVideoInput: 0.084 }, { resolution: '1080p', cost: 0.126, costWithVideoInput: 0.126 }],
+    durationFromInputVideo: true, resolutions: ['720p', '1080p'],
+    supportsVideoRef: true, maxVideoRefs: 1,
+    refTags: { image: '@Image%d', video: '@Video%d' } },
+  // Only the new segment is billed, at the standard rate (no costWithVideoInput on purpose)
+  { name: 'Kling V4 Extend (APIMart)', category: 'Kling', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/kling-v4/extend', i2vId: 'apimart/kling-v4/extend', fflfId: 'apimart/kling-v4/extend',
+    prices: [{ resolution: '720p', cost: 0.14 }, { resolution: '1080p', cost: 0.21 }],
+    durationMax: 30, durationOptions: secondsRange(3, 30), resolutions: ['720p', '1080p'],
+    supportsVideoRef: true, maxVideoRefs: 1 },
+  { name: 'Vidu Q4 (APIMart)', category: 'Vidu', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/viduq4-preview', i2vId: 'apimart/viduq4-preview', refId: 'apimart/viduq4-preview',
+    prices: [{ resolution: '540p', cost: 0.0448 }, { resolution: '720p', cost: 0.0912 }, { resolution: '1080p', cost: 0.1024 }, { resolution: '2k', cost: 0.1624 }, { resolution: '4k', cost: 0.3328 }],
+    durationMax: 16, durationOptions: secondsRange(3, 16), resolutions: ['540p', '720p', '1080p', '2k', '4k'],
+    supportsAudioRef: true, aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
+  // '-audio' rows apply with the sound switch on (PromptComposer effectiveResolution)
+  { name: 'Veo 3.1 Fast (APIMart)', category: 'Google', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/veo3.1-fast-official', i2vId: 'apimart/veo3.1-fast-official', fflfId: 'apimart/veo3.1-fast-official',
+    prices: [{ resolution: '720p', cost: 0.064 }, { resolution: '720p-audio', cost: 0.08 }, { resolution: '1080p', cost: 0.08 }, { resolution: '1080p-audio', cost: 0.096 }, { resolution: '4k', cost: 0.20 }, { resolution: '4k-audio', cost: 0.24 }],
+    durationMax: 8, durationOptions: ['4', '6', '8'], resolutions: ['720p', '1080p', '4k'], aspectRatios: ['16:9', '9:16'] },
+  { name: 'Veo 3.1 Quality (APIMart)', category: 'Google', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/veo3.1-quality-official', i2vId: 'apimart/veo3.1-quality-official', fflfId: 'apimart/veo3.1-quality-official',
+    prices: [{ resolution: '720p', cost: 0.16 }, { resolution: '720p-audio', cost: 0.32 }, { resolution: '1080p', cost: 0.16 }, { resolution: '1080p-audio', cost: 0.32 }, { resolution: '4k', cost: 0.32 }, { resolution: '4k-audio', cost: 0.48 }],
+    durationMax: 8, durationOptions: ['4', '6', '8'], resolutions: ['720p', '1080p', '4k'], aspectRatios: ['16:9', '9:16'] },
+  { name: 'MiniMax H3 Max (APIMart)', category: 'MiniMax', unit: 's', provider: 'apimart',
+    t2vId: 'apimart/MiniMax-H3-Max', i2vId: 'apimart/MiniMax-H3-Max', fflfId: 'apimart/MiniMax-H3-Max', refId: 'apimart/MiniMax-H3-Max',
+    prices: [{ resolution: '480p', cost: 0.0377 }, { resolution: '768p', cost: 0.0571 }, { resolution: '1080p', cost: 0.128 }],
+    durationMax: 15, durationOptions: secondsRange(5, 15), resolutions: ['480p', '768p', '1080p'],
+    supportsVideoRef: true, maxVideoRefs: 3, supportsAudioRef: true,
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
 ]
 
 // ─── Audio models ──────────────────────────────────────────────────────────
@@ -1139,6 +1482,9 @@ export const VIDEO_MODELS: ModelPricing[] = [
 export const AUDIO_MODELS: ModelPricing[] = [
   { name: 'Eleven v4', category: 'ElevenLabs', unit: 'img', t2aId: 'eleven_v4', kind: 'voice', provider: 'elevenlabs', engine: 'elevenlabs',
     prices: [{ resolution: 'clip', cost: 0.015 }] },
+  // Eleven v4 Turbo: ~100 ms, $0.04 per 1K characters vs $0.08 for v4 (elevenlabs.io/pricing/api)
+  { name: 'Eleven v4 Turbo', category: 'ElevenLabs', unit: 'img', t2aId: 'eleven_v4_turbo', kind: 'voice', provider: 'elevenlabs', engine: 'elevenlabs',
+    prices: [{ resolution: 'clip', cost: 0.0075 }] },
   { name: 'ElevenLabs TTS', category: 'ElevenLabs', unit: 'img', t2aId: 'elevenlabs-tts', kind: 'voice', provider: 'elevenlabs', engine: 'elevenlabs',
     prices: [{ resolution: 'clip', cost: 0.015 }] },
   // KIE TTS (docs.kie.ai/market): costs are estimates, KIE doesn't publish per-request prices
@@ -1165,8 +1511,11 @@ export const AUDIO_MODELS: ModelPricing[] = [
     prices: [{ resolution: 'clip', cost: 0.020 }] },
   { name: 'Gemini TTS (Fal)', category: 'Google', unit: 'img', t2aId: 'fal-ai/gemini-tts', kind: 'voice', provider: 'fal',
     prices: [{ resolution: 'clip', cost: 0.015 }] },
-  { name: 'xAI TTS (Fal)', category: 'xAI', unit: 'img', t2aId: 'fal-ai/xai-tts', kind: 'voice', provider: 'fal',
-    prices: [{ resolution: 'clip', cost: 0.025 }] },
+  { name: 'Gemini 3.1 Flash TTS (Fal)', category: 'Google', unit: 'img', t2aId: 'fal-ai/gemini-3.1-flash-tts', kind: 'voice', provider: 'fal',
+    prices: [{ resolution: 'clip', cost: 0.02 }] },
+  // fal moved xAI TTS to xai/tts/v1 ($0.015 per 1k characters); the old id is aliased in the main process
+  { name: 'xAI TTS (Fal)', category: 'xAI', unit: 'img', t2aId: 'xai/tts/v1', kind: 'voice', provider: 'fal',
+    prices: [{ resolution: 'clip', cost: 0.015 }] },
   { name: 'ElevenLabs TTS (Fal)', category: 'ElevenLabs', unit: 'img', t2aId: 'fal-ai/elevenlabs/tts', kind: 'voice', provider: 'fal',
     prices: [{ resolution: 'clip', cost: 0.020 }] },
   { name: 'Gemini 3.1 Flash TTS (Replicate)', category: 'Google', unit: 'img', t2aId: 'google/gemini-3.1-flash-tts', kind: 'voice', provider: 'replicate',
@@ -1199,10 +1548,13 @@ export const AUDIO_MODELS: ModelPricing[] = [
     prices: [{ resolution: 'clip', cost: 0.030 }] },
   { name: 'MiniMax Music 2.0 (Fal)', category: 'MiniMax', unit: 'img', t2aId: 'fal-ai/minimax-music', kind: 'music', provider: 'fal',
     prices: [{ resolution: 'clip', cost: 0.020 }] },
-  { name: 'CassetteAI (Fal)', category: 'CassetteAI', unit: 'img', t2aId: 'fal-ai/cassette-ai', kind: 'music', provider: 'fal',
-    prices: [{ resolution: 'clip', cost: 0.015 }] },
-  { name: 'Sonilo V1.1 (Fal)', category: 'Sonilo', unit: 'img', t2aId: 'fal-ai/sonilo', kind: 'music', provider: 'fal',
-    prices: [{ resolution: 'clip', cost: 0.020 }] },
+  // fal moved CassetteAI and Sonilo to new ids (old ids aliased in the main process); prices for a 30 s clip
+  { name: 'CassetteAI (Fal)', category: 'CassetteAI', unit: 'img', t2aId: 'cassetteai/music-generator', kind: 'music', provider: 'fal',
+    prices: [{ resolution: 'clip', cost: 0.01 }] },
+  { name: 'Sonilo V1.1 (Fal)', category: 'Sonilo', unit: 'img', t2aId: 'sonilo/v1.1/text-to-music', kind: 'music', provider: 'fal',
+    prices: [{ resolution: 'clip', cost: 0.075 }] },
+  { name: 'Lyria 3.5 (Fal)', category: 'Google', unit: 'img', t2aId: 'google/lyria-3.5', kind: 'music', provider: 'fal', hideDuration: true,
+    prices: [{ resolution: 'clip', cost: 0.10 }] },
   { name: 'Stable Audio Open (Fal)', category: 'Stability', unit: 'img', t2aId: 'fal-ai/stable-audio-open', kind: 'music', provider: 'fal',
     prices: [{ resolution: 'clip', cost: 0.008 }] },
   { name: 'ElevenLabs Music (Fal)', category: 'ElevenLabs', unit: 's', t2aId: 'fal-ai/elevenlabs/music', kind: 'music', provider: 'fal',
@@ -1218,6 +1570,10 @@ export const AUDIO_MODELS: ModelPricing[] = [
     prices: [{ resolution: 'clip', cost: 0.010 }] },
   { name: 'Eleven-Music-v2 (MachGen)', category: 'ElevenLabs', unit: 'img', t2aId: 'machgen/Eleven-Music-v2', kind: 'music', provider: 'machgen',
     prices: [{ resolution: 'clip', cost: 0.008 }] },
+  // Lyria 3.5 via APIMart Flow Music: one track per request, flat $0.06, 1-240 s
+  { name: 'Lyria 3.5 (APIMart)', category: 'Google', unit: 'img', t2aId: 'apimart/flowmusic-lyria-3.5', kind: 'music', provider: 'apimart',
+    prices: [{ resolution: 'clip', cost: 0.06 }],
+    durationMax: 240, durationOptions: ['30', '60', '120', '180', '240'] },
 ]
 
 // ─── Speech-to-text (timeline autocaptions) ────────────────────────────────
@@ -1416,11 +1772,14 @@ export function getSeedance20Dimensions(resolution: string = '720p', aspectRatio
 // - Kling 3.0 multi-shot bills the sum of all scene durations
 export function resolveVideoDuration(model: ModelPricing, ctx: CostContext = {}): number {
   const audio = ctx.audioRefSeconds && ctx.audioRefSeconds > 0 ? ctx.audioRefSeconds : 0
-  if (model.t2vId === 'omnihuman-1-5') return audio
+  if (model.t2vId === 'omnihuman-1-5' || model.t2vId === 'omnihuman-2-0') return audio
   // P-Video 2 (Replicate or Pruna) with audio bills the audio's length, not the requested duration
   if (pVideo2Variant(model.t2vId) === 'p-video-2' && audio > 0) return audio
+  if (model.t2vId === 'pruna/p-video-2-pro-avatar') {
+    return audio > 0 ? audio : Math.max(1, Math.round(((ctx.wordCount || 0) / 2.5) * 10) / 10)
+  }
   if (model.provider === 'replicate') {
-    if (model.t2vId === 'prunaai/p-video-avatar') {
+    if (model.t2vId === 'prunaai/p-video-avatar' || model.t2vId === 'prunaai/p-video-2-pro-avatar') {
       return audio > 0 ? audio : Math.max(1, Math.round(((ctx.wordCount || 0) / 2.5) * 10) / 10)
     }
     return ctx.requestedSeconds || 0
@@ -1464,7 +1823,8 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
   if (videoInputEntry) {
     // Kling 4.0 bills max(output × 2, input + output) seconds
     const outputSecs = resolveVideoDuration(model, ctx)
-    const billedInputSecs = model.t2vId?.startsWith('kling-4.0/') ? Math.max(outputSecs, inputVideoSecs) : inputVideoSecs
+    const billsMaxInput = ['kling-4.0/', 'klingai/kling-4.0', 'kling/v4/', 'kwaivgi/kling-v4.0', 'apimart/kling-v4'].some(p => model.t2vId?.startsWith(p))
+    const billedInputSecs = billsMaxInput ? Math.max(outputSecs, inputVideoSecs) : inputVideoSecs
     const baseDollars = videoInputEntry.costWithVideoInput! * (outputSecs + billedInputSecs)
     const totalDollars = baseDollars * (ctx.batchSize || 1)
     return {
@@ -1558,6 +1918,12 @@ export function calcVideoCost(model: ModelPricing, ctx: CostContext = {}) {
   if (model.provider === 'higgsfield' && model.t2vId?.startsWith('minimax/h3/')) {
     // MiniMax H3 (Higgsfield) reference-to-video: first 5 reference images free, +$0.08 per extra image
     surcharge += Math.max(0, imageCount - 5) * 0.08
+  }
+  if (model.t2vId === 'apimart/MiniMax-H3-Max') {
+    // APIMart H3 Max: first 2 images (frames + refs) free, then $0.0571 each; reference video per source second
+    const refVideoRate: Record<string, number> = { '480p': 0.0423, '768p': 0.1109, '1080p': 0.1194 }
+    surcharge += Math.max(0, imageCount - 2) * 0.0571
+    surcharge += (ctx.inputVideoSeconds || 0) * (refVideoRate[(ctx.resolution || '').toLowerCase()] || 0)
   }
   const totalDollars = base.totalDollars + surcharge
   return {

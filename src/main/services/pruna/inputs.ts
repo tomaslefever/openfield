@@ -100,6 +100,68 @@ export function validatePVideo2Input(kind: PVideo2Kind, input: Record<string, an
   }
 }
 
+// --- P-Video 2 Pro Avatar (Pruna API only) ---
+
+/** Same 30 Gemini TTS voices and 10 languages as P-Video Avatar (docs.api.pruna.ai/guides/models/p-video-2-pro-avatar). */
+export const P_VIDEO_2_AVATAR_VOICES = [
+  'Zephyr (Female)', 'Puck (Male)', 'Charon (Male)', 'Kore (Female)', 'Fenrir (Male)',
+  'Leda (Female)', 'Orus (Male)', 'Aoede (Female)', 'Callirrhoe (Female)', 'Autonoe (Female)',
+  'Enceladus (Male)', 'Iapetus (Male)', 'Umbriel (Male)', 'Algenib (Male)', 'Despina (Female)',
+  'Erinome (Female)', 'Laomedeia (Female)', 'Achernar (Female)', 'Algieba (Male)', 'Schedar (Male)',
+  'Gacrux (Female)', 'Pulcherrima (Female)', 'Achird (Male)', 'Zubenelgenubi (Male)',
+  'Vindemiatrix (Female)', 'Sadachbia (Male)', 'Sadaltager (Male)', 'Sulafat (Female)',
+  'Alnilam (Male)', 'Rasalgethi (Male)',
+]
+
+export const P_VIDEO_2_AVATAR_LANGUAGES = [
+  'English (US)', 'English (UK)', 'Spanish', 'French', 'German', 'Italian',
+  'Portuguese (Brazil)', 'Japanese', 'Korean', 'Hindi',
+]
+
+export function isPVideo2Avatar(modelId?: string | null): boolean {
+  return String(modelId || '').replace(/^(prunaai|pruna)\//, '') === 'p-video-2-pro-avatar'
+}
+
+/**
+ * A portrait speaks an audio track (the video matches its length) or, with no audio, a script read
+ * with TTS. Like the Replicate twin, the prompt is the script when there is no audio (unless an
+ * explicit voiceScript is given) and the scene prompt when there is.
+ */
+export async function buildPVideo2AvatarInput(payload: any, resolve: MediaResolver): Promise<Record<string, any>> {
+  const input: Record<string, any> = {}
+  const firstImageRef = Array.isArray(payload.imageRefs) ? payload.imageRefs[0] : undefined
+  const image =
+    (await resolve({ base64: payload.firstFrameBase64, url: payload.firstFrameUrl }, 'image/png')) ||
+    (await resolve({ base64: payload.imageBase64, url: payload.imageUrl, mime: payload.imageMime }, 'image/png')) ||
+    (firstImageRef && typeof firstImageRef === 'object' ? await resolve(firstImageRef as MediaRef, 'image/png') : null)
+  if (image) input.image = image
+
+  const audios = await resolveAll((payload.audioRefs || []).slice(0, 1), 'audio/mpeg', resolve)
+  const script = String(payload.voiceScript ?? payload.voice_script ?? '').trim()
+  const prompt = String(payload.prompt || '').trim()
+  if (audios[0]) {
+    input.audio = audios[0]
+    if (prompt) input.prompt = prompt
+  } else {
+    const spoken = script || prompt
+    if (spoken) input.voice_script = spoken
+    if (script && prompt) input.prompt = prompt
+    if (P_VIDEO_2_AVATAR_VOICES.includes(payload.voice)) input.voice = payload.voice
+    if (P_VIDEO_2_AVATAR_LANGUAGES.includes(payload.voiceLanguage)) input.voice_language = payload.voiceLanguage
+    if (typeof payload.voicePrompt === 'string' && payload.voicePrompt.trim()) input.voice_prompt = payload.voicePrompt.trim()
+  }
+  const res = String(payload.resolution || '768p').toLowerCase()
+  input.resolution = ['480p', '768p', '1080p', '2k', '4k'].includes(res) ? res : '768p'
+  if (typeof payload.promptUpsampling === 'boolean') input.prompt_upsampling = payload.promptUpsampling
+  if (Number.isInteger(payload.seed)) input.seed = payload.seed
+  return input
+}
+
+export function validatePVideo2AvatarInput(input: Record<string, any>): void {
+  if (!input.image) throw new Error('P-Video 2 Pro Avatar requiere un retrato (imagen).')
+  if (!input.audio && !input.voice_script) throw new Error('P-Video 2 Pro Avatar requiere un audio o un guion en el prompt.')
+}
+
 /**
  * MCP / API callers name the base Pro model; like the composer, any reference routes it to the
  * -reference variant. Returns the model id to use (same provider prefix).

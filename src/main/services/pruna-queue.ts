@@ -9,6 +9,7 @@ import { redactPayload } from './payload-redact'
 import { persistMediaToAssets, hydratePayloadMedia } from './media-persist'
 import {
   PrunaApiClient, getPrunaModel, pVideo2Kind, buildPVideo2Input, validatePVideo2Input, routePVideo2Model,
+  isPVideo2Avatar, buildPVideo2AvatarInput, validatePVideo2AvatarInput,
   type MediaRef, type PrunaStatusResponse,
 } from './pruna'
 import { registerRecoverableProvider, readApiKey, RemoteJobFailedError, forgetFailedJob, markPlaceholderFailed, canAutoResume, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
@@ -139,14 +140,21 @@ export class PrunaQueue extends EventEmitter implements RecoverableQueue {
 
       const payload = typeof task.payload === 'string' ? JSON.parse(task.payload) : (task.payload || {})
       const model = getPrunaModel(payload?.model)
+      const isAvatar = isPVideo2Avatar(payload?.model)
       const kind = pVideo2Kind(payload?.model)
-      if (!model || !kind) throw new Error(`Pruna: unsupported model "${payload?.model}"`)
+      if (!model || (!kind && !isAvatar)) throw new Error(`Pruna: unsupported model "${payload?.model}"`)
 
       // Re-hydrate media from binary assets (base64 only lives in memory here)
       await hydratePayloadMedia(payload)
 
-      const input = await buildPVideo2Input(kind, payload, this.mediaResolver(taskId))
-      validatePVideo2Input(kind, input, model.name)
+      let input: Record<string, any>
+      if (isAvatar) {
+        input = await buildPVideo2AvatarInput(payload, this.mediaResolver(taskId))
+        validatePVideo2AvatarInput(input)
+      } else {
+        input = await buildPVideo2Input(kind!, payload, this.mediaResolver(taskId))
+        validatePVideo2Input(kind!, input, model.name)
+      }
 
       logRun(raw, taskId, 'submit', `Submitting to Pruna: model=${model.apiModel}`, { input })
       const prediction = await this.apiClient.createPrediction(model.apiModel, input)

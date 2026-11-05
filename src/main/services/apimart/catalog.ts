@@ -162,6 +162,77 @@ export const APIMART_IMAGE_MODELS: ApimartModelDef[] = [
     ],
     unit: 'img',
   },
+  // --- Added 2026-11 (docs.apimart.ai; prices from apimart.ai/model pages, Gold tier USD) ---
+  {
+    // Official Google channel, token billed ($24/M image-output tokens). Prices are estimates
+    // from the output token counts (1K~1120, 2K~1680, 4K~2520); input tokens not included.
+    id: 'gemini-nano-banana-2.1',
+    name: 'Nano Banana 2.1 (APIMart)',
+    category: 'Google',
+    type: 'image',
+    supportedTasks: ['T2I', 'I2I'],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9', '1:4', '4:1', '1:8', '8:1'],
+    pricing: [
+      { resolution: '1K', cost: 0.027 },
+      { resolution: '2K', cost: 0.04 },
+      { resolution: '4K', cost: 0.06 },
+    ],
+    unit: 'img',
+    builder: 'nano-banana-2.1',
+  },
+  {
+    id: 'gemini-nano-banana-2.1-ext',
+    name: 'Nano Banana 2.1 ext (APIMart)',
+    category: 'Google',
+    type: 'image',
+    supportedTasks: ['T2I', 'I2I'],
+    resolutions: ['1K', '2K', '4K'],
+    aspectRatios: ['auto', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9', '1:4', '4:1', '1:8', '8:1'],
+    pricing: [
+      { resolution: '1K', cost: 0.012 },
+      { resolution: '2K', cost: 0.014 },
+      { resolution: '4K', cost: 0.018 },
+    ],
+    unit: 'img',
+    builder: 'nano-banana-2.1',
+  },
+  {
+    id: 'flux-3-image',
+    name: 'FLUX 3 Image',
+    category: 'Black Forest Labs',
+    type: 'image',
+    supportedTasks: ['T2I', 'I2I'],
+    resolutions: ['768sq', '1k', '1.5k', '2k', '4k'],
+    aspectRatios: ['auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4', '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2', '9:21'],
+    pricing: [
+      { resolution: '768sq', cost: 0.0328 },
+      { resolution: '1k', cost: 0.0384 },
+      { resolution: '1.5k', cost: 0.056 },
+      { resolution: '2k', cost: 0.08 },
+      { resolution: '4k', cost: 0.4856 },
+    ],
+    unit: 'img',
+    builder: 'flux-3',
+  },
+  {
+    id: 'flux-3-image-klein',
+    name: 'FLUX 3 Image Klein',
+    category: 'Black Forest Labs',
+    type: 'image',
+    supportedTasks: ['T2I', 'I2I'],
+    resolutions: ['768sq', '1k', '1.5k', '2k', '4k'],
+    aspectRatios: ['auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4', '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2', '9:21'],
+    pricing: [
+      { resolution: '768sq', cost: 0.0064 },
+      { resolution: '1k', cost: 0.0072 },
+      { resolution: '1.5k', cost: 0.0088 },
+      { resolution: '2k', cost: 0.0112 },
+      { resolution: '4k', cost: 0.0288 },
+    ],
+    unit: 'img',
+    builder: 'flux-3',
+  },
 ]
 
 export const APIMART_VIDEO_MODELS: ApimartModelDef[] = [
@@ -203,22 +274,6 @@ export const APIMART_VIDEO_MODELS: ApimartModelDef[] = [
       { resolution: '480p', cost: 0.12 },
       { resolution: '720p', cost: 0.25 },
       { resolution: '1080p', cost: 0.45 },
-    ],
-    unit: 's',
-  },
-  {
-    id: 'sora-2',
-    name: 'Sora 2',
-    category: 'OpenAI',
-    type: 'video',
-    supportedTasks: ['T2V', 'I2V'],
-    durationMax: 20,
-    durationOptions: ['5', '10', '15', '20'],
-    resolutions: ['720p', '1080p'],
-    aspectRatios: ['16:9', '9:16', '1:1'],
-    pricing: [
-      { resolution: '720p', cost: 0.20 },
-      { resolution: '1080p', cost: 0.35 },
     ],
     unit: 's',
   },
@@ -587,18 +642,148 @@ export const APIMART_VIDEO_MODELS: ApimartModelDef[] = [
     ],
     unit: 's',
   },
+  // --- Added 2026-11 (docs.apimart.ai; prices from apimart.ai/model pages, Gold tier USD/s) ---
+  {
+    // Kling V4: t2v, i2v (first/last + keyframes), reference (images/videos/audio), edit and
+    // extend. Edit/extend come from the renderer id suffix: apimart/kling-v4/edit, /extend.
+    id: 'kling-v4',
+    name: 'Kling V4',
+    category: 'Kling',
+    type: 'video',
+    supportedTasks: ['T2V', 'I2V', 'FFLF', 'R2V', 'EDIT', 'EXTEND'],
+    durationMax: 30,
+    durationOptions: ['3', '30'],
+    resolutions: ['720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '21:9'],
+    supportsAudio: true,
+    supportsAudioRef: true,
+    supportsVideoRef: true,
+    pricing: [
+      { resolution: '720p', cost: 0.14, costWithVideoInput: 0.084 },
+      { resolution: '1080p', cost: 0.21, costWithVideoInput: 0.126 },
+    ],
+    unit: 's',
+    builder: 'kling-v4',
+  },
+  {
+    // Vidu Q4 Preview: I2V (one first frame) or R2V (1-15 images + up to 3 MP3s). No T2V.
+    id: 'viduq4-preview',
+    name: 'Vidu Q4 Preview',
+    category: 'Vidu',
+    type: 'video',
+    supportedTasks: ['I2V', 'R2V'],
+    durationMax: 16,
+    durationOptions: ['3', '16'],
+    resolutions: ['540p', '720p', '1080p', '2K', '4K'],
+    aspectRatios: ['16:9', '9:16', '1:1', '3:4', '4:3'],
+    supportsAudio: true,
+    supportsAudioRef: true,
+    pricing: [
+      { resolution: '540p', cost: 0.0448 },
+      { resolution: '720p', cost: 0.0912 },
+      { resolution: '1080p', cost: 0.1024 },
+      { resolution: '2K', cost: 0.1624 },
+      { resolution: '4K', cost: 0.3328 },
+    ],
+    unit: 's',
+    builder: 'vidu-q4',
+  },
+  {
+    // Official Vertex channel, billed per second; generate_audio raises the rate.
+    id: 'veo3.1-fast-official',
+    name: 'Veo 3.1 Fast (official)',
+    category: 'Google',
+    type: 'video',
+    supportedTasks: ['T2V', 'I2V', 'FFLF'],
+    durationMax: 8,
+    durationOptions: ['4', '6', '8'],
+    resolutions: ['720p', '1080p', '4K'],
+    aspectRatios: ['16:9', '9:16'],
+    supportsAudio: true,
+    pricing: [
+      { resolution: '720p', cost: 0.064, costWithAudio: 0.08 },
+      { resolution: '1080p', cost: 0.08, costWithAudio: 0.096 },
+      { resolution: '4K', cost: 0.2, costWithAudio: 0.24 },
+    ],
+    unit: 's',
+    builder: 'veo-official',
+  },
+  {
+    id: 'veo3.1-quality-official',
+    name: 'Veo 3.1 Quality (official)',
+    category: 'Google',
+    type: 'video',
+    supportedTasks: ['T2V', 'I2V', 'FFLF'],
+    durationMax: 8,
+    durationOptions: ['4', '6', '8'],
+    resolutions: ['720p', '1080p', '4K'],
+    aspectRatios: ['16:9', '9:16'],
+    supportsAudio: true,
+    pricing: [
+      { resolution: '720p', cost: 0.16, costWithAudio: 0.32 },
+      { resolution: '1080p', cost: 0.16, costWithAudio: 0.32 },
+      { resolution: '4K', cost: 0.32, costWithAudio: 0.48 },
+    ],
+    unit: 's',
+    builder: 'veo-official',
+  },
+  {
+    // MiniMax H3 Max: T2V, I2V (first/last frame) or references (images, videos, audio).
+    // Extra images beyond the first two cost $0.0571 each; reference video seconds are billed.
+    id: 'MiniMax-H3-Max',
+    name: 'MiniMax H3 Max (APIMart)',
+    category: 'MiniMax',
+    type: 'video',
+    supportedTasks: ['T2V', 'I2V', 'FFLF', 'R2V'],
+    durationMax: 15,
+    durationOptions: ['5', '15'],
+    resolutions: ['480P', '768P', '1080P'],
+    aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    supportsAudio: true,
+    supportsAudioRef: true,
+    supportsVideoRef: true,
+    pricing: [
+      { resolution: '480P', cost: 0.0377, costWithVideoInput: 0.0423 },
+      { resolution: '768P', cost: 0.0571, costWithVideoInput: 0.1109 },
+      { resolution: '1080P', cost: 0.128, costWithVideoInput: 0.1194 },
+    ],
+    unit: 's',
+    builder: 'minimax-h3-max',
+  },
+]
+
+export const APIMART_AUDIO_MODELS: ApimartModelDef[] = [
+  {
+    // Flow Music with the Lyria 3.5 engine: POST /v1/music/generations, one track per request,
+    // flat $0.06 per generation. Length 1-240 s.
+    id: 'flowmusic-lyria-3.5',
+    name: 'Lyria 3.5 (Flow Music)',
+    category: 'Google',
+    type: 'audio',
+    supportedTasks: ['T2M'],
+    durationMax: 240,
+    pricing: [{ resolution: 'default', cost: 0.06 }],
+    unit: 'video',
+    apiModel: 'flowmusic',
+    apiVersion: 'lyria-3.5',
+    builder: 'flowmusic',
+  },
 ]
 
 export const APIMART_MODELS: ApimartModelDef[] = [
   ...APIMART_IMAGE_MODELS,
   ...APIMART_VIDEO_MODELS,
+  ...APIMART_AUDIO_MODELS,
 ]
+
+/** Mode suffix a renderer id may carry (apimart/kling-v4/edit -> 'edit'). */
+export const APIMART_MODE_SUFFIX_RE = /\/(t2v|i2v|fflf|ref|t2i|i2i|extend|edit)$/
 
 export function getApimartModel(modelOrId?: string): ApimartModelDef | undefined {
   if (!modelOrId) return undefined
   const cleaned = modelOrId
     .replace(/^apimart\//, '')
-    .replace(/\/(t2v|i2v|fflf|ref|t2i|i2i|extend)$/, '')
+    .replace(APIMART_MODE_SUFFIX_RE, '')
     .trim()
     .toLowerCase()
 

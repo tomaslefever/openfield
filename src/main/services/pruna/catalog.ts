@@ -35,6 +35,24 @@ export const PRUNA_MODELS: PrunaModelDef[] = [
     pricing: [{ resolution: '480p', cost: 0.02 }, { resolution: '768p', cost: 0.035 }],
     unit: 's',
   },
+  {
+    // Talking portrait (docs.api.pruna.ai/guides/models/p-video-2-pro-avatar): image + audio or
+    // a TTS script; the speech sets the length (1 s - 3 min). 1080p/2k/4k upscale the 768p video.
+    id: 'pruna/p-video-2-pro-avatar',
+    apiModel: 'p-video-2-pro-avatar',
+    name: 'P-Video 2 Pro Avatar',
+    category: 'PrunaAI',
+    type: 'video',
+    resolutions: ['480p', '768p', '1080p', '2k', '4k'],
+    pricing: [
+      { resolution: '480p', cost: 0.02 },
+      { resolution: '768p', cost: 0.04 },
+      { resolution: '1080p', cost: 0.06 },
+      { resolution: '2k', cost: 0.08 },
+      { resolution: '4k', cost: 0.12 },
+    ],
+    unit: 's',
+  },
 ]
 
 /** Catalog entry for an Openfield id ('pruna/p-video-2') or a bare API model name ('p-video-2'). */

@@ -11,6 +11,24 @@ export const IMAGE_MODELS = [
     prices: { '1K': 0.03, '2K': 0.05, '4K': 0.08 } },
   { id: 'gpt-image-2-5-sunburst-image-to-image', name: 'GPT Image 2.5 Sunburst I2I', cost: 0.03, unit: 'img', category: 'OpenAI',
     prices: { '1K': 0.03, '2K': 0.05, '4K': 0.08 } },
+  // GPT Image 2.6 Flare / Sunburst bill by tokens on KIE (image output $27 per 1M tokens, image
+  // input $7.20, text input $4.50); per-image prices are estimates carried over from GPT Image 2.5.
+  // Economy is a flat 5 credits ($0.025) per 1K image, 1K only.
+  { id: 'gpt-image-2-6/flare-text-to-image', name: 'GPT Image 2.6 Flare', cost: 0.03, unit: 'img', category: 'OpenAI',
+    prices: { '1K': 0.03, '2K': 0.05, '4K': 0.08 } },
+  { id: 'gpt-image-2-6/flare-image-to-image', name: 'GPT Image 2.6 Flare I2I', cost: 0.03, unit: 'img', category: 'OpenAI',
+    prices: { '1K': 0.03, '2K': 0.05, '4K': 0.08 } },
+  { id: 'gpt-image-2-6/sunburst-text-to-image', name: 'GPT Image 2.6 Sunburst', cost: 0.03, unit: 'img', category: 'OpenAI',
+    prices: { '1K': 0.03, '2K': 0.05, '4K': 0.08 } },
+  { id: 'gpt-image-2-6/sunburst-image-to-image', name: 'GPT Image 2.6 Sunburst I2I', cost: 0.03, unit: 'img', category: 'OpenAI',
+    prices: { '1K': 0.03, '2K': 0.05, '4K': 0.08 } },
+  { id: 'gpt-image-2-6/economy-text-to-image', name: 'GPT Image 2.6 Economy', cost: 0.025, unit: 'img', category: 'OpenAI' },
+  { id: 'gpt-image-2-6/economy-image-to-image', name: 'GPT Image 2.6 Economy I2I', cost: 0.025, unit: 'img', category: 'OpenAI' },
+  // FLUX 3 Klein: 1.6 / 2.5 / 6.5 credits per 1K / 2K / 4K image; edit takes up to 10 refs at no extra cost
+  { id: 'flux-3/klein-text-to-image', name: 'FLUX 3 Klein', cost: 0.008, unit: 'img', category: 'Flux',
+    prices: { '1K': 0.008, '2K': 0.0125, '4K': 0.0325 } },
+  { id: 'flux-3/klein-edit-image', name: 'FLUX 3 Klein Edit', cost: 0.008, unit: 'img', category: 'Flux',
+    prices: { '1K': 0.008, '2K': 0.0125, '4K': 0.0325 } },
   { id: 'nano-banana-2', name: 'Nano Banana 2', cost: 0.04, unit: 'img', category: 'Google' },
   { id: 'nano-banana-2-1', name: 'Nano Banana 2.1', cost: 0.02, unit: 'img', category: 'Google',
     prices: { '1K': 0.02, '2K': 0.03, '4K': 0.045 } },
@@ -48,14 +66,30 @@ export const VIDEO_MODELS = [
     prices: { '720P': 0.1425, '1080P': 0.2125, '720p': 0.1425, '1080p': 0.2125 } },
   { id: 'kling-4.0/keyframe-to-video', name: 'Kling 4.0', cost: 0.1425, unit: 's', category: 'Kling',
     prices: { '720P': 0.1425, '1080P': 0.2125, '720p': 0.1425, '1080p': 0.2125 } },
+  // Kling 4.0 Flash: 720p only, $0.085/s (17 credits); with a reference video $0.0565/s
+  // (11.3 credits) of max(output × 2, input + output) seconds, like Kling 4.0
+  { id: 'kling-4.0/flash-reference-to-video', name: 'Kling 4.0 Flash', cost: 0.085, unit: 's', category: 'Kling',
+    prices: { '720P': 0.085, '720p': 0.085 } },
+  { id: 'kling-4.0/flash-keyframe-to-video', name: 'Kling 4.0 Flash', cost: 0.085, unit: 's', category: 'Kling',
+    prices: { '720P': 0.085, '720p': 0.085 } },
   { id: 'kling-3.0/video', name: 'Kling 3.0', cost: 18, unit: 's', category: 'Kling' },
   { id: 'kling/v25-turbo-text-to-video-pro', name: 'Kling 2.5 Turbo', cost: 10, unit: 's', category: 'Kling' },
   { id: 'grok-imagine/text-to-video', name: 'Grok Imagine', cost: 0.012, unit: 's', category: 'Grok' },
   { id: 'grok-imagine/image-to-video', name: 'Grok Imagine', cost: 0.012, unit: 's', category: 'Grok' },
   { id: 'grok-imagine/extend', name: 'Grok Imagine', cost: 0.012, unit: 's', category: 'Grok' },
   { id: 'grok-imagine/upscale', name: 'Grok Upscale', cost: 0, unit: 'video', category: 'Grok' },
+  // Grok Imagine Video 1.5 Preview: 2.4 / 4.5 credits/s at 480p / 720p. KIE lists a third rate,
+  // 8 credits/s, also labelled "720p"; taken here as the 1080p rate.
+  { id: 'grok-imagine-video-1-5-preview', name: 'Grok Imagine Video 1.5', cost: 0.012, unit: 's', category: 'Grok',
+    prices: { '480p': 0.012, '720p': 0.0225, '1080p': 0.04, '480P': 0.012, '720P': 0.0225, '1080P': 0.04 } },
   { id: 'bytedance/seedance-2', name: 'Seedance 2', cost: 0.205, unit: 's', category: 'ByteDance' },
-  { id: 'bytedance/seedance-2-5', name: 'Seedance 2.5', cost: 0.315, unit: 's', category: 'ByteDance' },
+  // Seedance 2.5: 28 / 63 / 158 credits/s at 480p / 720p / 1080p (17 / 38 / 95 with a reference
+  // video, over input + output seconds). A draft (draft: true) is a 480p run.
+  { id: 'bytedance/seedance-2-5', name: 'Seedance 2.5', cost: 0.315, unit: 's', category: 'ByteDance',
+    prices: { '480p': 0.14, '720p': 0.315, '1080p': 0.79, '480P': 0.14, '720P': 0.315, '1080P': 0.79 } },
+  // Draft → 1080p final: the 1080p Seedance 2.5 rate over the draft's duration (with-video drafts
+  // keep the with-video rate, $0.475/s, over input + output)
+  { id: 'bytedance/seedance-2-5-draft', name: 'Seedance 2.5 Final', cost: 0.79, unit: 's', category: 'ByteDance' },
   { id: 'bytedance/seedance-2-fast', name: 'Seedance 2 Fast', cost: 0.124, unit: 's', category: 'ByteDance' },
   { id: 'bytedance/seedance-2-mini', name: 'Seedance 2 Mini', cost: 0.041, unit: 's', category: 'ByteDance' },
   { id: 'wan-2-7-text-to-video', name: 'Wan 2.7', cost: 0.04, unit: 's', category: 'Wan' },
@@ -75,10 +109,17 @@ export const VIDEO_MODELS = [
   { id: 'pixverse-v6/reference-to-video', name: 'PixVerse V6', cost: 0.0225, unit: 's', category: 'PixVerse' },
   { id: 'pixverse-v6/transition', name: 'PixVerse V6 Transition', cost: 0.020, unit: 's', category: 'PixVerse' },
   { id: 'omnihuman-1-5', name: 'OmniHuman 1.5', cost: 0.135, unit: 's', category: 'OmniHuman' },
+  // OmniHuman 2.0: 14 credits/s, 720p, billed on the output length (= the driving audio, 4–300 s)
+  { id: 'omnihuman-2-0', name: 'OmniHuman 2.0', cost: 0.07, unit: 's', category: 'OmniHuman' },
   { id: 'google/gemini-omni-flash-1-1', name: 'Gemini Omni 1.1 Flash', cost: 0.42, unit: 'video', category: 'Google' },
-  { id: 'gemini-omni-video', name: 'Gemini Omni 1.1 Flash', cost: 0.42, unit: 'video', category: 'Google' },
-  { id: 'sora-2', name: 'Sora 2', cost: 0.25, unit: 's', category: 'OpenAI',
-    prices: { '720p': 0.25, '1080p': 0.35, '720P': 0.25, '1080P': 0.35 } },
+  // Gemini Omni Video: same per-video table as 1.1 Flash (720p/1080p 63–126 credits by duration,
+  // 4K 147–210; with a video input 168 / 252), see getEstimatedCost
+  { id: 'gemini-omni-video', name: 'Gemini Omni Video', cost: 0.42, unit: 'video', category: 'Google' },
+  // Vidu Q4 Preview: 7.2 / 15.2 / 19.2 / 30.4 / 62.4 credits/s at 540p / 720p / 1080p / 2K / 4K
+  { id: 'vidu-q4/image-to-video', name: 'Vidu Q4', cost: 0.076, unit: 's', category: 'Vidu',
+    prices: { '540p': 0.036, '720p': 0.076, '1080p': 0.096, '2k': 0.152, '4k': 0.312, '540P': 0.036, '720P': 0.076, '1080P': 0.096, '2K': 0.152, '4K': 0.312 } },
+  { id: 'vidu-q4/reference-to-video', name: 'Vidu Q4', cost: 0.076, unit: 's', category: 'Vidu',
+    prices: { '540p': 0.036, '720p': 0.076, '1080p': 0.096, '2k': 0.152, '4k': 0.312, '540P': 0.036, '720P': 0.076, '1080P': 0.096, '2K': 0.152, '4K': 0.312 } },
   { id: 'runway-gen-4-5', name: 'Runway Gen-4.5', cost: 0.10, unit: 's', category: 'Runway',
     prices: { '720p': 0.10, '1080p': 0.15, '720P': 0.10, '1080P': 0.15 } },
   { id: 'veo-3-1', name: 'Veo 3.1', cost: 0.15, unit: 's', category: 'Google',
