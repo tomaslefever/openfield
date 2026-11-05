@@ -13,6 +13,7 @@ const DEFAULT_MODEL = 'eleven_multilingual_v3'
 // Fallback list when the models endpoint is unavailable (v3 models included)
 const ELEVENLABS_MODELS_FALLBACK = [
   { id: 'eleven_v4', name: 'Eleven v4 (flagship)' },
+  { id: 'eleven_v4_turbo', name: 'Eleven v4 Turbo (~100 ms)' },
   { id: 'eleven_v3_flash', name: 'Eleven v3 Flash (fastest)' },
   { id: 'eleven_v3', name: 'Eleven v3' },
   { id: 'eleven_multilingual_v3_flash', name: 'Eleven Multilingual v3 Flash' },
@@ -25,6 +26,9 @@ const ELEVENLABS_MODELS_FALLBACK = [
   { id: 'eleven_monolingual_v1', name: 'Eleven Monolingual v1' },
   { id: 'eleven_multilingual_v1', name: 'Eleven Multilingual v1' },
 ]
+
+// Sound-effect models; the first is the default (SFX v2 is deprecated, removed 2027-03-01)
+const SFX_MODELS = ['eleven_text_to_sound_v3', 'eleven_text_to_sound_v2'] as const
 
 function requireElevenLabsKey(): string {
   const key = readSetting('elevenlabsApiKey')
@@ -473,19 +477,32 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
     }
   })
 
+  // Sound effects (https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert). SFX v3
+  // is sent explicitly: the API still defaults to eleven_text_to_sound_v2, which is removed on
+  // 2027-03-01. 0.5-30 s (omitted = the model picks the length from the prompt), optional loop.
   handle('elevenlabs:sfx', async (event, params) => {
     const sender = event.sender
     const apiKey = requireElevenLabsKey()
     const text: string = params?.prompt
     if (!text || !text.trim()) throw new Error('Text is required')
-    const duration = Math.max(1, Math.min(22, Number(params?.duration) || 5))
+    const requested = Number(params?.duration)
+    const duration = Number.isFinite(requested) && requested > 0 ? Math.max(0.5, Math.min(30, requested)) : null
+    const modelId = params?.model === SFX_MODELS[1] ? SFX_MODELS[1] : SFX_MODELS[0]
+    const loop = params?.loop === true
+    const promptInfluence = Number(params?.promptInfluence)
 
     sender.send('local:audio:progress', { status: 'generating', message: 'Generando efecto de sonido con ElevenLabs...', pct: 40 })
     const buffer = await request<ArrayBuffer>(
       '/v1/sound-generation',
       {
         method: 'POST',
-        body: JSON.stringify({ text, duration_seconds: duration }),
+        body: JSON.stringify({
+          text,
+          model_id: modelId,
+          ...(duration != null ? { duration_seconds: duration } : {}),
+          ...(loop ? { loop: true } : {}),
+          ...(Number.isFinite(promptInfluence) && params?.promptInfluence !== undefined ? { prompt_influence: Math.max(0, Math.min(1, promptInfluence)) } : {}),
+        }),
       },
       apiKey,
     )
@@ -497,8 +514,13 @@ export function registerElevenLabsHandlers({ handle }: IpcContext) {
       const asset = await getAssetManager().importFile(tmpPath, 'audio')
       const db = getRawDb()
       db.prepare(
-        `UPDATE assets SET prompt = ?, model_used = ?, provider = 'elevenlabs', credits_used = 0 WHERE id = ?`
-      ).run(text, 'elevenlabs:sfx', asset.id)
+        `UPDATE assets SET prompt = ?, model_used = ?, parameters = ?, provider = 'elevenlabs', credits_used = 0 WHERE id = ?`
+      ).run(text, 'elevenlabs:sfx', JSON.stringify({
+        kind: 'sfx',
+        model_id: modelId,
+        ...(duration != null ? { duration_seconds: duration } : {}),
+        ...(loop ? { loop: true } : {}),
+      }), asset.id)
       db.saveSync()
       sender.send('local:audio:progress', { status: 'completed', message: 'Audio generado', pct: 100 })
       return asset

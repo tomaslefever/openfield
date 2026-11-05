@@ -7,7 +7,7 @@ import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
 import { redactPayload } from './payload-redact'
 import { persistMediaToAssets, hydratePayloadMedia } from './media-persist'
-import { FalApiClient, getFalModel, type FalImageResult, type FalVideoResult, type FalAudioResult, type FalResult, type FalRequestUrls } from './fal'
+import { FalApiClient, getFalModel, resolveFalModelId, type FalImageResult, type FalVideoResult, type FalAudioResult, type FalResult, type FalRequestUrls } from './fal'
 import { registerRecoverableProvider, readApiKey, canAutoResume, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
 
 /** Polling URLs fal returned on submit (older tasks have none: the client derives them from the model id) */
@@ -86,15 +86,66 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
     }
   }
 
+  /**
+   * The endpoint a payload runs on: retired ids resolve to their replacement, and Sync-3 with a
+   * portrait instead of a video runs its image-to-video variant.
+   */
+  private routeEndpoint(payload: any): string {
+    const id = resolveFalModelId(String(payload.model || ''))
+    if (id === 'fal-ai/sync-lipsync/v3') {
+      const { images, videos, firstFrame } = this.collectMedia(payload)
+      if (!videos.length && (firstFrame || images.length)) return 'fal-ai/sync-lipsync/v3/image-to-video'
+    }
+    return id
+  }
+
   private buildInput(payload: any): Record<string, any> {
-    const model = getFalModel(payload.model)
-    if (model?.type === 'image') return this.buildImageInput(payload, model)
+    const id = String(payload.model || '')
+    const model = getFalModel(id)
+    if (model?.type === 'image') {
+      if (id.startsWith('openai/gpt-image-2.6/')) return this.buildGptImage26Input(payload)
+      if (id.startsWith('blackforestlabs/flux-3/')) return this.buildFlux3ImageInput(payload)
+      if (id.startsWith('ideogram/v4.5')) return this.buildIdeogram45Input(payload)
+      if (id.startsWith('krea/v3/')) return this.buildKrea3Input(payload)
+      return this.buildImageInput(payload, model)
+    }
     if (model?.type === 'audio') return this.buildAudioInput(payload)
     return this.buildVideoInput(payload)
   }
 
   private buildAudioInput(payload: any): Record<string, any> {
     const text = payload.prompt || payload.text || ''
+    const seconds = (min: number, max: number, fallback: number) =>
+      Math.min(max, Math.max(min, Math.round(Number(payload.duration) || fallback)))
+    switch (payload.model) {
+      case 'xai/tts/v1': {
+        // Grok TTS: lowercase voice names and BCP-47 languages; anything else falls back to defaults
+        const input: Record<string, any> = { text }
+        const voice = String(payload.voice || '').toLowerCase()
+        if (XAI_TTS_VOICES.includes(voice)) input.voice = voice
+        if (XAI_TTS_LANGUAGES.includes(payload.voiceLanguage)) input.language = payload.voiceLanguage
+        return input
+      }
+      case 'fal-ai/gemini-3.1-flash-tts': {
+        const input: Record<string, any> = { prompt: text }
+        const voice = GEMINI_TTS_VOICES.find(v => v.toLowerCase() === String(payload.voice || '').toLowerCase())
+        if (voice) input.voice = voice
+        return input
+      }
+      // Sonilo bills per second per sample (default 90 s upstream): ask for 30 s unless told otherwise
+      case 'sonilo/v1.1/text-to-music':
+        return { prompt: text, duration: seconds(1, 600, 30) }
+      // CassetteAI requires a duration (10–180 s)
+      case 'cassetteai/music-generator':
+        return { prompt: text, duration: seconds(10, 180, 30) }
+      case 'google/lyria-3.5': {
+        // Length and structure go in the prompt; an optional image sets the mood
+        const input: Record<string, any> = { prompt: text }
+        const { images } = this.collectMedia(payload)
+        if (images[0]) input.image_url = images[0]
+        return input
+      }
+    }
     const input: Record<string, any> = {
       prompt: text,
       input: text,
@@ -103,6 +154,48 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
     if (payload.voice) input.voice = payload.voice
     if (payload.voiceLanguage) input.language = payload.voiceLanguage
     if (payload.duration) input.duration = Number(payload.duration)
+    return input
+  }
+
+  /**
+   * FLUX 3 Max: text-to-video, image-to-video (start frame, optional end frame) and
+   * keyframes-to-video (up to 10 images spread evenly over the clip, 24 fps).
+   */
+  private buildFlux3MaxInput(payload: any): Record<string, any> {
+    const toImageUrl = (v: string | undefined, mime = 'image/png') =>
+      !v ? undefined : (/^(https?:|data:)/.test(v) ? v : `data:${mime};base64,${v}`)
+    const duration = Math.min(20, Math.max(5, Math.round(Number(payload.duration) || 5)))
+    const resolution = String(payload.resolution || '720p').toLowerCase() === '1080p' ? '1080p' : '720p'
+    const aspectRatio = payload.aspectRatio && payload.aspectRatio !== 'adaptive' ? payload.aspectRatio : 'auto'
+
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      // fal validates duration as an integer literal: the string "5" answers 422
+      duration,
+      resolution,
+      aspect_ratio: aspectRatio,
+      generate_audio: payload.sound !== false && payload.sound !== 'off',
+    }
+
+    const images = [
+      ...(payload.imageRefs || []).filter((r: any) => r?.base64 || /^https?:/.test(r?.url || ''))
+        .map((r: any) => toImageUrl(r.base64 || r.url, r.mime || 'image/png')),
+      ...(payload.imageRefs?.length ? [] : [toImageUrl(payload.imageBase64, payload.imageMime || 'image/png')]),
+    ].filter(Boolean) as string[]
+    const firstFrame = toImageUrl(payload.firstFrameBase64) || toImageUrl(/^https?:/.test(payload.firstFrameUrl || '') ? payload.firstFrameUrl : undefined)
+    const lastFrame = toImageUrl(payload.lastFrameBase64) || toImageUrl(/^https?:/.test(payload.lastFrameUrl || '') ? payload.lastFrameUrl : undefined)
+
+    if (payload.model.endsWith('/keyframes-to-video')) {
+      const frames = images.slice(0, 10)
+      const lastIndex = duration * 24 - 1
+      input.keyframes = frames.map((image_url, i) => ({
+        image_url,
+        frame_index: frames.length === 1 ? 0 : Math.round((i * lastIndex) / (frames.length - 1)),
+      }))
+    } else if (payload.model.endsWith('/image-to-video')) {
+      input.image_url = firstFrame || images[0]
+      if (lastFrame) input.end_image_url = lastFrame
+    }
     return input
   }
 
@@ -147,8 +240,191 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
     return input
   }
 
+  /** Media of a payload as URLs or data URIs, shared by the per-model builders below */
+  private collectMedia(payload: any) {
+    const toUrl = (v: string | undefined, mime: string) =>
+      !v ? undefined : (/^(https?:|data:)/.test(v) ? v : `data:${mime};base64,${v}`)
+    const fromRefs = (list: any[] | undefined, mime: string) => (list || [])
+      .filter((r: any) => r?.base64 || /^https?:/.test(r?.url || ''))
+      .map((r: any) => toUrl(r.base64 || r.url, r.mime || mime)).filter(Boolean) as string[]
+    const images = [
+      ...(payload.imageRefs?.length ? [] : [toUrl(payload.imageBase64, payload.imageMime || 'image/png')]),
+      ...fromRefs(payload.imageRefs, 'image/png'),
+    ].filter(Boolean) as string[]
+    return {
+      images,
+      videos: fromRefs(payload.videoRefs, 'video/mp4'),
+      audios: fromRefs(payload.audioRefs, 'audio/mpeg'),
+      firstFrame: toUrl(payload.firstFrameBase64, 'image/png') || toUrl(/^https?:/.test(payload.firstFrameUrl || '') ? payload.firstFrameUrl : undefined, 'image/png'),
+      lastFrame: toUrl(payload.lastFrameBase64, 'image/png') || toUrl(/^https?:/.test(payload.lastFrameUrl || '') ? payload.lastFrameUrl : undefined, 'image/png'),
+    }
+  }
+
+  /**
+   * Seedance 2.5 on fal (US-hosted): text-to-video; image-to-video (start + optional end frame);
+   * reference-to-video (images, videos and audio cited as @Image1 / @Video1 / @Audio1).
+   * Duration is a string enum ("4"–"30"); audio costs the same as silent video.
+   */
+  private buildSeedance25Input(payload: any): Record<string, any> {
+    const { images, videos, audios, firstFrame, lastFrame } = this.collectMedia(payload)
+    const res = String(payload.resolution || '720p').toLowerCase()
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      duration: String(Math.min(30, Math.max(4, Math.round(Number(payload.duration) || 5)))),
+      resolution: ['480p', '720p', '1080p'].includes(res) ? res : '720p',
+      generate_audio: payload.sound !== false && payload.sound !== 'off',
+    }
+    const aspectRatio = payload.aspectRatio && payload.aspectRatio !== 'adaptive' ? payload.aspectRatio : 'auto'
+    if (payload.model.endsWith('/image-to-video')) {
+      input.image_url = firstFrame || images[0]
+      if (lastFrame) input.end_image_url = lastFrame
+      input.aspect_ratio = 'auto'
+    } else if (payload.model.endsWith('/reference-to-video')) {
+      // A first frame picked as such still travels as the first reference image
+      const refImages = [...(firstFrame ? [firstFrame] : []), ...images]
+      if (refImages.length) input.image_urls = refImages.slice(0, 30)
+      if (videos.length) input.video_urls = videos.slice(0, 10)
+      if (audios.length) input.audio_urls = audios.slice(0, 10)
+      input.aspect_ratio = aspectRatio
+    } else {
+      input.aspect_ratio = aspectRatio
+    }
+    return input
+  }
+
+  /** Wan 3.0 on fal: text-to-video, or image-to-video from a start frame (optional end frame). */
+  private buildWan3Input(payload: any): Record<string, any> {
+    const { images, firstFrame, lastFrame } = this.collectMedia(payload)
+    const res = String(payload.resolution || '720p').toLowerCase()
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      // fal validates duration as an integer (2–30)
+      duration: Math.min(30, Math.max(2, Math.round(Number(payload.duration) || 5))),
+      resolution: ['480p', '720p', '1080p'].includes(res) ? res : '720p',
+      audio: payload.sound !== false && payload.sound !== 'off',
+    }
+    const aspectRatio = payload.aspectRatio && payload.aspectRatio !== 'auto' ? payload.aspectRatio : 'adaptive'
+    if (payload.model.endsWith('/image-to-video')) {
+      input.start_image_url = firstFrame || images[0]
+      if (lastFrame) input.end_image_url = lastFrame
+      input.aspect_ratio = aspectRatio
+    } else {
+      input.aspect_ratio = aspectRatio === 'adaptive' ? '16:9' : aspectRatio
+    }
+    return input
+  }
+
+  /**
+   * Kling 4.0 Flash: 720p only, 3–20 s. text-to-video; image-to-video (start frame only, no end
+   * frame); reference-to-video (up to 10 images incl. an optional start frame, 5 videos, cited as
+   * @Image1 / @Video1); video-to-video edits the first video (@Video1) with optional references.
+   */
+  private buildKlingV4FlashInput(payload: any): Record<string, any> {
+    const { images, videos, firstFrame, lastFrame } = this.collectMedia(payload)
+    const id = String(payload.model)
+    const aspect = payload.aspectRatio && payload.aspectRatio !== 'adaptive' ? String(payload.aspectRatio) : ''
+    const input: Record<string, any> = { resolution: '720p' }
+
+    if (id.endsWith('/video-to-video')) {
+      const [source, ...more] = videos
+      if (!source) throw new Error('Kling 4.0 Flash Edit requiere un video de origen (3–20 s).')
+      input.prompt = payload.prompt || ''
+      input.video_url = source
+      if (more.length) input.video_urls = more.slice(0, 4)
+      const refImages = [...(firstFrame ? [firstFrame] : []), ...images]
+      if (refImages.length) input.image_urls = refImages.slice(0, 10)
+      // No duration: the output keeps the source video's length
+      return input
+    }
+
+    input.duration = Math.min(20, Math.max(3, Math.round(Number(payload.duration) || 5)))
+    if (id.endsWith('/image-to-video')) {
+      const start = firstFrame || images[0] || lastFrame
+      if (!start) throw new Error('Kling 4.0 Flash I2V requiere una imagen de inicio.')
+      input.start_image_url = start
+      if (payload.prompt) input.prompt = payload.prompt
+      return input
+    }
+
+    input.prompt = payload.prompt || ''
+    if (id.endsWith('/reference-to-video')) {
+      // The start frame counts toward the 10-image limit
+      if (firstFrame) input.start_image_url = firstFrame
+      if (images.length) input.image_urls = images.slice(0, firstFrame ? 9 : 10)
+      if (videos.length) input.video_urls = videos.slice(0, 5)
+      input.aspect_ratio = ['auto', '16:9', '9:16', '1:1', '21:9'].includes(aspect) ? aspect : 'auto'
+      return input
+    }
+    input.aspect_ratio = ['16:9', '9:16', '1:1', '21:9'].includes(aspect) ? aspect : '16:9'
+    return input
+  }
+
+  /** H3 Max Relight: source video (≤15 s, output keeps its length) + a lighting-sphere image. */
+  private buildH3RelightInput(payload: any): Record<string, any> {
+    const { images, videos, firstFrame } = this.collectMedia(payload)
+    const sphere = firstFrame || images[0]
+    if (!videos[0] || !sphere) {
+      throw new Error('H3 Max Relight requiere un video de origen (hasta 15 s) y una imagen de esfera con la iluminación.')
+    }
+    const res = String(payload.resolution || '768P').toUpperCase()
+    const aspect = String(payload.aspectRatio || '')
+    return {
+      video_url: videos[0],
+      reference_image_url: sphere,
+      resolution: ['480P', '768P', '1080P', '2K'].includes(res) ? res : '768P',
+      // adaptive keeps the source framing (fal's default would force 16:9)
+      aspect_ratio: ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'].includes(aspect) ? aspect : 'adaptive',
+    }
+  }
+
+  /** Sync-3 lipsync: re-syncs a video to an audio track, or animates a portrait to it (image-to-video). */
+  private buildSync3Input(payload: any): Record<string, any> {
+    const { images, videos, audios, firstFrame } = this.collectMedia(payload)
+    if (!audios[0]) throw new Error('Sync-3 requiere un audio de referencia.')
+    if (String(payload.model).endsWith('/image-to-video')) {
+      const image = firstFrame || images[0]
+      if (!image) throw new Error('Sync-3 requiere un video o un retrato de referencia.')
+      return { image_url: image, audio_url: audios[0] }
+    }
+    if (!videos[0]) throw new Error('Sync-3 requiere un video y un audio de referencia.')
+    const input: Record<string, any> = {
+      video_url: videos[0],
+      audio_url: audios[0],
+      sync_mode: ['cut_off', 'loop', 'bounce', 'silence', 'remap'].includes(payload.syncMode) ? payload.syncMode : 'cut_off',
+    }
+    const options: Record<string, any> = {}
+    if (typeof payload.temperature === 'number') options.temperature = payload.temperature
+    if (typeof payload.activeSpeaker === 'boolean') options.active_speaker_detection = { auto_detect: payload.activeSpeaker }
+    if (Object.keys(options).length) input.options = options
+    return input
+  }
+
+  /** ByteDance video upscaler (standard tier): one source video to 1080p / 2K / 4K. */
+  private buildBytedanceUpscaleInput(payload: any): Record<string, any> {
+    const { videos } = this.collectMedia(payload)
+    if (!videos[0]) throw new Error('ByteDance Upscaler requiere un video de referencia.')
+    const res = String(payload.resolution || '1080p').toLowerCase()
+    const input: Record<string, any> = {
+      video_url: videos[0],
+      target_resolution: ['1080p', '2k', '4k'].includes(res) ? res : '1080p',
+      enhancement_tier: 'standard',
+    }
+    // Above 30 fps the price doubles (above 60 fps, ×4): only sent when chosen explicitly
+    const fps = Number(payload.fps)
+    if (fps >= 24 && fps <= 120) input.target_fps = fps
+    return input
+  }
+
   private buildVideoInput(payload: any): Record<string, any> {
+    const videoId = String(payload.model || '')
+    if (videoId.startsWith('kling/v4/flash/')) return this.buildKlingV4FlashInput(payload)
+    if (videoId === 'minimax/h3-max/relight') return this.buildH3RelightInput(payload)
+    if (videoId.startsWith('fal-ai/sync-lipsync/v3')) return this.buildSync3Input(payload)
+    if (videoId === 'fal-ai/bytedance-upscaler/upscale/video') return this.buildBytedanceUpscaleInput(payload)
+    if (String(payload.model || '').startsWith('blackforestlabs/flux-3-max/')) return this.buildFlux3MaxInput(payload)
     if (String(payload.model || '').startsWith('kling/v4/')) return this.buildKlingV4Input(payload)
+    if (String(payload.model || '').startsWith('bytedance/seedance-2.5/us/')) return this.buildSeedance25Input(payload)
+    if (String(payload.model || '').startsWith('alibaba/wan-3.0/')) return this.buildWan3Input(payload)
     const isTextToVideo = payload.model?.includes('text-to-video')
 
     let aspectRatio = payload.aspectRatio || (isTextToVideo ? '16:9' : 'adaptive')
@@ -218,6 +494,83 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
     return input
   }
 
+  /**
+   * GPT Image 2.6 Flare / Sunburst. Presets only cover 4:3 and 16:9, so the size is sent as explicit
+   * dimensions (multiples of 16, max edge 3840, 655,360–8,294,400 px) from the aspect ratio and
+   * 1K / 2K / 4K; "auto" lets the model pick (edit: from the input images). Edit takes up to 16 images.
+   */
+  private buildGptImage26Input(payload: any): Record<string, any> {
+    const { images } = this.collectMedia(payload)
+    const input: Record<string, any> = { prompt: payload.prompt || '' }
+    if (payload.batchSize && payload.batchSize > 1) input.num_images = Math.min(10, payload.batchSize)
+    if (['auto', 'low', 'medium', 'high', 'xhigh', 'max'].includes(payload.quality)) input.quality = payload.quality
+    const res = String(payload.resolution || '1K').toUpperCase()
+    const budget = res === '4K' ? 8_294_400 : res === '2K' ? 2048 * 2048 : 1024 * 1024
+    input.image_size = sizeForAspect(payload.aspectRatio, budget, { step: 16, maxEdge: 3840, maxPixels: 8_294_400 }) || 'auto'
+    if (String(payload.model).endsWith('/edit')) {
+      if (!images.length) throw new Error('GPT Image 2.6 Edit requiere al menos una imagen.')
+      input.image_urls = images.slice(0, 16)
+    }
+    return input
+  }
+
+  /** FLUX 3 text-to-image / edit-image (1–10 references). Resolution tiers are lowercase (1k/2k/4k). */
+  private buildFlux3ImageInput(payload: any): Record<string, any> {
+    const { images } = this.collectMedia(payload)
+    const res = String(payload.resolution || '1K').toLowerCase()
+    const aspect = String(payload.aspectRatio || 'auto')
+    const input: Record<string, any> = {
+      prompt: payload.prompt || '',
+      resolution: ['768sq', '1k', '1.5k', '2k', '4k'].includes(res) ? res : '1k',
+      aspect_ratio: FLUX3_ASPECT_RATIOS.includes(aspect) ? aspect : 'auto',
+      output_format: 'png',
+    }
+    if (String(payload.model).endsWith('/edit-image')) {
+      if (!images.length) throw new Error('FLUX 3 Edit requiere al menos una imagen de referencia.')
+      input.image_urls = images.slice(0, 10)
+    }
+    return input
+  }
+
+  /**
+   * Ideogram 4.5. Text-to-image only accepts its own list of exact sizes (or a few presets), so the
+   * aspect ratio + 1K/2K picks one. Edit: first image is the source, up to 4 more are references;
+   * the output keeps the source size. Quality defaults to medium ($0.06).
+   */
+  private buildIdeogram45Input(payload: any): Record<string, any> {
+    const { images } = this.collectMedia(payload)
+    const input: Record<string, any> = { prompt: payload.prompt || '' }
+    if (payload.batchSize && payload.batchSize > 1) input.num_images = Math.min(8, payload.batchSize)
+    if (String(payload.model).endsWith('/edit')) {
+      if (!images.length) throw new Error('Ideogram 4.5 Edit requiere una imagen de origen.')
+      input.image_url = images[0]
+      if (images.length > 1) input.reference_image_urls = images.slice(1, 5)
+      if (['very_low', 'low', 'medium', 'high'].includes(payload.quality)) input.quality = payload.quality
+      return input
+    }
+    if (['low', 'medium', 'high'].includes(payload.quality)) input.quality = payload.quality
+    const sizes = IDEOGRAM45_SIZES[String(payload.aspectRatio || '1:1')] || IDEOGRAM45_SIZES['1:1']
+    const [w, h] = sizes[String(payload.resolution || '').toUpperCase() === '2K' ? 1 : 0].split('x').map(Number)
+    input.image_size = { width: w, height: h }
+    return input
+  }
+
+  /**
+   * Krea 3 text-to-image / edit (1–8 images, cited as <image-1>…). Billed per megapixel of output,
+   * so the size is explicit: ~1 MP at 1K, ~4 MP at 2K (max 4,220,160 px); "auto" lets Krea choose (~4 MP).
+   */
+  private buildKrea3Input(payload: any): Record<string, any> {
+    const { images } = this.collectMedia(payload)
+    const input: Record<string, any> = { prompt: payload.prompt || '' }
+    const budget = String(payload.resolution || '1K').toUpperCase() === '2K' ? 2048 * 2048 : 1024 * 1024
+    input.image_size = sizeForAspect(payload.aspectRatio, budget, { step: 16, maxEdge: 4096, maxPixels: 4_220_160 }) || 'auto'
+    if (String(payload.model).endsWith('/edit')) {
+      if (!images.length) throw new Error('Krea 3 Edit requiere al menos una imagen.')
+      input.image_urls = images.slice(0, 8)
+    }
+    return input
+  }
+
   private async processTask(task: any) {
     this.processing.add(task.taskId)
     const raw = getRawDb()
@@ -241,6 +594,8 @@ export class FalQueue extends EventEmitter implements RecoverableQueue {
         logRun(raw, task.taskId, 'recovery', `Resuming existing request: ${requestId}`)
       } else {
         if (!getFalModel(payload.model)) throw new Error(`Unknown fal.ai model: ${payload.model}`)
+        // Retired ids and input-dependent variants run on their current endpoint
+        payload.model = this.routeEndpoint(payload)
         const input = this.buildInput(payload)
 
         logRun(raw, task.taskId, 'api-request', `Submitting request: model=${payload.model}, resolution=${payload.resolution || '2K'}, duration=${payload.duration || 5}`)
@@ -643,6 +998,54 @@ const ASPECT_TO_IMAGE_SIZE: Record<string, string> = {
 function aspectToImageSize(aspectRatio?: string): string {
   return ASPECT_TO_IMAGE_SIZE[aspectRatio || '1:1'] || 'square_1_1'
 }
+
+/**
+ * Explicit { width, height } for an aspect ratio ("16:9") near a pixel budget, rounded down to
+ * multiples of `step` and kept under the endpoint's edge and pixel limits. Null for "auto" or
+ * anything that is not a ratio.
+ */
+function sizeForAspect(aspect: string | undefined, pixels: number, limits: { step: number; maxEdge: number; maxPixels: number }) {
+  const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(String(aspect || ''))
+  if (!m) return null
+  const ratio = Number(m[1]) / Number(m[2])
+  if (!ratio || !isFinite(ratio)) return null
+  let w = Math.sqrt(pixels * ratio)
+  let h = Math.sqrt(pixels / ratio)
+  const scale = Math.min(1, limits.maxEdge / Math.max(w, h), Math.sqrt(limits.maxPixels / (w * h)))
+  w *= scale
+  h *= scale
+  const snap = (v: number) => Math.max(limits.step, Math.floor(v / limits.step) * limits.step)
+  return { width: snap(w), height: snap(h) }
+}
+
+/** FLUX 3 (fal) aspect ratios */
+const FLUX3_ASPECT_RATIOS = ['auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4', '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2']
+
+/** Ideogram 4.5 text-to-image: exact sizes it accepts, per aspect ratio, as [1K, 2K] */
+const IDEOGRAM45_SIZES: Record<string, [string, string]> = {
+  '1:1': ['1024x1024', '2048x2048'],
+  '16:9': ['1280x720', '2560x1440'],
+  '9:16': ['720x1280', '1440x2560'],
+  '4:3': ['1152x864', '2304x1728'],
+  '3:4': ['864x1152', '1728x2304'],
+  '3:2': ['1248x832', '2496x1664'],
+  '2:3': ['832x1248', '1664x2496'],
+  '5:4': ['1120x896', '2240x1792'],
+  '4:5': ['896x1120', '1792x2240'],
+  '16:10': ['1280x800', '2560x1600'],
+  '10:16': ['800x1280', '1600x2560'],
+  '2:1': ['1440x720', '2880x1440'],
+  '1:2': ['720x1440', '1440x2880'],
+  '3:1': ['3072x1024', '3072x1024'],
+  '1:3': ['1024x3072', '1024x3072'],
+}
+
+/** Grok TTS v1 (xai/tts/v1) voices and languages */
+const XAI_TTS_VOICES = ['carina', 'zagan', 'helix', 'orion', 'luna', 'iris', 'altair', 'zenith', 'perseus', 'helios', 'lux', 'kepler', 'rigel', 'cosmo', 'celeste', 'ursa', 'sirius', 'lumen', 'castor', 'naksh', 'atlas', 'aurora', 'liora', 'ara', 'eve', 'leo', 'rex', 'sal']
+const XAI_TTS_LANGUAGES = ['auto', 'en', 'ar-EG', 'ar-SA', 'ar-AE', 'bn', 'zh', 'fr', 'de', 'hi', 'id', 'it', 'ja', 'ko', 'pt-BR', 'pt-PT', 'ru', 'es-MX', 'es-ES', 'tr', 'vi']
+
+/** Gemini TTS voices (fal-ai/gemini-3.1-flash-tts) */
+const GEMINI_TTS_VOICES = ['Achernar', 'Achird', 'Algenib', 'Algieba', 'Alnilam', 'Aoede', 'Autonoe', 'Callirrhoe', 'Charon', 'Despina', 'Enceladus', 'Erinome', 'Fenrir', 'Gacrux', 'Iapetus', 'Kore', 'Laomedeia', 'Leda', 'Orus', 'Pulcherrima', 'Puck', 'Rasalgethi', 'Sadachbia', 'Sadaltager', 'Schedar', 'Sulafat', 'Umbriel', 'Vindemiatrix', 'Zephyr', 'Zubenelgenubi']
 
 registerRecoverableProvider('fal', () => {
   const key = readApiKey('falApiKey')

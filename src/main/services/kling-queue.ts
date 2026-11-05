@@ -7,7 +7,7 @@ import { ensurePlayableVideo } from './asset-manager'
 import { attachTaskNotifications } from './task-notifications'
 import { redactPayload } from './payload-redact'
 import { persistMediaToAssets } from './media-persist'
-import { KlingApiClient, getKlingModel, type KlingContent, type KlingTask, type KlingVideoSettings } from './kling'
+import { KlingApiClient, getKlingModel, type KlingContent, type KlingModelDef, type KlingTask, type KlingTaskSummary, type KlingVideoSettings } from './kling'
 import { registerRecoverableProvider, readApiKey, RemoteJobFailedError, forgetFailedJob, markPlaceholderFailed, canAutoResume, type RecoverableQueue, type RemoteTaskStatus } from './task-recovery'
 import { resolveAssetFileForUpload } from './asset-file'
 
@@ -35,6 +35,27 @@ function buildMultiShotPrompt(shots: Array<{ prompt: string; duration: number }>
     .slice(0, 6)
     .map((s, i) => `shot ${i + 1}, ${Math.max(1, Math.round(Number(s.duration) || 1))}, ${String(s.prompt || '').replace(/;/g, ',').trim()}`)
     .join('; ') + ';'
+}
+
+/** A requested duration clamped to the model's range (whole seconds) */
+function clampDuration(model: KlingModelDef, value: unknown): number {
+  const min = model.durationOptions[0]
+  const max = model.durationOptions[model.durationOptions.length - 1]
+  return Math.min(max, Math.max(min, Math.round(Number(value) || 5)))
+}
+
+/** Public http(s) URL of a reference: its own URL, or the remote URL its asset was downloaded from */
+function publicUrlOf(ref: any): string | null {
+  if (typeof ref?.url === 'string' && /^https?:\/\//i.test(ref.url)) return ref.url
+  if (!ref?.assetId) return null
+  try {
+    // The DB wrapper camelCases column names (file_path → filePath)
+    const row = getRawDb().prepare('SELECT file_path FROM assets WHERE id = ?').get(ref.assetId) as any
+    const p = row?.filePath ?? row?.file_path
+    return typeof p === 'string' && /^https?:\/\//i.test(p) ? p : null
+  } catch {
+    return null
+  }
 }
 
 export class KlingQueue extends EventEmitter implements RecoverableQueue {
@@ -130,61 +151,22 @@ export class KlingQueue extends EventEmitter implements RecoverableQueue {
       const model = getKlingModel(payload?.model)
       if (!model) throw new Error(`Kling: unsupported model "${payload?.model}"`)
 
-      const imageRefs: any[] = Array.isArray(payload.imageRefs) ? payload.imageRefs : []
-      const explicitFirst =
-        (await this.resolveImage(payload.firstFrameUrl || payload.firstFrameBase64, payload.firstFrameAssetId)) ||
-        (await this.resolveImage(payload.imageUrl || payload.imageBase64, payload.imageAssetId))
-      const firstFrame = explicitFirst ||
-        (imageRefs[0] ? await this.resolveImage(imageRefs[0].url || imageRefs[0].base64 || imageRefs[0].localPath, imageRefs[0].assetId) : null)
-      const lastFrame = model.supportsLastFrame
-        ? await this.resolveImage(payload.lastFrameUrl || payload.lastFrameBase64, payload.lastFrameAssetId)
-        : null
+      const imageRefs: any[] = Array.isArray(payload.imageRefs) ? payload.imageRefs.filter(Boolean) : []
+      const videoRefs: any[] = Array.isArray(payload.videoRefs) ? payload.videoRefs.filter(Boolean) : []
+      const imageCount = imageRefs.filter((r) => !r.mime || String(r.mime).startsWith('image/')).length +
+        (!imageRefs.length && (payload.imageUrl || payload.imageBase64 || payload.imageAssetId) ? 1 : 0) +
+        (payload.firstFrameUrl || payload.firstFrameBase64 || payload.firstFrameAssetId ? 1 : 0)
+      // Omni reference generation: asked for (".../omni"), or the only endpoint that takes the
+      // inputs (reference videos, or several images on a model without middle keyframes)
+      const useOmni = !!model.omni && (
+        /\/omni$/i.test(String(payload.model || '')) ||
+        videoRefs.length > 0 ||
+        (!model.middleFrames && imageCount > 1)
+      )
 
-      // Kling 4.0: the remaining image references, in order, become keyframes between first and last
-      const middleFrames: string[] = []
-      if (firstFrame && model.middleFrames) {
-        for (const ref of imageRefs.slice(explicitFirst ? 0 : 1)) {
-          if (middleFrames.length >= model.middleFrames) break
-          if (ref?.mime && !String(ref.mime).startsWith('image/')) continue
-          const url = await this.resolveImage(ref?.url || ref?.base64 || ref?.localPath, ref?.assetId)
-          if (url) middleFrames.push(url)
-        }
-      }
-
-      if (lastFrame && !firstFrame) throw new Error('Kling: a last frame needs a first frame too')
-      if (!firstFrame && !model.supportsTextToVideo) throw new Error(`Kling: ${model.name} needs a first-frame image`)
-
-      const shots = model.multiShot && payload.multiShots && Array.isArray(payload.multiPrompt) && payload.multiPrompt.length > 0
-        ? payload.multiPrompt as Array<{ prompt: string; duration: number }>
-        : null
-      const prompt = shots ? buildMultiShotPrompt(shots) : String(payload.prompt || '')
-
-      let duration = shots
-        ? shots.slice(0, 6).reduce((s, x) => s + Math.max(1, Math.round(Number(x.duration) || 1)), 0)
-        : Math.round(Number(payload.duration) || 5)
-      const minDuration = model.durationOptions[0]
-      const maxDuration = model.durationOptions[model.durationOptions.length - 1]
-      duration = Math.min(maxDuration, Math.max(minDuration, duration))
-
-      const settings: KlingVideoSettings = {
-        resolution: toKlingResolution(payload.resolution, model.resolutions),
-        duration,
-      }
-      if (!firstFrame) settings.aspect_ratio = model.aspectRatios.includes(payload.aspectRatio) ? payload.aspectRatio : '16:9'
-      if (model.audioSetting) settings.audio = payload.sound || payload.audio ? 'native' : 'off'
-      if (model.multiShotSetting) settings.multi_shot = !!shots
-
-      logRun(raw, taskId, 'submit', `Submitting to Kling: model=${model.id}, ${firstFrame ? 'image' : 'text'}-to-video`, { ...payload, settings })
-
-      let submitted
-      if (firstFrame) {
-        const contents: KlingContent[] = [{ type: 'prompt', text: prompt }, { type: 'first_frame', url: firstFrame }]
-        for (const url of middleFrames) contents.push({ type: 'middle_frame', url })
-        if (lastFrame) contents.push({ type: 'last_frame', url: lastFrame })
-        submitted = await this.apiClient.imageToVideo(model.id, { contents, settings })
-      } else {
-        submitted = await this.apiClient.textToVideo(model.id, { prompt, settings })
-      }
+      const submitted = useOmni
+        ? await this.submitOmni(taskId, model, payload, imageRefs, videoRefs)
+        : await this.submitFrames(taskId, model, payload, imageRefs)
 
       const klingTaskId = submitted?.id
       if (!klingTaskId) throw new Error(`Kling did not return a task id: ${JSON.stringify(submitted)}`)
@@ -203,6 +185,116 @@ export class KlingQueue extends EventEmitter implements RecoverableQueue {
       this.processing.delete(taskId)
       this.processQueue()
     }
+  }
+
+  /** Text-to-video, or image-to-video from a first frame (+ middle keyframes and last frame) */
+  private async submitFrames(taskId: string, model: KlingModelDef, payload: any, imageRefs: any[]): Promise<KlingTaskSummary> {
+    const raw = getRawDb()
+    const explicitFirst =
+      (await this.resolveImage(payload.firstFrameUrl || payload.firstFrameBase64, payload.firstFrameAssetId)) ||
+      (await this.resolveImage(payload.imageUrl || payload.imageBase64, payload.imageAssetId))
+    const firstFrame = explicitFirst ||
+      (imageRefs[0] ? await this.resolveImage(imageRefs[0].url || imageRefs[0].base64 || imageRefs[0].localPath, imageRefs[0].assetId) : null)
+    const lastFrame = model.supportsLastFrame
+      ? await this.resolveImage(payload.lastFrameUrl || payload.lastFrameBase64, payload.lastFrameAssetId)
+      : null
+
+    // Kling 4.0: the remaining image references, in order, become keyframes between first and last
+    const middleFrames: string[] = []
+    if (firstFrame && model.middleFrames) {
+      for (const ref of imageRefs.slice(explicitFirst ? 0 : 1)) {
+        if (middleFrames.length >= model.middleFrames) break
+        if (ref?.mime && !String(ref.mime).startsWith('image/')) continue
+        const url = await this.resolveImage(ref?.url || ref?.base64 || ref?.localPath, ref?.assetId)
+        if (url) middleFrames.push(url)
+      }
+    }
+
+    if (lastFrame && !firstFrame) throw new Error('Kling: a last frame needs a first frame too')
+    if (!firstFrame && !model.supportsTextToVideo) throw new Error(`Kling: ${model.name} needs a first-frame image`)
+
+    const shots = model.multiShot && payload.multiShots && Array.isArray(payload.multiPrompt) && payload.multiPrompt.length > 0
+      ? payload.multiPrompt as Array<{ prompt: string; duration: number }>
+      : null
+    const prompt = shots ? buildMultiShotPrompt(shots) : String(payload.prompt || '')
+
+    const duration = clampDuration(model, shots
+      ? shots.slice(0, 6).reduce((s, x) => s + Math.max(1, Math.round(Number(x.duration) || 1)), 0)
+      : payload.duration)
+
+    const settings: KlingVideoSettings = {
+      resolution: toKlingResolution(payload.resolution, model.resolutions),
+      duration,
+    }
+    if (!firstFrame) settings.aspect_ratio = model.aspectRatios.includes(payload.aspectRatio) ? payload.aspectRatio : '16:9'
+    if (model.audioSetting) settings.audio = payload.sound || payload.audio ? 'native' : 'off'
+    if (model.multiShotSetting) settings.multi_shot = !!shots
+
+    logRun(raw, taskId, 'submit', `Submitting to Kling: model=${model.id}, ${firstFrame ? 'image' : 'text'}-to-video`, { ...payload, settings })
+
+    if (firstFrame) {
+      const contents: KlingContent[] = [{ type: 'prompt', text: prompt }, { type: 'first_frame', url: firstFrame }]
+      for (const url of middleFrames) contents.push({ type: 'middle_frame', url })
+      if (lastFrame) contents.push({ type: 'last_frame', url: lastFrame })
+      return this.apiClient.imageToVideo(model.id, { contents, settings })
+    }
+    return this.apiClient.textToVideo(model.id, { prompt, settings })
+  }
+
+  /**
+   * Omni reference generation (POST /omni-video/{model}): an optional first frame, reference images
+   * cited in the prompt as @image_1..n and feature videos as @video_1..n. Kling takes images as URL
+   * or base64 but videos only as public URLs, so a local video cannot be sent.
+   */
+  private async submitOmni(taskId: string, model: KlingModelDef, payload: any, imageRefs: any[], videoRefs: any[]): Promise<KlingTaskSummary> {
+    const raw = getRawDb()
+    const omni = model.omni!
+    const prompt = String(payload.prompt || '')
+    if (!prompt.trim()) throw new Error('Kling Omni needs a prompt')
+
+    const firstFrame = await this.resolveImage(payload.firstFrameUrl || payload.firstFrameBase64, payload.firstFrameAssetId)
+    const imageSources = imageRefs.length
+      ? imageRefs.filter((r) => !r.mime || String(r.mime).startsWith('image/'))
+      : (payload.imageUrl || payload.imageBase64 || payload.imageAssetId
+        ? [{ url: payload.imageUrl, base64: payload.imageBase64, assetId: payload.imageAssetId }]
+        : [])
+    const images: string[] = []
+    for (const ref of imageSources) {
+      if (images.length + (firstFrame ? 1 : 0) >= omni.maxImages) break
+      const url = await this.resolveImage(ref.url || ref.base64 || ref.localPath, ref.assetId)
+      if (url) images.push(url)
+    }
+
+    if (videoRefs.length > omni.maxVideos) throw new Error(`Kling: ${model.name} takes at most ${omni.maxVideos} reference videos (invalid input)`)
+    const videos: string[] = []
+    for (const ref of videoRefs) {
+      const url = publicUrlOf(ref)
+      if (!url) throw new Error('Kling Omni needs a public URL for each reference video (the API takes no uploads or base64 videos); this one is a local file')
+      videos.push(url)
+    }
+    const videoSeconds = videoRefs.map((r) => Number(r.duration) || 0)
+    if (videoSeconds.some((d) => d > 0 && (d < 3 || d > omni.maxVideoSeconds)) ||
+        videoSeconds.reduce((a, b) => a + b, 0) > omni.maxVideoSeconds) {
+      throw new Error(`Kling: each reference video and their total must last 3-${omni.maxVideoSeconds} s (invalid input)`)
+    }
+    if ((firstFrame ? 1 : 0) + images.length + videos.length > omni.maxTotal) {
+      throw new Error(`Kling: ${model.name} takes at most ${omni.maxTotal} references in total (invalid input)`)
+    }
+
+    // The first frame must be the first image in contents
+    const contents: KlingContent[] = [{ type: 'prompt', text: prompt }]
+    if (firstFrame) contents.push({ type: 'first_frame', url: firstFrame, id: 'first_frame' })
+    images.forEach((url, i) => contents.push({ type: 'refer_image', url, id: `image_${i + 1}` }))
+    videos.forEach((url, i) => contents.push({ type: 'feature_video', url, id: `video_${i + 1}` }))
+
+    const settings: KlingVideoSettings = {
+      resolution: toKlingResolution(payload.resolution, model.resolutions),
+      duration: clampDuration(model, payload.duration),
+      aspect_ratio: omni.aspectRatios.includes(payload.aspectRatio) ? payload.aspectRatio : 'adaptive',
+    }
+
+    logRun(raw, taskId, 'submit', `Submitting to Kling: model=${model.id}, omni (${firstFrame ? 1 : 0} first frame, ${images.length} images, ${videos.length} videos)`, { ...payload, settings })
+    return this.apiClient.omniVideo(model.id, { contents, settings })
   }
 
   private async pollTask(taskId: string, klingTaskId: string): Promise<KlingTask> {

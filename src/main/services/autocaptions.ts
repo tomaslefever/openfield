@@ -40,7 +40,13 @@ export interface AutocaptionResult {
   audioSeconds: number
 }
 
-/** Rates mirror the renderer's TRANSCRIPTION_MODELS (lib/models.ts) */
+/**
+ * Rates mirror the renderer's TRANSCRIPTION_MODELS (lib/models.ts).
+ * whisper-1 shuts down on 2027-02-26, but it stays until OpenAI's replacement gives timings:
+ * gpt-transcribe (checked 2026-11-05) takes no `timestamp_granularities[]` ("only supported for
+ * whisper-1", developers.openai.com/api/docs/guides/speech-to-text) and is not offered on
+ * /v1/audio/translations, so it returns text without word or segment times.
+ */
 export const CAPTION_PROVIDERS: { id: CaptionProvider; label: string; keyName: string; model: string; usdPerSecond: number }[] = [
   { id: 'elevenlabs', label: 'ElevenLabs Scribe v2', keyName: 'elevenlabsApiKey', model: 'scribe_v2', usdPerSecond: 0.22 / 3600 },
   { id: 'openai', label: 'OpenAI Whisper', keyName: 'openaiApiKey', model: 'whisper-1', usdPerSecond: 0.006 / 60 },

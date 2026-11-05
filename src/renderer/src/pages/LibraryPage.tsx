@@ -36,6 +36,30 @@ const MODEL_NAMES: Record<string, string> = {
   'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5 Flare I2I',
   'gpt-image-2-5-sunburst-text-to-image': 'GPT Image 2.5 Sunburst',
   'gpt-image-2-5-sunburst-image-to-image': 'GPT Image 2.5 Sunburst I2I',
+  'gpt-image-2-6/flare-text-to-image': 'GPT Image 2.6 Flare',
+  'gpt-image-2-6/flare-image-to-image': 'GPT Image 2.6 Flare I2I',
+  'gpt-image-2-6/sunburst-text-to-image': 'GPT Image 2.6 Sunburst',
+  'gpt-image-2-6/sunburst-image-to-image': 'GPT Image 2.6 Sunburst I2I',
+  'gpt-image-2-6/economy-text-to-image': 'GPT Image 2.6 Economy',
+  'gpt-image-2-6/economy-image-to-image': 'GPT Image 2.6 Economy I2I',
+  'openai/gpt-image-2.6/flare/text-to-image': 'GPT Image 2.6 Flare',
+  'openai/gpt-image-2.6/flare/edit': 'GPT Image 2.6 Flare Edit',
+  'openai/gpt-image-2.6/sunburst/text-to-image': 'GPT Image 2.6 Sunburst',
+  'openai/gpt-image-2.6/sunburst/edit': 'GPT Image 2.6 Sunburst Edit',
+  'openai/gpt-image-2.6-flare': 'GPT Image 2.6 Flare',
+  'openai/gpt-image-2.6-sunburst': 'GPT Image 2.6 Sunburst',
+  'blackforestlabs/flux-3/text-to-image': 'FLUX 3',
+  'blackforestlabs/flux-3/edit-image': 'FLUX 3 Edit',
+  'black-forest-labs/flux-3-image': 'FLUX 3',
+  'ideogram/v4.5': 'Ideogram 4.5',
+  'ideogram/v4.5/edit': 'Ideogram 4.5 Edit',
+  'ideogram-ai/ideogram-4-5': 'Ideogram 4.5',
+  'ideogram-ai/ideogram-4-5-precise-edit': 'Ideogram 4.5 Precise Edit',
+  'krea/v3/text-to-image': 'Krea 3',
+  'krea/v3/edit': 'Krea 3 Edit',
+  'krea/krea-3': 'Krea 3',
+  'flux-3/klein-text-to-image': 'FLUX 3 Klein',
+  'flux-3/klein-edit-image': 'FLUX 3 Klein Edit',
   'recraft/remove-background': 'Remove Background',
   'nano-banana-2': 'Nano Banana 2',
   'nano-banana-2-1': 'Nano Banana 2.1',
@@ -100,7 +124,7 @@ const MODEL_NAMES: Record<string, string> = {
   'wan-3-0-video': 'Wan 3.0',
   'hailuo/02-text-to-video-pro': 'Hailuo 2 Pro',
   'google/gemini-omni-flash-1-1': 'Gemini Omni 1.1 Flash',
-  'gemini-omni-video': 'Gemini Omni 1.1 Flash',
+  'gemini-omni-video': 'Gemini Omni Video',
   'prunaai/p-video-avatar': 'P-Video Avatar',
   'prunaai/p-video': 'P-Video',
   'prunaai/p-video-2': 'P-Video 2',
@@ -118,10 +142,50 @@ const MODEL_NAMES: Record<string, string> = {
   'minimax/h3-max/reference-to-video': 'MiniMax H3 Max Ref',
   'kling-4.0/reference-to-video': 'Kling 4.0',
   'kling-4.0/keyframe-to-video': 'Kling 4.0',
+  'kling-4.0/flash-reference-to-video': 'Kling 4.0 Flash',
+  'kling-4.0/flash-keyframe-to-video': 'Kling 4.0 Flash',
+  'grok-imagine-video-1-5-preview': 'Grok Imagine Video 1.5',
+  'bytedance/seedance-2-5-draft': 'Seedance 2.5',
+  'omnihuman-2-0': 'OmniHuman 2.0',
+  'vidu-q4/image-to-video': 'Vidu Q4',
+  'vidu-q4/reference-to-video': 'Vidu Q4',
   'kling/v4/text-to-video': 'Kling 4.0',
   'kling/v4/image-to-video': 'Kling 4.0',
   'kling/v4/reference-to-video': 'Kling 4.0',
+  'kling/v4/flash/text-to-video': 'Kling 4.0 Flash',
+  'kling/v4/flash/image-to-video': 'Kling 4.0 Flash',
+  'kling/v4/flash/reference-to-video': 'Kling 4.0 Flash',
+  'kling/v4/flash/video-to-video': 'Kling 4.0 Flash Edit',
+  'minimax/h3-max/relight': 'MiniMax H3 Max Relight',
+  'fal-ai/sync-lipsync/v3': 'Sync-3 Lipsync',
+  'fal-ai/sync-lipsync/v3/image-to-video': 'Sync-3 Lipsync',
+  'fal-ai/bytedance-upscaler/upscale/video': 'ByteDance Upscaler',
+  'kwaivgi/kling-v4.0': 'Kling 4.0',
+  'kwaivgi/kling-v3-video': 'Kling 3.0',
+  'kling-ai/kling-video-3.0': 'Kling 3.0',
+  'replicate/minimax/h3-lite': 'MiniMax H3 Lite',
+  'replicate/minimax/h3-highspeed': 'MiniMax H3 Highspeed',
+  'google/veo-3.1-lite': 'Veo 3.1 Lite',
+  'google/veo-3.1-fast': 'Veo 3.1 Fast',
+  'prunaai/p-video-2-pro-avatar': 'P-Video 2 Pro Avatar',
+  'kling-video/v3.0/pro/text-to-video': 'Kling 3.0 Pro',
+  'kling-video/v3.0/pro/image-to-video': 'Kling 3.0 Pro',
+  'kling-video/v3.0/4k/text-to-video': 'Kling 3.0 4K',
+  'kling-video/v3.0/4k/image-to-video': 'Kling 3.0 4K',
+  'kling-video/v3.0-turbo/text-to-video': 'Kling 3.0 Turbo',
+  'kling-video/v3.0-turbo/image-to-video': 'Kling 3.0 Turbo',
+  'alibaba/happy-horse/v1.1/text-to-video': 'HappyHorse 1.1',
+  'alibaba/happy-horse/v1.1/image-to-video': 'HappyHorse 1.1',
+  'alibaba/happy-horse/v1.1/reference-to-video': 'HappyHorse 1.1',
+  'bytedance/seedance-2.5/video-edit': 'Seedance 2.5 Edit',
+  'bytedance/seedance-2.5/video-extend': 'Seedance 2.5 Extend',
+  'pruna/p-video-2-pro-avatar': 'P-Video 2 Pro Avatar',
   'klingai/kling-4.0': 'Kling 4.0',
+  'klingai/kling-4.0-flash': 'Kling 4.0 Flash',
+  'klingai/kling-4.0-flash/omni': 'Kling 4.0 Flash',
+  'blackforestlabs/flux-3-max/text-to-video': 'FLUX 3 Max',
+  'blackforestlabs/flux-3-max/image-to-video': 'FLUX 3 Max',
+  'blackforestlabs/flux-3-max/keyframes-to-video': 'FLUX 3 Max',
   'machgen/MiniMax-H3/t2v': 'MiniMax H3',
   'machgen/MiniMax-H3/i2v': 'MiniMax H3',
   'machgen/MiniMax-H3/fflf': 'MiniMax H3',
@@ -793,12 +857,14 @@ export function LibraryPage() {
   const handleGenerate = useCallback(async (params: any) => {
     try {
       const api = (window as any).electronAPI
-      const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pruna/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
+      const isVideo = params?.mode === 'video' || params?.duration !== undefined || params?.fps !== undefined || params?.firstFrameBase64 !== undefined || params?.videoRefs?.length > 0 || params?.model?.includes('video') || params?.model?.startsWith('wan') || params?.model?.startsWith('kling') || params?.model?.startsWith('bytedance/') || params?.model?.startsWith('hailuo/') || params?.model?.startsWith('minimax') || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('pruna/') || params?.model?.startsWith('pixverse-v6/') || params?.model === 'omnihuman-1-5' || params?.model === 'omnihuman-2-0' || params?.model === 'google/gemini-omni-flash-1-1' || params?.model === 'philz1337x/crystal-video-upscaler'
       const isApimartModel = params?.provider === 'apimart' || params?.model?.startsWith('apimart/')
       const isKlingModel = params?.provider === 'klingai' || params?.model?.startsWith('klingai/')
       const isPrunaModel = params?.provider === 'pruna' || params?.model?.startsWith('pruna/')
       const isMachgenModel = params?.provider === 'machgen' || params?.model?.startsWith('machgen/') || params?.model?.includes('MachGen') || params?.model?.includes('MiniMax-H3') || params?.model?.includes('Wan2.2') || params?.model?.includes('LTX-2.3') || params?.model?.includes('Vidu-Q3') || params?.model?.includes('Topaz-')
-      const isHiggsfieldModel = params?.provider === 'higgsfield' ||
+      // Id prefixes only decide when no other provider was chosen: fal and Higgsfield share ids
+      // such as alibaba/wan-3.0/text-to-video
+      const isHiggsfieldModel = params?.provider === 'higgsfield' || (!params?.provider || params?.provider === 'kie') && (
         params?.model?.startsWith('higgsfield/') ||
         params?.model?.startsWith('bytedance/seedance-2.0') ||
         params?.model?.startsWith('bytedance/seedance-2.5') ||
@@ -808,9 +874,9 @@ export function LibraryPage() {
         params?.model?.startsWith('higgsfield-ai/') ||
         params?.model?.startsWith('flux-pro/') ||
         params?.model?.startsWith('xai/grok-imagine') ||
-        params?.model?.startsWith('marketing-studio/')
+        params?.model?.startsWith('marketing-studio/'))
       const isReplicateModel = params?.provider === 'replicate' || params?.model?.startsWith('prunaai/') || params?.model?.startsWith('philz1337x/') || params?.model?.startsWith('black-forest-labs/') || params?.model?.startsWith('ideogram-ai/')
-      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('kling/v4/') || params?.model?.startsWith('imagineart/') || params?.model?.startsWith('bria/')
+      const isFalModel = params?.provider === 'fal' || params?.model?.startsWith('minimax/') || params?.model?.startsWith('fal-ai/') || params?.model?.startsWith('blackforestlabs/') || params?.model?.startsWith('kling/v4/') || params?.model?.startsWith('imagineart/') || params?.model?.startsWith('bria/')
 
       if (isVideo) {
         if (!assetSearch.types.video) {

@@ -1,5 +1,6 @@
 // Kling AI official API (https://kling.ai/document-api) — "new API" shape shared by
-// Kling 4.0, 3.0, 3.0 Omni and 3.0 Turbo: POST /{text|image}-to-video/{model}, GET /tasks.
+// Kling 4.0, 4.0 Flash, 3.0, 3.0 Omni and 3.0 Turbo: POST /{text|image}-to-video/{model},
+// POST /omni-video/{model} (Omni reference generation), GET /tasks.
 
 export type KlingTaskStatus = 'submitted' | 'processing' | 'succeeded' | 'failed'
 
@@ -7,7 +8,8 @@ export interface KlingVideoSettings {
   resolution?: '720p' | '1080p' | '4k'
   aspect_ratio?: string
   duration?: number
-  audio?: 'native' | 'off'
+  /** 'original' (Omni only) keeps the audio of the base/feature video */
+  audio?: 'native' | 'off' | 'original'
   multi_shot?: boolean
 }
 
@@ -25,7 +27,10 @@ export interface KlingTextToVideoRequest {
 
 export type KlingContent =
   | { type: 'prompt'; text: string }
-  | { type: 'first_frame' | 'middle_frame' | 'last_frame'; url: string }
+  /** `url` takes a public URL or raw base64; `id` lets the prompt cite it as @id */
+  | { type: 'first_frame' | 'middle_frame' | 'last_frame' | 'refer_image'; url: string; id?: string }
+  /** Omni only, public URL only (no base64): feature reference video or video to edit */
+  | { type: 'feature_video' | 'base_video'; url: string; id?: string }
   | { type: 'element'; element_id: string; id: string }
 
 export interface KlingImageToVideoRequest {
@@ -33,6 +38,9 @@ export interface KlingImageToVideoRequest {
   settings?: KlingVideoSettings
   options?: KlingOptions
 }
+
+/** POST /omni-video/{model}: same body shape as image-to-video, more content types */
+export type KlingOmniVideoRequest = KlingImageToVideoRequest
 
 export interface KlingTaskSummary {
   id: string
@@ -80,10 +88,26 @@ export interface KlingModelDef {
   multiShotSetting: boolean
   /** Keyframes allowed between the first and last frame (Kling 4.0); omitted = none */
   middleFrames?: number
+  /** Omni reference generation (POST /omni-video/{id}) and its input limits; omitted = none */
+  omni?: {
+    /** Images, first frame included */
+    maxImages: number
+    /** feature_video references */
+    maxVideos: number
+    /** Images + videos + Elements (+ voices) */
+    maxTotal: number
+    /** Each reference video and their total must last 3 s up to this many seconds */
+    maxVideoSeconds: number
+    aspectRatios: string[]
+  }
   durationOptions: number[]
   resolutions: Array<'720p' | '1080p' | '4k'>
   aspectRatios: string[]
-  /** USD per second, keyed by resolution (and `<res>-audio` when audio is billed apart) */
-  pricing: Array<{ resolution: string; cost: number }>
+  /**
+   * USD per second, keyed by resolution (and `<res>-audio` when audio is billed apart).
+   * `costWithVideoInput`: rate when a reference video is sent, billed on
+   * max(output × 2, input + output) seconds (Kling 4.0 / 4.0 Flash).
+   */
+  pricing: Array<{ resolution: string; cost: number; costWithVideoInput?: number }>
   unit: 's'
 }

@@ -4,6 +4,7 @@ import { AUDIO_MODELS, cleanModelName, type ProviderId } from './models'
 export const MODEL_NAMES: Record<string, string> = {
   // Voice / TTS
   'eleven_v4': 'Eleven v4',
+  'eleven_v4_turbo': 'Eleven v4 Turbo',
   'elevenlabs-tts': 'ElevenLabs TTS',
   'elevenlabs/text-to-speech-multilingual-v2': 'ElevenLabs Multilingual v2 (KIE)',
   'elevenlabs/text-to-speech-turbo-2-5': 'ElevenLabs Turbo 2.5 (KIE)',
@@ -20,6 +21,8 @@ export const MODEL_NAMES: Record<string, string> = {
   'fal-ai/kokoro': 'Kokoro TTS',
   'fal-ai/gemini-tts': 'Gemini TTS',
   'fal-ai/xai-tts': 'xAI TTS',
+  'xai/tts/v1': 'xAI TTS',
+  'fal-ai/gemini-3.1-flash-tts': 'Gemini 3.1 Flash TTS',
   'fal-ai/elevenlabs/tts': 'ElevenLabs TTS (Fal)',
   'google/gemini-3.1-flash-tts': 'Gemini 3.1 Flash TTS',
   'f5-tts': 'F5-TTS',
@@ -48,6 +51,9 @@ export const MODEL_NAMES: Record<string, string> = {
   'fal-ai/minimax-music': 'MiniMax Music 2.0',
   'fal-ai/cassette-ai': 'CassetteAI',
   'fal-ai/sonilo': 'Sonilo V1.1',
+  'cassetteai/music-generator': 'CassetteAI',
+  'sonilo/v1.1/text-to-music': 'Sonilo V1.1',
+  'google/lyria-3.5': 'Lyria 3.5',
   'fal-ai/stable-audio-open': 'Stable Audio Open',
   'fal-ai/elevenlabs/music': 'ElevenLabs Music (Fal)',
   'google/lyria-3': 'Lyria 3',

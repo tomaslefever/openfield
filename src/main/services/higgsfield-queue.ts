@@ -519,6 +519,7 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
       const isKling = modelStr.includes('kling')
       const isMiniMax = modelStr.includes('minimax') || modelStr.includes('hailuo')
       const isSeedance25 = modelStr.includes('seedance-2.5')
+      const isHappyHorse = modelStr.includes('happy-horse')
 
       const generateAudio = payload?.sound !== undefined
         ? (payload.sound !== false && payload.sound !== 'off')
@@ -744,7 +745,61 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
             batch_size: 1,
           }
         }
+      } else if (isHappyHorse) {
+        // HappyHorse 1.1 (docs.higgsfield.ai/docs/models/happy-horse-1-1): text, image (first
+        // frame only) and reference (1-9 images) to video. No video/audio refs, no last frame.
+        if (resolvedVideoUrls.length > 0 || resolvedAudioUrls.length > 0) {
+          throw new Error('HappyHorse 1.1 no admite videos ni audios de referencia.')
+        }
+        if (endFrameUrl) throw new Error('HappyHorse 1.1 no admite último fotograma.')
+        const resolution: '720p' | '1080p' = String(payload?.resolution || '').includes('720') ? '720p' : '1080p'
+        const seedNum = Math.round(Number(payload?.seed))
+        const seed = payload?.seed !== undefined && Number.isFinite(seedNum) && seedNum >= 1 && seedNum <= 2147483646 ? seedNum : undefined
+        const clampDuration = (min: number) => Math.min(15, Math.max(min, Math.round(Number(payload?.duration) || 5)))
+
+        const route = routeVideo(true)
+        if (route === 'ref') {
+          if (!prompt) throw new Error('HappyHorse 1.1 necesita un prompt en modo referencias.')
+          endpoint = '/alibaba/happy-horse/v1.1/reference-to-video'
+          input = {
+            prompt,
+            image_urls: resolvedImageUrls.slice(0, 9),
+            duration: clampDuration(2),
+            resolution,
+            ...(seed !== undefined ? { seed } : {}),
+          }
+        } else if (route === 'i2v') {
+          endpoint = '/alibaba/happy-horse/v1.1/image-to-video'
+          input = {
+            image_url: firstFrameUrl,
+            ...(prompt ? { prompt } : {}),
+            duration: clampDuration(2),
+            resolution,
+            ...(seed !== undefined ? { seed } : {}),
+          }
+        } else {
+          if (!prompt) throw new Error('HappyHorse 1.1 necesita un prompt.')
+          const arStr = String(payload?.aspectRatio || '').toLowerCase()
+          endpoint = '/alibaba/happy-horse/v1.1/text-to-video'
+          input = {
+            prompt,
+            duration: clampDuration(3),
+            resolution,
+            aspect_ratio: ['16:9', '9:16', '1:1', '4:3', '3:4'].includes(arStr) ? arStr : '16:9',
+            ...(seed !== undefined ? { seed } : {}),
+          }
+        }
       } else if (isKling) {
+        // Kling 3.0 tiers (docs.higgsfield.ai/docs/models/kling-3): std / pro / 4k share one
+        // schema (sound, cfg_scale, multi_shots, elements, last_image_url on i2v); turbo only
+        // takes prompt, duration, resolution (720p/1080p) and aspect_ratio (t2v).
+        const klingTier: 'std' | 'pro' | '4k' | 'turbo' = modelStr.includes('v3.0-turbo')
+          ? 'turbo'
+          : modelStr.includes('/v3.0/pro/')
+            ? 'pro'
+            : modelStr.includes('/v3.0/4k/')
+              ? '4k'
+              : 'std'
         const sound: 'on' | 'off' = generateAudio ? 'on' : 'off'
         let duration = Number(payload?.duration) || 5
         if (duration < 3) duration = 3
@@ -769,10 +824,21 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
           }))
         }
 
-        if (firstFrameUrl) {
-          endpoint = '/kling-video/v3.0/std/image-to-video'
+        if (klingTier === 'turbo') {
+          if (!prompt) throw new Error('Kling 3.0 Turbo necesita un prompt.')
+          const turboRes: '720p' | '1080p' = String(payload?.resolution || '').includes('1080') ? '1080p' : '720p'
+          if (firstFrameUrl) {
+            endpoint = '/kling-video/v3.0-turbo/image-to-video'
+            input = { prompt, image_url: firstFrameUrl, duration, resolution: turboRes }
+          } else {
+            endpoint = '/kling-video/v3.0-turbo/text-to-video'
+            input = { prompt, duration, resolution: turboRes, aspect_ratio: aspectRatio }
+          }
+        } else if (firstFrameUrl) {
+          endpoint = `/kling-video/v3.0/${klingTier}/image-to-video`
           input = {
             image_url: firstFrameUrl,
+            ...(endFrameUrl ? { last_image_url: endFrameUrl } : {}),
             prompt,
             sound,
             duration,
@@ -782,7 +848,7 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
             ...(Array.isArray(payload?.elements) && payload.elements.length > 0 ? { elements: payload.elements } : {}),
           }
         } else {
-          endpoint = '/kling-video/v3.0/std/text-to-video'
+          endpoint = `/kling-video/v3.0/${klingTier}/text-to-video`
           input = {
             prompt,
             sound,
@@ -982,8 +1048,33 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
         const bitrate_mode: 'standard' | 'high' = payload?.bitrate_mode === 'standard' ? 'standard' : 'high'
         const output_format: 'mp4' | 'mov' = payload?.output_format === 'mov' ? 'mov' : 'mp4'
 
+        // Only text-to-video accepts output_format; the other Seedance 2.5 schemas are strict
+        // (additionalProperties: false) and reject it.
+        const isSeedanceEdit = modelStr.includes('seedance-2.5/video-edit')
+        const isSeedanceExtend = modelStr.includes('seedance-2.5/video-extend')
         const route = routeVideo(true)
-        if (route === 'ref') {
+        if (isSeedanceEdit || isSeedanceExtend) {
+          // docs.higgsfield.ai/docs/models/seedance-2-5/video-edit | video-extend: the first
+          // attached video is the source (video_url); up to 9 more videos, 30 images and 10
+          // audios ride along as references. Edit derives its duration from the source.
+          if (!prompt) throw new Error(`Seedance 2.5 ${isSeedanceEdit ? 'Edit' : 'Extend'} necesita un prompt.`)
+          if (resolvedVideoUrls.length === 0) {
+            throw new Error(`Seedance 2.5 ${isSeedanceEdit ? 'Edit' : 'Extend'} necesita un video de origen.`)
+          }
+          endpoint = isSeedanceEdit ? '/bytedance/seedance-2.5/video-edit' : '/bytedance/seedance-2.5/video-extend'
+          const extraVideos = resolvedVideoUrls.slice(1, 10)
+          input = {
+            prompt,
+            video_url: resolvedVideoUrls[0],
+            ...(isSeedanceExtend ? { duration } : {}),
+            resolution: res25,
+            ...(extraVideos.length > 0 ? { video_urls: extraVideos } : {}),
+            ...(resolvedImageUrls.length > 0 ? { image_urls: resolvedImageUrls.slice(0, 30) } : {}),
+            ...(resolvedAudioUrls.length > 0 ? { audio_urls: resolvedAudioUrls.slice(0, 10) } : {}),
+            bitrate_mode,
+            generate_audio: generateAudio,
+          }
+        } else if (route === 'ref') {
           endpoint = '/bytedance/seedance-2.5/reference-to-video'
           input = {
             prompt,
@@ -994,7 +1085,6 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
             ...(resolvedImageUrls.length > 0 ? { image_urls: resolvedImageUrls } : {}),
             ...(resolvedAudioUrls.length > 0 ? { audio_urls: resolvedAudioUrls } : {}),
             bitrate_mode,
-            output_format,
             generate_audio: generateAudio,
           }
         } else if (route === 'i2v') {
@@ -1006,7 +1096,6 @@ export class HiggsfieldQueue extends EventEmitter implements RecoverableQueue {
             duration,
             resolution: res25,
             bitrate_mode,
-            output_format,
             generate_audio: generateAudio,
           }
         } else {

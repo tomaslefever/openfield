@@ -908,8 +908,16 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isPixverseV6 = !!(currentModel.t2vId?.startsWith('pixverse-v6/') || currentModel.i2vId?.startsWith('pixverse-v6/') || currentModel.fflfId?.startsWith('pixverse-v6/'))
   const isGrok = !!(currentModel.t2vId?.startsWith('grok-imagine/') || currentModel.i2vId?.startsWith('grok-imagine/')) || currentModel.extendId?.startsWith('grok-imagine/')
   const isMinimaxH3 = !!(currentModel.t2vId?.startsWith('minimax-h3/') || currentModel.i2vId?.startsWith('minimax-h3/'))
+  const isFlux3Max = !!currentModel.t2vId?.startsWith('blackforestlabs/flux-3-max/')
+  const isFalSeedance25 = !!currentModel.t2vId?.startsWith('bytedance/seedance-2.5/us/')
+  const isFalWan3 = currentModel.provider === 'fal' && !!currentModel.t2vId?.startsWith('alibaba/wan-3.0/')
   // Kling 4.0 on KIE and fal: separate keyframe/image and reference endpoints behind one model
   const isKling4Routed = !!(currentModel.t2vId?.startsWith('kling-4.0/') || currentModel.t2vId?.startsWith('kling/v4/'))
+  // Vidu Q4 on KIE: no text-to-video; FF or one image → image-to-video, 2+ images or audio → references
+  const isKieViduQ4 = !!currentModel.i2vId?.startsWith('vidu-q4/')
+  // Kling AI official models with an Omni endpoint (Kling 4.0 Flash): first frame or one image →
+  // image-to-video; first frame + refs, 2+ images or a video → Omni; else text-to-video
+  const isKlingAiOmni = currentModel.provider === 'klingai' && !!currentModel.refId
   // P-Video 2 Pro (Replicate or official Pruna API): one model; any image/video/audio reference
   // routes to its -reference variant
   const isPVideo2Pro = pVideo2Variant(currentModel.t2vId) === 'p-video-2-pro'
@@ -1025,6 +1033,38 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (imgCount === 1) return currentModel.i2vId || ''
       return currentModel.t2vId || ''
     }
+    if (isKlingAiOmni) {
+      const imgCount = (imageBase64 ? 1 : 0) + refs.filter(r => r.mime.startsWith('image/')).length + imageRefEntries.filter(e => e.base64).length
+      if (hasVideoRef || imgCount + (firstFrameBase64 ? 1 : 0) > 1) return currentModel.refId || ''
+      if (firstFrameBase64 || imgCount === 1) return currentModel.i2vId || ''
+      return currentModel.t2vId || ''
+    }
+    if (isKieViduQ4) {
+      if (firstFrameBase64) return currentModel.i2vId || ''
+      const imgCount = (imageBase64 ? 1 : 0) + refs.filter(r => r.mime.startsWith('image/')).length + imageRefEntries.filter(e => e.base64).length
+      if (imgCount > 1 || refs.some(r => r.mime.startsWith('audio/'))) return currentModel.refId || ''
+      return currentModel.i2vId || ''
+    }
+    if (isFalSeedance25) {
+      // fal Seedance 2.5: FF/LF → image-to-video; any image, video or audio → references; else text
+      if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || ''
+      if (imageBase64 || hasImageRef || hasVideoRef || refs.length > 0 || imageRefEntries.some(e => e.base64)) return currentModel.refId || ''
+      return currentModel.t2vId || ''
+    }
+    if (isFalWan3) {
+      // fal Wan 3.0: FF/LF or an image → image-to-video (start frame), else text-to-video
+      if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || ''
+      if (imageBase64 || hasImageRef || imageRefEntries.some(e => e.base64)) return currentModel.i2vId || ''
+      return currentModel.t2vId || ''
+    }
+    if (isFlux3Max) {
+      // Single FLUX 3 Max model: FF/LF or one image → image-to-video, 2+ images → keyframes, else text-to-video
+      if (firstFrameBase64 || lastFrameBase64) return currentModel.fflfId || ''
+      const imgCount = (imageBase64 ? 1 : 0) + refs.filter(r => r.mime.startsWith('image/')).length + imageRefEntries.filter(e => e.base64).length
+      if (imgCount > 1) return currentModel.refId || ''
+      if (imgCount === 1) return currentModel.i2vId || ''
+      return currentModel.t2vId || ''
+    }
     if (isMachgen) {
       const hasImages = !!(imageBase64 || hasImageRef || imageRefEntries.some(e => e.base64))
       const hasAudio = refs.some(r => r.mime.startsWith('audio/'))
@@ -1124,8 +1164,16 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const isPVideo = currentModel.t2vId === 'prunaai/p-video' || pVideo2Variant(currentModel.t2vId) === 'p-video-2'
   // Official Pruna API: takes the input image like Replicate does, plus the reference lists
   const isPruna = currentModel.provider === 'pruna'
-  const isReplicateAvatar = currentModel.t2vId === 'prunaai/p-video-avatar'
-  const hasReplicateAudio = isReplicate && refs.some(r => r.mime.startsWith('audio/'))
+  const isReplicateAvatar = currentModel.t2vId === 'prunaai/p-video-avatar' || currentModel.t2vId === 'prunaai/p-video-2-pro-avatar' || currentModel.t2vId === 'pruna/p-video-2-pro-avatar'
+  // Replicate models whose queue builder takes every image (refs/keyframes), a duration or a sound toggle
+  const REPLICATE_ALL_IMAGES = new Set(['kwaivgi/kling-v4.0', 'replicate/minimax/h3-lite', 'replicate/minimax/h3-highspeed', 'openai/gpt-image-2.6-flare', 'openai/gpt-image-2.6-sunburst', 'black-forest-labs/flux-3-image', 'ideogram-ai/ideogram-4-5', 'ideogram-ai/ideogram-4-5-precise-edit', 'krea/krea-3'])
+  const REPLICATE_TIMED = new Set(['kwaivgi/kling-v3-video', 'kwaivgi/kling-v4.0', 'replicate/minimax/h3-lite', 'replicate/minimax/h3-highspeed', 'google/veo-3.1-lite', 'google/veo-3.1-fast'])
+  const REPLICATE_SOUND = new Set(['kwaivgi/kling-v3-video', 'google/veo-3.1-fast'])
+  const replicateBaseId = (mode === 'image' ? currentModel.t2iId : currentModel.t2vId) || ''
+  const replicateAllImages = isReplicate && REPLICATE_ALL_IMAGES.has(replicateBaseId)
+  const replicateTimed = isReplicate && REPLICATE_TIMED.has(replicateBaseId)
+  const replicateSound = isReplicate && REPLICATE_SOUND.has(replicateBaseId)
+  const hasReplicateAudio = (isReplicate || isReplicateAvatar) && refs.some(r => r.mime.startsWith('audio/'))
   const isFal = currentModel.provider === 'fal'
   const isMachgen = currentModel.provider === 'machgen'
   const isMachgenSeedance25 = isMachgen && mode === 'video' && !!currentModel.t2vId?.startsWith('machgen/Seedance-2.5/')
@@ -1147,7 +1195,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     setErrorMessage(`${cleanModelName(currentModel.name)} acepta ${max === 1 ? 'un solo video' : `${max} videos`}: se usa el último que agregaste.`)
   }, [refs, currentModel.maxVideoRefs, currentModel.name])
   // "Draft 480p" in the resolution menu: a 480p sample; the 1080p final is generated later from the asset
-  const isSeedanceDraftRes = isMachgenSeedance25 && resolution === SEEDANCE_DRAFT_RES
+  // KIE Seedance 2.5 offers the same draft (bytedance/seedance-2-5 with draft: true)
+  const isSeedanceDraftRes = (isMachgenSeedance25 || (mode === 'video' && currentModel.t2vId === 'bytedance/seedance-2-5')) && resolution === SEEDANCE_DRAFT_RES
   const isMachgenWan = isMachgen && !!currentModel.t2vId?.includes('Wan2.2-A14B')
   // FPS selector only when the model really offers more than one frame rate
   const fpsChoices = currentModel.fpsOptions || []
@@ -1155,10 +1204,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
   // Reset Replicate voice/language when switching to a Replicate model
   useEffect(() => {
-    if (isReplicate && currentModel.replicateVoices?.length && !currentModel.replicateVoices.includes(replicateVoice)) {
+    if ((isReplicate || isReplicateAvatar) && currentModel.replicateVoices?.length && !currentModel.replicateVoices.includes(replicateVoice)) {
       setReplicateVoice(currentModel.replicateVoices[0])
     }
-    if (isReplicate && currentModel.replicateLanguages?.length && !currentModel.replicateLanguages.includes(replicateLanguage)) {
+    if ((isReplicate || isReplicateAvatar) && currentModel.replicateLanguages?.length && !currentModel.replicateLanguages.includes(replicateLanguage)) {
       setReplicateLanguage(currentModel.replicateLanguages[0])
     }
   }, [currentModel?.name, replicateVoice, replicateLanguage])
@@ -1233,7 +1282,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   }, [seedanceMode])
 
   useEffect(() => { lastFrameRef.current = lastFrameBase64 }, [lastFrameBase64])
-  const effectiveResolution = (soundEnabled && isKling && !isHiggsfield && resolution !== '4k') ? resolution + '-audio' : (soundEnabled && isPixverseV6) ? resolution + '-audio' : resolution
+  const effectiveResolution = (soundEnabled && isKling && !isHiggsfield && resolution !== '4k') ? resolution + '-audio' : (soundEnabled && isPixverseV6) ? resolution + '-audio' : (soundEnabled && currentModel.t2vId?.startsWith('apimart/veo3.1-')) ? resolution + '-audio' : (soundEnabled && currentModel.t2vId === 'kwaivgi/kling-v3-video' && resolution !== '4K') ? resolution + '-audio' : resolution
   // PixVerse V6 routes to a single model: use the price table of the routed mode
   const activeModelId = getActiveModelId()
   const activePixversePrices = isPixverseV6 ? (activeModelId === 'pixverse-v6/reference-to-video' ? PIXVERSE_REF_PRICES : PIXVERSE_T2V_PRICES) : undefined
@@ -1814,7 +1863,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       if (params.sound != null) setSoundEnabled(params.sound)
       if (params.instrumental != null) setInstrumental(!!params.instrumental)
       if (params.draft != null) setPVideoDraft(params.draft)
-      if (params.draft && String(params.model || '').includes('Seedance-2.5')) setResolution(SEEDANCE_DRAFT_RES)
+      if (params.draft && /Seedance-2.5|seedance-2-5/.test(String(params.model || ''))) setResolution(SEEDANCE_DRAFT_RES)
       if (params.voice) setReplicateVoice(params.voice)
       if (params.enhancePrompt != null) {
         setMachgenEnhancePrompt(params.enhancePrompt)
@@ -2024,7 +2073,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       return
     }
 
-    if (activeId === 'omnihuman-1-5') {
+    if (activeId === 'omnihuman-1-5' || activeId === 'omnihuman-2-0') {
       if (imageRefItems.length === 0 && imageRefEntries.filter(e => e.base64).length === 0) {
         showError('Adjunta una imagen (retrato) para OmniHuman')
         return
@@ -2152,21 +2201,21 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       prompt: finalPrompt,
       model: activeId,
       provider: (currentModel.provider && currentModel.provider !== 'kie') ? currentModel.provider : undefined,
-      voice: isReplicate && !isPVideo ? replicateVoice : undefined,
-      voiceLanguage: isReplicate && !isPVideo ? replicateLanguage : undefined,
+      voice: (isReplicate && !isPVideo) || isReplicateAvatar ? replicateVoice : undefined,
+      voiceLanguage: (isReplicate && !isPVideo) || isReplicateAvatar ? replicateLanguage : undefined,
       aspectRatio: aspectRatio,
       resolution: isSeedanceDraftRes ? '480p' : resolution,
       batchSize,
       // OmniHuman is audio-driven: the audio determines the length, no duration/FPS
-      duration: mode === 'video' && activeId !== 'omnihuman-1-5' && (!isReplicate || isPVideo || isPVideo2Pro) ? duration : undefined,
-      fps: mode === 'video' && activeId !== 'omnihuman-1-5' && (!isReplicate || isPVideo)
+      duration: mode === 'video' && activeId !== 'omnihuman-1-5' && activeId !== 'omnihuman-2-0' && (!isReplicate || isPVideo || isPVideo2Pro || replicateTimed) ? duration : undefined,
+      fps: mode === 'video' && activeId !== 'omnihuman-1-5' && activeId !== 'omnihuman-2-0' && (!isReplicate || isPVideo)
         ? (isPVideo ? pVideoFps : (hasFpsChoice ? fps : undefined))
         : undefined,
       draft: isPVideo ? pVideoDraft : (isSeedanceDraftRes ? true : undefined),
       // The reference variant has no quality mode: it runs speed
       pvMode: isPVideo2Pro ? (pVideo2ProRef && pVideoProMode === 'quality' ? 'speed' : pVideoProMode) : undefined,
       keepAudio: pVideo2ProRef && pVideoKeepAudio && audioRefItems.length === 1 ? true : undefined,
-      sound: mode === 'video' && !isReplicate ? soundEnabled : undefined,
+      sound: mode === 'video' && (!isReplicate || replicateSound) ? soundEnabled : undefined,
       enhancePrompt: isMarketingStudio ? msEnhancePrompt : undefined,
       presetId: isMarketingStudio ? (msPresetId || (isMarketplace ? 'f188a40a-098a-5fb3-bffc-eedfeaf9ecd7' : 'ef84af61-57cd-5f2e-b3ca-209d8038563c')) : undefined,
       quality: isMarketingStudio ? msQuality : undefined,
@@ -2177,7 +2226,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       // Video models that ignore imageRefs still need imageBase64.
       imageBase64: isReplicate || isPruna ? (imageBase64 || finalImageRefs[0]?.base64 || undefined) : (mode === 'image' && finalImageRefs.length > 0) ? undefined : (namedRefItems.length > 0 ? namedRefItems[0].base64 : (imageRefItems.length > 0) ? imageRefItems[0].base64 : ((activeId !== currentModel.t2iId && activeId !== currentModel.t2vId) ? (imageBase64 || undefined) : undefined)),
       imageMime: isReplicate || isPruna ? (imageMime || finalImageRefs[0]?.mime || 'image/png') : (namedRefItems[0]?.mime || imageRefItems[0]?.mime || imageMime),
-      imageRefs: isReplicate && !isPVideo2Pro ? undefined : (finalImageRefs.length > 0 ? finalImageRefs : undefined),
+      imageRefs: isReplicate && !isPVideo2Pro && !replicateAllImages ? undefined : (finalImageRefs.length > 0 ? finalImageRefs : undefined),
       videoRefs: videoRefItems.length > 0 ? videoRefItems.map(r => ({
         base64: r.base64 || '',
         url: r.url,
@@ -3354,7 +3403,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   })()}
                 </span>
               )}
-              {mode === 'video' && !currentModel.durationFromInputVideo && currentModel.t2vId !== 'omnihuman-1-5' && (!isReplicate || isPVideo || isPVideo2Pro) && !(multiShots && isKling30) && (
+              {mode === 'video' && !currentModel.durationFromInputVideo && currentModel.t2vId !== 'omnihuman-1-5' && currentModel.t2vId !== 'omnihuman-2-0' && currentModel.t2vId !== 'pruna/p-video-2-pro-avatar' && (!isReplicate || isPVideo || isPVideo2Pro || replicateTimed) && !(multiShots && isKling30) && (
                 <StreamDuration
                   value={duration}
                   options={currentModel.durationOptions}

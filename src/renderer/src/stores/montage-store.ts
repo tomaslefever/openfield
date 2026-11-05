@@ -109,6 +109,33 @@ export interface MontageSummary {
   id: string
   name: string
   updatedAt: number
+  /** Gallery card details, read from the stored doc */
+  duration?: number
+  aspect?: number
+  clipCount?: number
+  /** Up to four visual clips spread across the edit, in timeline order */
+  frames?: { src: string; kind: 'video' | 'image' }[]
+}
+
+const FRAME_COUNT = 4
+
+/** Card data for the timelines gallery */
+export function summarizeMontage(id: string, name: string, updatedAt: number, doc: MontageDoc): MontageSummary {
+  const visual = doc.clips
+    .filter((c): c is MontageClip & { src: string; kind: 'video' | 'image' } => (c.kind === 'video' || c.kind === 'image') && !!c.src)
+    .sort((a, b) => a.start - b.start)
+  const picks = visual.length <= FRAME_COUNT
+    ? visual
+    : Array.from({ length: FRAME_COUNT }, (_, i) => visual[Math.round((i * (visual.length - 1)) / (FRAME_COUNT - 1))])
+  return {
+    id,
+    name,
+    updatedAt,
+    duration: docDuration(doc),
+    aspect: doc.aspect,
+    clipCount: doc.clips.filter((c) => c.kind !== 'caption').length,
+    frames: picks.map((c) => ({ src: c.src, kind: c.kind })),
+  }
 }
 
 /** Minimal library asset shape the timeline needs */
@@ -461,6 +488,8 @@ interface MontageState {
   future: MontageDoc[]
   selectedClipId: string | null
   loaded: boolean
+  /** The page shows the timelines gallery or the open timeline's editor */
+  view: 'gallery' | 'editor'
 
   time: number
   playing: boolean
@@ -475,6 +504,10 @@ interface MontageState {
   load: () => Promise<void>
   loadNow: () => Promise<void>
   open: (id: string) => Promise<void>
+  /** Opens a timeline in the editor (gallery card click) */
+  edit: (id: string) => Promise<void>
+  /** Saves the open timeline and goes back to the gallery with fresh cards */
+  showGallery: () => Promise<void>
   createMontage: () => Promise<void>
   /** New montage from a layout preset (main builds it); opens it */
   createFromLayout: (layout: string, name?: string) => Promise<{ ok: boolean; error?: string }>
@@ -569,6 +602,15 @@ let baseRev: number | undefined
 /** Timeline to open on the next load (the window was asked to show it before the page loaded) */
 let preferId: string | null = null
 
+/** Gallery cards for the active workspace's timelines, newest first */
+async function listSummaries(): Promise<MontageSummary[]> {
+  const rows: any[] = (await api()?.projects.list()) ?? []
+  return rows.flatMap((r) => {
+    const doc = parseDoc(rowTimeline(r))
+    return doc ? [summarizeMontage(r.id, r.name, r.updatedAt ?? r.updated_at, doc)] : []
+  })
+}
+
 const rowRev = (row: any): number | undefined => {
   try {
     const raw = rowTimeline(row)
@@ -662,6 +704,7 @@ export const useMontageStore = create<MontageState>((set, get) => {
     future: [],
     selectedClipId: null,
     loaded: false,
+    view: 'gallery',
     time: 0,
     playing: false,
     loop: false,
@@ -677,18 +720,32 @@ export const useMontageStore = create<MontageState>((set, get) => {
     loadNow: async () => {
       flushSave()
       get().pause()
-      const rows: any[] = (await api()?.projects.list()) ?? []
-      const montages = rows
-        .filter((r) => parseDoc(rowTimeline(r)))
-        .map((r) => ({ id: r.id, name: r.name, updatedAt: r.updatedAt ?? r.updated_at }))
+      const montages = await listSummaries()
       set({ montages, loaded: true })
       const wanted = preferId ? montages.find((m) => m.id === preferId) : undefined
       preferId = null
-      if (wanted) return get().open(wanted.id)
+      if (wanted) {
+        await get().open(wanted.id)
+        set({ view: 'editor' })
+        return
+      }
       const keep = montages.find((m) => m.id === get().activeId)
       if (keep) return
+      // The gallery is the landing view: an empty workspace shows its empty state instead of auto-creating
       if (montages.length > 0) await get().open(montages[0].id)
-      else await get().createMontage()
+      else set({ activeId: null, name: '', doc: emptyDoc(), past: [], future: [], selectedClipId: null, time: 0, view: 'gallery' })
+    },
+
+    edit: async (id) => {
+      await get().open(id)
+      if (get().activeId === id) set({ view: 'editor' })
+    },
+
+    showGallery: async () => {
+      get().pause()
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+      await persist()
+      set({ view: 'gallery', montages: await listSummaries() })
     },
 
     open: async (id) => {
@@ -711,8 +768,8 @@ export const useMontageStore = create<MontageState>((set, get) => {
       const saved = await api()?.projects.update(row.id, { timelineData: doc })
       baseRev = typeof saved?.rev === 'number' ? saved.rev : undefined
       set((s) => ({
-        montages: [{ id: row.id, name, updatedAt: Date.now() }, ...s.montages],
-        activeId: row.id, name, doc, past: [], future: [], selectedClipId: null, time: 0,
+        montages: [summarizeMontage(row.id, name, Date.now(), doc), ...s.montages],
+        activeId: row.id, name, doc, past: [], future: [], selectedClipId: null, time: 0, view: 'editor',
       }))
     },
 
@@ -723,6 +780,7 @@ export const useMontageStore = create<MontageState>((set, get) => {
       if (!res?.ok) return { ok: false, error: res?.error ?? 'No se pudo crear el montaje' }
       set((s) => ({ montages: [{ id: res.id, name: res.name, updatedAt: Date.now() }, ...s.montages.filter((m) => m.id !== res.id)] }))
       await get().open(res.id)
+      set({ view: 'editor' })
       return { ok: true }
     },
 
@@ -742,7 +800,7 @@ export const useMontageStore = create<MontageState>((set, get) => {
       if (get().activeId !== id) return
       set({ activeId: null })
       if (montages.length > 0) await get().open(montages[0].id)
-      else await get().createMontage()
+      else set({ name: '', doc: emptyDoc(), past: [], future: [], selectedClipId: null, time: 0, view: 'gallery' })
     },
 
     checkpoint: () => set((s) => ({ past: [...s.past.slice(-HISTORY_LIMIT + 1), s.doc], future: [] })),
@@ -1069,13 +1127,17 @@ export const useMontageStore = create<MontageState>((set, get) => {
       const doc = parseDoc(change.doc)
       if (!doc) return
       preferId = null
+      const summary = summarizeMontage(change.id, change.name ?? '', Date.now(), doc)
+      const known = get().montages.find((m) => m.id === change.id)
+      if (!change.name && known) summary.name = known.name
+      set((s) => ({ montages: [summary, ...s.montages.filter((m) => m.id !== change.id)] }))
+      if (change.open) set({ view: 'editor' })
       if (change.id === get().activeId) {
         adopt(doc, change.rev, change.name)
         return
       }
-      set((s) => ({ montages: [{ id: change.id, name: change.name, updatedAt: Date.now() }, ...s.montages.filter((m) => m.id !== change.id)] }))
-      // Follow the agent: show the timeline it is editing
-      void get().open(change.id)
+      // Follow the agent in the editor; the gallery only refreshes the card
+      if (get().view === 'editor') void get().open(change.id)
     },
   }
 })

@@ -10,6 +10,7 @@ export function useMontageShortcuts() {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e.target)) return
       const s = useMontageStore.getState()
+      if (s.view !== 'editor') return
       const mod = e.ctrlKey || e.metaKey
       const key = e.key.toLowerCase()
       if (mod && key === 'z') {

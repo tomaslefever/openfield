@@ -8,6 +8,8 @@ import type {
   ApimartTaskStatusResponse,
   ApimartBalanceResponse,
   ApimartUploadResponse,
+  ApimartMusicRequest,
+  ApimartMusicTaskResponse,
 } from './types'
 
 export class ApimartApiClient {
@@ -71,6 +73,18 @@ export class ApimartApiClient {
       method: 'POST',
       body: JSON.stringify(params),
     })
+  }
+
+  /** Flow Music (Lyria 3.5 etc.): async task, poll with getMusicTaskStatus. */
+  async generateMusic(params: ApimartMusicRequest): Promise<ApimartSubmitResponse> {
+    return this.request<ApimartSubmitResponse>('/v1/music/generations', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
+  async getMusicTaskStatus(taskId: string): Promise<ApimartMusicTaskResponse> {
+    return this.request<ApimartMusicTaskResponse>(`/v1/music/tasks/${encodeURIComponent(taskId)}?language=es`)
   }
 
   async getTaskStatus(taskId: string): Promise<ApimartTaskStatusResponse> {

@@ -6,12 +6,17 @@ import { uploadFileBase64 } from './endpoints/upload'
 import { generateImage } from './endpoints/image'
 import { generateVideo } from './endpoints/video'
 import { generateAudio } from './endpoints/audio'
+import { createOmniAudio, createOmniCharacter } from './endpoints/omni'
 import { getEstimatedCost, type CostEstimateOptions } from './models'
 import type {
   GenerateImageParams,
   GenerateVideoParams,
   GenerateAudioParams,
   KieTaskDetailResponse,
+  OmniAudioCreateParams,
+  OmniAudioCreateResult,
+  OmniCharacterCreateParams,
+  OmniCharacterCreateResult,
 } from './types'
 
 /**
@@ -47,6 +52,16 @@ export class OpenfieldApiClient extends BaseClient {
     return generateAudio(this, params)
   }
 
+  /** Gemini Omni voice preset (free, synchronous): returns the audioId for omniAudioIds */
+  createOmniAudio(params: OmniAudioCreateParams): Promise<OmniAudioCreateResult> {
+    return createOmniAudio(this, params)
+  }
+
+  /** Gemini Omni character (free, synchronous): returns the characterId for omniCharacterIds */
+  createOmniCharacter(params: OmniCharacterCreateParams): Promise<OmniCharacterCreateResult> {
+    return createOmniCharacter(this, params)
+  }
+
   waitForCompletion(
     taskId: string,
     onProgress?: (state: string, progress?: number) => void
@@ -60,4 +75,5 @@ export class OpenfieldApiClient extends BaseClient {
 }
 
 export { IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS, type CostEstimateOptions } from './models'
+export { GEMINI_OMNI_VOICES } from './endpoints/omni'
 export * from './types'

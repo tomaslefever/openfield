@@ -25,6 +25,7 @@ import {
   getServiceModels,
 } from './endpoint-inspector'
 import { IMAGE_MODELS, VIDEO_MODELS } from '../kie/models'
+import { getWorkspace, runInWorkspace } from '../workspace-service'
 import { getGenerationTools } from './generation-tools'
 import { getContentStudioTools } from './content-studio-tools'
 import { getWorkspaceTools } from './workspace-tools'
@@ -32,6 +33,8 @@ import { getPromptLibraryTools } from './prompt-library-tools'
 import { getTimelineTools } from './timeline-tools'
 import { getVoiceTools } from './voice-tools'
 import { getLayoutTools } from './layout-tools'
+import { getSkillTools, skillResources, readSkillResource, listSkillPrompts, getSkillPrompt, CHARACTER_VIDEO_RULES } from './skills'
+import { MODEL_CONFIRMATION_PROP, requireVideoModelConfirmation, VIDEO_MODEL_RULE } from './video-confirmation'
 import {
   type McpTool,
   ToolInputError,
@@ -57,6 +60,18 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024
 // (CSRF) or reach it through a rebound DNS name. Only loopback Hosts and Origins are accepted.
 const LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i
 const LOOPBACK_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i
+
+// Tools that create or list library content accept workspace_id, so an agent
+// can work in another workspace without switching the one the app shows.
+const WORKSPACE_SCOPED_TOOLS = new Set([
+  'generate', 'recreate_generation', 'import_asset', 'list_assets',
+  'generate_scene_image', 'generate_scene_video', 'generate_transition',
+  'voice_generate', 'music_generate', 'video_to_music', 'timeline_list', 'timeline_create',
+])
+const WORKSPACE_ID_PROP = {
+  type: 'string',
+  description: 'Workspace id to work in instead of the active one (see list_workspaces). The app keeps showing its active workspace.',
+}
 
 const SCENE_ASPECT_RATIOS = ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9']
 const SCENE_RESOLUTIONS = ['1K', '2K', '4K']
@@ -511,6 +526,7 @@ function getTools(): McpTool[] {
           prompt: { type: 'string', description: 'Optional prompt override' },
           model: { type: 'string', description: 'Default kling-3.0/video. Available: ' + dynamicVideoModels },
           duration: { type: 'number', minimum: 1, description: 'Seconds. Default 5' },
+          user_model_confirmation: MODEL_CONFIRMATION_PROP,
         },
         required: ['scene_id'],
         additionalProperties: false,
@@ -518,6 +534,7 @@ function getTools(): McpTool[] {
       annotations: GENERATE,
       handler: async (args) => {
         const scene = requireScene(str(args.scene_id))
+        requireVideoModelConfirmation(args, str(args.model, 'kling-3.0/video'), 'this scene video')
         if (!scene.imageAssetId) {
           throw new ToolInputError(`Scene '${scene.id}' has no image yet — run generate_scene_image and wait for it to complete first`)
         }
@@ -539,17 +556,20 @@ function getTools(): McpTool[] {
           prompt: { type: 'string', description: 'Default "Smooth cinematic transition"' },
           model: { type: 'string', description: 'Default pixverse-v6/image-to-video. Must support first + last frame, e.g. pixverse-v6/image-to-video, bytedance/seedance-2' },
           duration: { type: 'number', minimum: 1, description: "Seconds. Default: the transition's duration" },
+          user_model_confirmation: MODEL_CONFIRMATION_PROP,
         },
         required: ['transition_id'],
         additionalProperties: false,
       },
       annotations: GENERATE,
-      handler: async (args) =>
-        generateTransition(str(args.transition_id), {
+      handler: async (args) => {
+        requireVideoModelConfirmation(args, str(args.model, 'pixverse-v6/image-to-video'), 'this transition video')
+        return generateTransition(str(args.transition_id), {
           prompt: optStr(args.prompt),
           model: optStr(args.model),
           duration: args.duration !== undefined ? num(args.duration, 5) : undefined,
-        }),
+        })
+      },
     },
     {
       name: 'get_task',
@@ -587,6 +607,9 @@ function getTools(): McpTool[] {
 
     // ─── Voice lines (ElevenLabs) ───────────────────────────────
     ...getVoiceTools(),
+
+    // ─── Writing skills (short dramas, Seedance prompts) ────────
+    ...getSkillTools(),
   ]
 }
 
@@ -657,6 +680,7 @@ const RESOURCE_TEMPLATES = [
   { uriTemplate: 'example://{service}/{endpoint}', name: 'Endpoint example', description: 'Code example / sample payload of a service endpoint', mimeType: 'text/typescript' },
   { uriTemplate: 'source://{service}/{endpoint}', name: 'Endpoint source', description: 'Implementation source of a service endpoint', mimeType: 'text/typescript' },
   { uriTemplate: 'models://{service}', name: 'Model catalog', description: 'Live model catalog of a service', mimeType: 'application/json' },
+  { uriTemplate: 'skill://{name}', name: 'Writing skill', description: 'A writing method (short-drama-screenwriter, seedance-2-5-prompt-writer, ugc-reel-creator)', mimeType: 'text/markdown' },
 ]
 
 class HttpError extends Error {
@@ -824,15 +848,20 @@ export class McpBridgeServer {
             capabilities: {
               tools: { listChanged: false },
               resources: { listChanged: false, subscribe: false },
+              prompts: { listChanged: false },
             },
             serverInfo: { name: SERVER_NAME, title: 'Openfield Storyboard Bridge', version: SERVER_VERSION },
             instructions: [
               'This is the Openfield AI & Storyboard bridge.',
-              'Workspaces: everything below (library, elements, storyboards, Content Studio) belongs to the active workspace. list_workspaces / get_workspace read them; create_workspace (activate: true to switch to it), update_workspace, set_active_workspace and delete_workspace (permanent, only when the user explicitly asks) manage them.',
+              'Workspaces: everything below (library, elements, storyboards, Content Studio) belongs to the active workspace. generate, recreate_generation, import_asset, list_assets, voice_generate, music_generate, timeline_create and timeline_list also take workspace_id to work in another workspace without switching the app. list_workspaces / get_workspace read them; create_workspace (activate: true to switch to it), update_workspace, set_active_workspace and delete_workspace (permanent, only when the user explicitly asks) manage them.',
               'Service introspection: list_services, list_endpoints, get_endpoint, get_endpoint_example and get_service_models read live capabilities, types and docs from the app.',
-              'Resources: endpoint://<service>/<endpoint> (docs), example://<service>/<endpoint> (examples), source://<service>/<endpoint> (source), models://<service> (model catalogs).',
+              'Resources: endpoint://<service>/<endpoint> (docs), example://<service>/<endpoint> (examples), source://<service>/<endpoint> (source), models://<service> (model catalogs), skill://<name> (writing skills).',
               'Storyboard flow: create_storyboard → create_scenes → generate_scene_image per scene → generate_scene_video (needs the scene image) → create_transition / generate_transition.',
               'Content Studio (short films, microdramas): use the content_studio_* tools, never generate/import_asset, so the piece is built by the app itself. Stages run in order — script → references → keyframes → voices (ElevenLabs) → videos → final — and each one only opens after the user approved the previous one (content_studio_approve_stage, called only on the user\'s explicit approval). Voices always precede videos: the audio is each video\'s lip-sync reference.',
+              'SHORT DRAMAS (micro-dramas, AI series, episodes, short films with dialogue): read get_skill("short-drama-screenwriter") before writing anything and follow it — idea scoring (short_drama_ideas when the user has no idea), the four-part episode (hook, context, escalation, cliffhanger), cast with fixed voice descriptions, continuity, character-sheet and location prompts, clips of 4–30 s — and build the result as a Content Studio project. Write EVERY Seedance prompt (Content Studio video_prompt or generate with a Seedance model) with get_skill("seedance-2-5-prompt-writer"). The MCP prompts short_drama and seedance_prompt bundle the same skills.',
+              'UGC REELS AND SOCIAL VIDEOS (a character filmed as if on a phone, brand content, TikTok/Reels): read get_skill("ugc-reel-creator") first and follow its steps — brief, references, phone-shot keyframes the user validates, videos in reference mode (first frame + character + location as references), timeline edit, cost report.',
+              `REELS AND VIDEOS WITH CHARACTERS (Content Studio or generate):\n${CHARACTER_VIDEO_RULES}`,
+              VIDEO_MODEL_RULE,
               'PROMPT LIBRARY FIRST: before writing ANY image or video prompt (generate, storyboard scenes, edits), call search_prompt_library with the kind of piece (ads, character sheet, storyboard, UGC, product, editing…) and the model you will use, then open the best match with get_library_prompt. The templates are researched for visual quality and consistency per model family. Use it as a reference — fill its {{variables}} from the brand, product and request of the user, follow its guidance and rewrite whatever does not fit; never paste it unchanged when the brief differs. For a series (campaign, storyboard, recurring character) start from the character-sheet / consistency templates and repeat the same character and style description in every prompt. Prompts the user approved in review rank first; user-saved prompts (source workspace/global) reflect their own style. generate refuses its first call without a recent library check. When the user likes a result or asks to keep a prompt, save_library_prompt (with {{variables}}, models and types).',
               'Playground / library: list_assets and get_asset find generations and the references each one used; generate creates new images/videos with reference_asset_ids or reuse_references_from (e.g. "latest" = the previous generation); recreate_generation re-runs one with optional overrides; update_assets / delete_assets / import_asset manage the library.',
               'To let the user choose between options: generate with count: 4, then wait_for_tasks with preview: true shows the results numbered #1..#4; use the chosen asset id as a reference next. preview_assets shows any existing assets the same way.',
@@ -851,22 +880,34 @@ export class McpBridgeServer {
               name: t.name,
               title: t.title,
               description: t.description,
-              inputSchema: t.inputSchema,
+              inputSchema: WORKSPACE_SCOPED_TOOLS.has(t.name)
+                ? { ...t.inputSchema, properties: { ...t.inputSchema.properties, workspace_id: WORKSPACE_ID_PROP } }
+                : t.inputSchema,
               ...(t.annotations ? { annotations: { title: t.title, ...t.annotations } } : {}),
             })),
           })
 
         case 'tools/call': {
           const name = str(args.name)
-          const toolArgs = args.arguments && typeof args.arguments === 'object' && !Array.isArray(args.arguments) ? args.arguments : {}
+          let toolArgs = args.arguments && typeof args.arguments === 'object' && !Array.isArray(args.arguments) ? args.arguments : {}
           const tool = getTools().find(t => t.name === name)
           if (!tool) {
             return this.errorResponse(id, -32602, `Unknown tool: ${name}`)
           }
+          let workspaceId: string | undefined
+          if (WORKSPACE_SCOPED_TOOLS.has(name) && toolArgs.workspace_id !== undefined) {
+            const { workspace_id, ...rest } = toolArgs
+            if (typeof workspace_id !== 'string' || !getWorkspace(workspace_id)) {
+              return ok(toolError(`${name}: workspace_id ${JSON.stringify(workspace_id)} is not a workspace (see list_workspaces)`))
+            }
+            workspaceId = workspace_id
+            toolArgs = rest
+          }
           const invalid = validateArgs(tool.inputSchema, toolArgs)
           if (invalid) return ok(toolError(`${name}: ${invalid}`))
           try {
-            return ok(toolResult(await tool.handler(toolArgs)))
+            const run = () => tool.handler(toolArgs)
+            return ok(toolResult(await (workspaceId ? runInWorkspace(workspaceId, run) : run())))
           } catch (err: any) {
             if (!(err instanceof ToolInputError)) console.warn(`[MCP Bridge] Tool ${name} failed:`, err?.message)
             return ok(toolError(err?.message || String(err)))
@@ -916,6 +957,7 @@ export class McpBridgeServer {
             }
           }
 
+          resources.push(...skillResources())
           return ok({ resources })
         }
 
@@ -925,6 +967,12 @@ export class McpBridgeServer {
         case 'resources/read': {
           const uri = str(args.uri)
           if (!uri) return this.errorResponse(id, -32602, 'Missing uri parameter')
+
+          if (uri.startsWith('skill://')) {
+            const text = readSkillResource(uri)
+            if (text === null) return this.errorResponse(id, -32002, `Resource not found: ${uri}`)
+            return ok({ contents: [{ uri, mimeType: 'text/markdown', text }] })
+          }
 
           const match = uri.match(/^(endpoint|example|source|models):\/\/([^/]+)(?:\/(.+))?$/)
           if (!match) return this.errorResponse(id, -32602, `Invalid resource URI: ${uri}`)
@@ -948,6 +996,20 @@ export class McpBridgeServer {
             return contents('text/typescript', details.sourceCode || '// Source unavailable')
           } catch (err: any) {
             return this.errorResponse(id, -32002, err?.message || `Resource not found: ${uri}`)
+          }
+        }
+
+        case 'prompts/list':
+          return ok({ prompts: listSkillPrompts() })
+
+        case 'prompts/get': {
+          const promptArgs = args.arguments && typeof args.arguments === 'object' && !Array.isArray(args.arguments) ? args.arguments : {}
+          try {
+            const prompt = getSkillPrompt(str(args.name), promptArgs)
+            if (!prompt) return this.errorResponse(id, -32602, `Unknown prompt: ${args.name}`)
+            return ok(prompt)
+          } catch (err: any) {
+            return this.errorResponse(id, -32602, err?.message || 'Invalid prompt arguments')
           }
         }
 

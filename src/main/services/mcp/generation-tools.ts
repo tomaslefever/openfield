@@ -22,6 +22,7 @@ import '../replicate-queue'
 import '../apimart-queue'
 import '../kling-queue'
 import '../pruna-queue'
+import { MODEL_CONFIRMATION_PROP, requireVideoModelConfirmation } from './video-confirmation'
 import {
   type McpTool,
   ToolInputError,
@@ -273,6 +274,9 @@ function modelForReferences(model: string, type: string, payload: any): string {
   return IMAGE_MODELS.some(m => m.id === candidate) ? candidate : model
 }
 
+/** Replicate models whose queue builder takes every image (mirrors REPLICATE_ALL_IMAGES in PromptComposer) */
+const REPLICATE_ALL_IMAGES = new Set(['kwaivgi/kling-v4.0', 'replicate/minimax/h3-lite', 'replicate/minimax/h3-highspeed', 'openai/gpt-image-2.6-flare', 'openai/gpt-image-2.6-sunburst', 'black-forest-labs/flux-3-image', 'ideogram-ai/ideogram-4-5', 'ideogram-ai/ideogram-4-5-precise-edit', 'krea/krea-3'])
+
 /** Provider-specific payload shape the renderer produces before sending. */
 function adaptPayloadForProvider(provider: QueueProvider, type: string, payload: any): void {
   payload.type = type
@@ -280,8 +284,8 @@ function adaptPayloadForProvider(provider: QueueProvider, type: string, payload:
   // P-Video 2 Pro (Pruna or Replicate) with references runs its -reference variant, which
   // takes the reference lists as they are
   if (pVideo2Kind(payload.model)) payload.model = routePVideo2Model(payload.model, payload)
-  // Replicate takes a single input image instead of a reference list
-  if (provider === 'replicate' && pVideo2Kind(payload.model) !== 'p-video-2-pro-reference' && Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0) {
+  // Replicate takes a single input image instead of a reference list, except the models that take them all
+  if (provider === 'replicate' && pVideo2Kind(payload.model) !== 'p-video-2-pro-reference' && !REPLICATE_ALL_IMAGES.has(payload.model) && Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0) {
     const [first] = payload.imageRefs
     if (!payload.imageAssetId && first.assetId) {
       payload.imageAssetId = first.assetId
@@ -545,12 +549,13 @@ export function getGenerationTools(): McpTool[] {
           aspect_ratio: { type: 'string', description: 'e.g. 1:1, 16:9, 9:16, 4:3, 3:4, 21:9. Seedance 2.5 (MachGen) with a start/end frame only accepts adaptive (the frame sets the framing); any other value is replaced by adaptive.' },
           resolution: { type: 'string', description: 'e.g. 1K, 2K, 4K (image) or 720p, 1080p (video)' },
           duration: { type: 'number', minimum: 1, description: 'Video seconds' },
-          reference_asset_ids: { type: 'array', items: { type: 'string' }, description: 'Existing assets to attach as references' },
+          reference_asset_ids: { type: 'array', items: { type: 'string' }, description: 'Existing assets to attach as references. Videos with characters (preferred): the validated first frame first, then the character sheet, location and objects; with no start/end frame, MachGen video models run in reference mode (R2V).' },
           reuse_references_from: { type: 'string', description: 'Copy all references and frames of this generation (asset id or "latest")' },
-          start_frame_asset_id: { type: 'string', description: 'Video: image asset used as first frame' },
+          start_frame_asset_id: { type: 'string', description: 'Video: image asset pinned as the first frame (image-to-video). Allowed; for character videos prefer passing the frame in reference_asset_ids.' },
           end_frame_asset_id: { type: 'string', description: 'Video: image asset used as last frame' },
           count: { type: 'number', minimum: 1, description: 'Variants to queue, 1–4. Default 1' },
           extra_params: { type: 'object', description: 'Advanced provider fields merged into the payload as-is (e.g. {"sound": true, "fps": 24})' },
+          user_model_confirmation: MODEL_CONFIRMATION_PROP,
         },
         required: ['prompt', 'model'],
         additionalProperties: false,
@@ -558,6 +563,7 @@ export function getGenerationTools(): McpTool[] {
       annotations: GENERATE,
       handler: async (args) => {
         const type = str(args.type, 'image')
+        if (type === 'video') requireVideoModelConfirmation(args, str(args.model), 'this video')
         requireLibraryCheck(str(args.prompt), type === 'video' ? 'video' : 'image', str(args.model))
         const count = Math.floor(num(args.count, 1))
         if (count > 4) throw new ToolInputError('count must be between 1 and 4')
@@ -580,6 +586,16 @@ export function getGenerationTools(): McpTool[] {
         if (args.end_frame_asset_id) setFrame(payload, 'lastFrameAssetId', str(args.end_frame_asset_id))
 
         if (args.extra_params && typeof args.extra_params === 'object') payload = { ...payload, ...args.extra_params }
+        // References without a start/end frame mean reference mode (the preferred route for
+        // character videos). The MachGen queue otherwise turns attached images into an
+        // image-to-video run and pins the first one as the start frame.
+        if (
+          provider === 'machgen' && type === 'video' && payload.inputMode === undefined &&
+          !payload.firstFrameAssetId && !payload.lastFrameAssetId &&
+          Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0
+        ) {
+          payload.inputMode = 'ref'
+        }
         payload.prompt = str(args.prompt)
         payload.model = modelForReferences(str(args.model), type, payload)
         if (args.aspect_ratio) payload.aspectRatio = str(args.aspect_ratio)
@@ -618,6 +634,7 @@ export function getGenerationTools(): McpTool[] {
           remove_reference_asset_ids: { type: 'array', items: { type: 'string' } },
           keep_references: { type: 'boolean', description: 'false drops every original reference and frame (default true)' },
           count: { type: 'number', minimum: 1, description: 'Variants to queue, 1–4. Default 1' },
+          user_model_confirmation: MODEL_CONFIRMATION_PROP,
         },
         required: ['asset_id'],
         additionalProperties: false,
@@ -629,6 +646,7 @@ export function getGenerationTools(): McpTool[] {
         const source = requireAsset(str(args.asset_id))
         const gen = loadGeneration(source)
         if (!gen) throw new ToolInputError(`Asset '${source.id}' was ${source.modelUsed === 'upload' ? 'uploaded' : 'imported'}, not generated — there is nothing to recreate`)
+        if (gen.type === 'video') requireVideoModelConfirmation(args, str(args.model, gen.payload?.model), 'recreating this video')
 
         const { payload, droppedRefs } = prepareForResubmit(gen.payload)
         if (args.keep_references === false) removeReferences(payload, extractReferences(payload, false).map(r => r.assetId!).filter(Boolean))

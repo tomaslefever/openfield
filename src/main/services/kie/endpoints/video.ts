@@ -24,8 +24,11 @@ async function getAssetBase64(assetId: string): Promise<{ base64: string; mime: 
   return null
 }
 
-async function ensureKieAudioRef(base64: string, mime: string): Promise<{ base64: string; mime: string }> {
-  if (KIE_AUDIO_MIMES.has(mime)) return { base64, mime }
+// Vidu Q4 reference audio is MP3 only
+const MP3_ONLY_MIMES = new Set(['audio/mpeg', 'audio/mp3'])
+
+async function ensureKieAudioRef(base64: string, mime: string, allowed: Set<string> = KIE_AUDIO_MIMES): Promise<{ base64: string; mime: string }> {
+  if (allowed.has(mime)) return { base64, mime }
   console.log('[OF] Transcoding audio reference to mp3, mime:', mime)
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openfield-audio-'))
   const inPath = path.join(tmpDir, 'input.bin')
@@ -38,6 +41,24 @@ async function ensureKieAudioRef(base64: string, mime: string): Promise<{ base64
   } finally {
     await getFFmpeg().cleanupTemp(tmpDir)
   }
+}
+
+/** Public http(s) URL as-is, else uploads the base64; undefined when the ref has neither */
+async function uploadRef(
+  client: OpenfieldApiClient,
+  ref: { base64?: string; url?: string; mime?: string } | undefined,
+  fallbackMime: string,
+): Promise<string | undefined> {
+  if (ref?.url && /^https?:/.test(ref.url)) return ref.url
+  if (ref?.base64) return (await uploadFileBase64(client, ref.base64, ref.mime || fallbackMime)) || undefined
+  return undefined
+}
+
+/** Attached images in order: imageRefs, else the single imageBase64 / imageUrl */
+function imageInputsOf(params: GenerateVideoParams): { base64?: string; url?: string; mime?: string }[] {
+  if (params.imageRefs?.length) return params.imageRefs
+  if (params.imageBase64 || params.imageUrl) return [{ base64: params.imageBase64, url: params.imageUrl, mime: params.imageMime }]
+  return []
 }
 
 /**
@@ -73,8 +94,79 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     return createTask(client, params.model, input)
   }
 
+  // Seedance 2.5 draft → 1080p final: upgrades a draft made with bytedance/seedance-2-5 + draft: true.
+  // Only the draft's KIE task id is sent (valid 7 days); prompt, refs and duration come from the draft.
+  // Billed at the 1080p Seedance 2.5 rate, with or without video as the draft was.
+  if (params.model === 'bytedance/seedance-2-5-draft' || (params.model === 'bytedance/seedance-2-5' && params.draftSourceTaskId)) {
+    const draftTaskId = params.draftSourceTaskId || params.taskId
+    if (!draftTaskId) throw new Error('El final 1080p de Seedance 2.5 necesita el task id KIE del draft')
+    return createTask(client, 'bytedance/seedance-2-5-draft', {
+      draft_task_id: draftTaskId,
+      resolution: '1080p',
+      output_format: 'mp4',
+    })
+  }
+
+  // OmniHuman 2.0: one portrait (image_urls, single item) + driving audio (wav/mp3, 4–300 s), 720p
+  if (params.model === 'omnihuman-2-0') {
+    const image = imageInputsOf(params)[0] || (params.firstFrameBase64 || params.firstFrameUrl ? { base64: params.firstFrameBase64, url: params.firstFrameUrl } : undefined)
+    const imageUrl = await uploadRef(client, image, 'image/png')
+    if (!imageUrl) throw new Error('OmniHuman 2.0 necesita una imagen (retrato)')
+    const audioRef = params.audioRefs?.[0]
+    let audioUrl = audioRef?.audioUrl && /^https?:/.test(audioRef.audioUrl) ? audioRef.audioUrl : undefined
+    if (!audioUrl && audioRef?.base64) {
+      const audio = await ensureKieAudioRef(audioRef.base64, audioRef.mime || 'audio/mpeg')
+      audioUrl = (await uploadFileBase64(client, audio.base64, audio.mime)) || undefined
+    }
+    if (!audioUrl) throw new Error('OmniHuman 2.0 necesita un audio (4–300 s)')
+    const input: Record<string, any> = { image_urls: [imageUrl], audio_url: audioUrl, enable_watermark: false }
+    if (params.prompt) input.prompt = params.prompt.slice(0, 300)
+    return createTask(client, params.model, input)
+  }
+
+  // Gemini Omni Video: text/image/video-to-video with Omni voices and characters. No first/last
+  // frame here, so FF/LF images join the image references. Slots: images + video × 2 + characters ≤ 7.
+  if (params.model === 'gemini-omni-video') {
+    const durStr = String(params.duration || 6)
+    const omniInput: Record<string, any> = {
+      prompt: params.prompt || '',
+      duration: ['4', '6', '8', '10'].includes(durStr) ? durStr : '6',
+    }
+    if (params.aspectRatio) omniInput.aspect_ratio = params.aspectRatio === '9:16' ? '9:16' : '16:9'
+    const res = String(params.resolution || '').toLowerCase()
+    omniInput.resolution = res === '1080p' || res === '4k' ? res : '720p'
+
+    const characterIds = (params.omniCharacterIds || []).filter(Boolean).slice(0, 3)
+    const audioIds = (params.omniAudioIds || []).filter(Boolean).slice(0, 3)
+    if (characterIds.length) omniInput.character_ids = characterIds
+    if (audioIds.length) omniInput.audio_ids = audioIds
+
+    const videoRef = params.videoRefs?.[0]
+    const videoUrl = await uploadRef(client, videoRef, 'video/mp4')
+    if (videoUrl) {
+      // The model picks the output length with a video input; the clip is trimmed to ≤ 10 s
+      const endSec = Math.min(10, Math.max(1, Math.round(Number(params.duration) || 10)))
+      omniInput.video_list = [{ url: videoUrl, start: 0, ends: endSec }]
+    }
+
+    const imageSlots = Math.max(0, 7 - (videoUrl ? 2 : 0) - characterIds.length)
+    const images = [
+      ...(params.firstFrameBase64 || params.firstFrameUrl ? [{ base64: params.firstFrameBase64, url: params.firstFrameUrl }] : []),
+      ...imageInputsOf(params),
+      ...(params.lastFrameBase64 || params.lastFrameUrl ? [{ base64: params.lastFrameBase64, url: params.lastFrameUrl }] : []),
+    ]
+    const imageUrls: string[] = []
+    for (const ref of images) {
+      if (imageUrls.length >= imageSlots) break
+      const url = await uploadRef(client, ref, 'image/png')
+      if (url) imageUrls.push(url)
+    }
+    if (imageUrls.length) omniInput.image_urls = imageUrls
+    return createTask(client, params.model, omniInput)
+  }
+
   // Google Gemini Omni 1.1 Flash: multimodal video generation (text-to-video, FF/LF, image references, video input)
-  if (params.model === 'google/gemini-omni-flash-1-1' || params.model === 'gemini-omni-video') {
+  if (params.model === 'google/gemini-omni-flash-1-1') {
     const actualModel = 'google/gemini-omni-flash-1-1'
     const omniInput: Record<string, any> = {
       prompt: params.prompt || '',
@@ -155,6 +247,18 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
 
       if (imageUrls.length > 0) {
         omniInput.image_urls = imageUrls.slice(0, 7)
+      }
+
+      // Omni voices and characters (createOmniAudio / createOmniCharacter); not allowed with first_frame_url
+      const characterIds = (params.omniCharacterIds || []).filter(Boolean).slice(0, 3)
+      const audioIds = (params.omniAudioIds || []).filter(Boolean).slice(0, 3)
+      if (characterIds.length) omniInput.character_ids = characterIds
+      if (audioIds.length) omniInput.audio_ids = audioIds
+      // Same 7-slot budget as gemini-omni-video: images + video × 2 + characters
+      if (omniInput.image_urls) {
+        const imageSlots = Math.max(0, 7 - (omniInput.video_list?.length ? 2 : 0) - characterIds.length)
+        omniInput.image_urls = omniInput.image_urls.slice(0, imageSlots)
+        if (omniInput.image_urls.length === 0) delete omniInput.image_urls
       }
     }
 
@@ -268,46 +372,61 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     return createTask(client, actualModel, wanInput)
   }
 
-  // Kling 4.0: keyframe-to-video (first frame, up to 8 keyframes, last frame) or
-  // reference-to-video (images/videos cited as @image_1 / @video_1; plain text-to-video without them)
-  if (params.model === 'kling-4.0/keyframe-to-video' || params.model === 'kling-4.0/reference-to-video') {
-    const upload = async (ref: { base64?: string; url?: string; mime?: string } | undefined, fallbackMime: string) => {
-      if (ref?.url && /^https?:/.test(ref.url)) return ref.url
-      if (ref?.base64) return await uploadFileBase64(client, ref.base64, ref.mime || fallbackMime)
-      return undefined
-    }
-    const imageInputs = params.imageRefs?.length
-      ? params.imageRefs
-      : params.imageBase64 || params.imageUrl ? [{ base64: params.imageBase64, url: params.imageUrl, mime: params.imageMime }] : []
+  // Kling 4.0 / 4.0 Flash: keyframe-to-video (first frame, up to 8 keyframes, last frame; Flash
+  // takes only the first frame and runs as text-to-video without it) or reference-to-video
+  // (images/videos cited as @image_1 / @video_1; plain text-to-video without them).
+  // Flash is 720p only, 3–20 s.
+  if (
+    params.model === 'kling-4.0/keyframe-to-video' || params.model === 'kling-4.0/reference-to-video' ||
+    params.model === 'kling-4.0/flash-keyframe-to-video' || params.model === 'kling-4.0/flash-reference-to-video'
+  ) {
+    const isFlash = params.model.startsWith('kling-4.0/flash-')
+    const imageInputs = imageInputsOf(params)
     const klingInput: Record<string, any> = {
       prompt: params.prompt || '',
-      duration: Math.min(30, Math.max(3, Math.round(Number(params.duration) || 5))),
-      resolution: String(params.resolution || '').toLowerCase() === '1080p' ? '1080p' : '720p',
+      duration: Math.min(isFlash ? 20 : 30, Math.max(3, Math.round(Number(params.duration) || 5))),
+      resolution: !isFlash && String(params.resolution || '').toLowerCase() === '1080p' ? '1080p' : '720p',
     }
 
-    const firstFrame = await upload({ base64: params.firstFrameBase64, url: params.firstFrameUrl }, 'image/png')
+    const firstFrame = await uploadRef(client, { base64: params.firstFrameBase64, url: params.firstFrameUrl }, 'image/png')
+    if (params.model === 'kling-4.0/flash-keyframe-to-video') {
+      if (params.lastFrameBase64 || params.lastFrameUrl) {
+        throw new Error('Kling 4.0 Flash no admite último frame (solo el primero). Usa Kling 4.0 para FF + LF.')
+      }
+      const first = firstFrame || await uploadRef(client, imageInputs[0], 'image/png')
+      if (first) {
+        klingInput.first_frame_url = first
+      } else {
+        // Text-to-video: the aspect ratio only applies without a first frame (no "auto" here)
+        klingInput.aspect_ratio = params.aspectRatio && ['16:9', '9:16', '1:1', '21:9'].includes(params.aspectRatio) ? params.aspectRatio : '16:9'
+      }
+      return createTask(client, params.model, klingInput)
+    }
     if (params.model === 'kling-4.0/keyframe-to-video') {
       const frames: string[] = []
       for (const ref of imageInputs) {
-        const url = await upload(ref, 'image/png')
+        const url = await uploadRef(client, ref, 'image/png')
         if (url) frames.push(url)
       }
       klingInput.first_frame_url = firstFrame || frames.shift()
       if (!klingInput.first_frame_url) throw new Error('Kling 4.0 keyframes needs a first frame')
-      if (frames.length) klingInput.keyframe_urls = frames.slice(0, 8)
-      const lastFrame = await upload({ base64: params.lastFrameBase64, url: params.lastFrameUrl }, 'image/png')
+      const lastFrame = await uploadRef(client, { base64: params.lastFrameBase64, url: params.lastFrameUrl }, 'image/png')
       if (lastFrame) klingInput.last_frame_url = lastFrame
+      // Frames (first + keyframes + last) allowed by duration: 3 s → 4 … 8 s → 9, 9 s or longer → 10
+      const maxFrames = klingInput.duration >= 9 ? 10 : klingInput.duration + 1
+      const maxKeyframes = Math.min(8, maxFrames - 1 - (lastFrame ? 1 : 0))
+      if (frames.length && maxKeyframes > 0) klingInput.keyframe_urls = frames.slice(0, maxKeyframes)
       return createTask(client, params.model, klingInput)
     }
 
     const imageUrls: string[] = []
     for (const ref of imageInputs) {
-      const url = await upload(ref, 'image/png')
+      const url = await uploadRef(client, ref, 'image/png')
       if (url) imageUrls.push(url)
     }
     const videoUrls: string[] = []
     for (const ref of params.videoRefs || []) {
-      const url = await upload(ref, 'video/mp4')
+      const url = await uploadRef(client, ref, 'video/mp4')
       if (url) videoUrls.push(url)
     }
     if (imageUrls.length) klingInput.image_urls = imageUrls.slice(0, 10)
@@ -316,6 +435,75 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     const ratio = params.aspectRatio && ['auto', '16:9', '9:16', '1:1', '21:9'].includes(params.aspectRatio) ? params.aspectRatio : undefined
     klingInput.aspect_ratio = ratio && !(ratio === 'auto' && !hasRefs) ? ratio : hasRefs ? 'auto' : '16:9'
     return createTask(client, params.model, klingInput)
+  }
+
+  // Grok Imagine Video 1.5 Preview: image_urls is required (one image, cited as @image1); first and
+  // last frame optional, first frame alone doubles as the image. 1–15 s, 480p/720p/1080p.
+  if (params.model === 'grok-imagine-video-1-5-preview') {
+    const firstFrame = await uploadRef(client, { base64: params.firstFrameBase64, url: params.firstFrameUrl }, 'image/png')
+    const lastFrame = await uploadRef(client, { base64: params.lastFrameBase64, url: params.lastFrameUrl }, 'image/png')
+    const image = (await uploadRef(client, imageInputsOf(params)[0], 'image/png')) || firstFrame
+    if (!image) throw new Error('Grok Imagine Video 1.5 necesita una imagen o un primer frame')
+    const res = String(params.resolution || '').toLowerCase()
+    const grokInput: Record<string, any> = {
+      prompt: params.prompt || '',
+      image_urls: [image],
+      resolution: res === '720p' || res === '1080p' ? res : '480p',
+      duration: Math.min(15, Math.max(1, Math.round(Number(params.duration) || 8))),
+      aspect_ratio: params.aspectRatio && ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', 'auto'].includes(params.aspectRatio) ? params.aspectRatio : 'auto',
+    }
+    if (firstFrame) grokInput.first_frame_url = firstFrame
+    if (lastFrame) grokInput.last_frame_url = lastFrame
+    if (params.sound !== undefined) grokInput.enable_audio = !!params.sound
+    return createTask(client, params.model, grokInput)
+  }
+
+  // Vidu Q4 Preview: image-to-video (first frame; output keeps its aspect ratio) or reference-to-video
+  // (1–15 images, up to 3 MP3 voice clips of 3–12 s). No text-to-video. 3–16 s, 540p–4K.
+  if (params.model === 'vidu-q4/image-to-video' || params.model === 'vidu-q4/reference-to-video') {
+    if (params.lastFrameBase64 || params.lastFrameUrl) throw new Error('Vidu Q4 no admite último frame (solo el primero)')
+    const res = String(params.resolution || '').toLowerCase()
+    const viduInput: Record<string, any> = {
+      duration: Math.min(16, Math.max(3, Math.round(Number(params.duration) || 5))),
+      resolution: ['540p', '720p', '1080p', '2k', '4k'].includes(res) ? res : '720p',
+      audio: params.sound !== undefined ? !!params.sound : true,
+    }
+    if (params.prompt) viduInput.prompt = params.prompt
+
+    if (params.model === 'vidu-q4/image-to-video') {
+      const first = (await uploadRef(client, { base64: params.firstFrameBase64, url: params.firstFrameUrl }, 'image/png'))
+        || (await uploadRef(client, imageInputsOf(params)[0], 'image/png'))
+      if (!first) throw new Error('Vidu Q4 image-to-video necesita una imagen o un primer frame')
+      viduInput.image_url = first
+      return createTask(client, params.model, viduInput)
+    }
+
+    if (!params.prompt) throw new Error('Vidu Q4 reference-to-video necesita un prompt')
+    const refImages = [
+      ...(params.firstFrameBase64 || params.firstFrameUrl ? [{ base64: params.firstFrameBase64, url: params.firstFrameUrl }] : []),
+      ...imageInputsOf(params),
+    ]
+    const imageUrls: string[] = []
+    for (const ref of refImages) {
+      if (imageUrls.length >= 15) break
+      const url = await uploadRef(client, ref, 'image/png')
+      if (url) imageUrls.push(url)
+    }
+    if (imageUrls.length === 0) throw new Error('Vidu Q4 reference-to-video necesita al menos una imagen')
+    viduInput.reference_image_urls = imageUrls
+    const audioUrls: string[] = []
+    for (const ref of (params.audioRefs || []).slice(0, 3)) {
+      if (ref.audioUrl && /^https?:/.test(ref.audioUrl)) {
+        audioUrls.push(ref.audioUrl)
+      } else if (ref.base64) {
+        const audio = await ensureKieAudioRef(ref.base64, ref.mime || 'audio/mpeg', MP3_ONLY_MIMES)
+        const url = await uploadFileBase64(client, audio.base64, audio.mime)
+        if (url) audioUrls.push(url)
+      }
+    }
+    if (audioUrls.length) viduInput.reference_audio_urls = audioUrls
+    viduInput.aspect_ratio = params.aspectRatio && ['16:9', '9:16', '1:1', '4:3', '3:4'].includes(params.aspectRatio) ? params.aspectRatio : '16:9'
+    return createTask(client, params.model, viduInput)
   }
 
   // Grok Imagine: single model routed by attachments — text-to-video, image-to-video or extend
@@ -672,6 +860,11 @@ export async function generateVideo(client: OpenfieldApiClient, params: Generate
     if (params.model === 'bytedance/seedance-2-5') {
       // Seedance 2.5 uses generate_audio (see KIE createTask schema)
       input.generate_audio = !!params.sound
+      // Draft: a 480p sample billed at the 480p rate; its task id later feeds bytedance/seedance-2-5-draft
+      if (params.draft === true) {
+        input.draft = true
+        input.resolution = '480p'
+      }
     } else {
       input.sound = !!params.sound
     }

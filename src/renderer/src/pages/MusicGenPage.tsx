@@ -255,6 +255,8 @@ export function MusicGenPage() {
     const unsubRepFailed = api.on('replicate:task:failed', () => reset())
     const unsubMachComplete = api.on('machgen:task:completed', () => reset())
     const unsubMachFailed = api.on('machgen:task:failed', () => reset())
+    const unsubApiComplete = api.on('apimart:task:completed', () => reset())
+    const unsubApiFailed = api.on('apimart:task:failed', () => reset())
     const unsubProgress = api.on('local:audio:progress', (p: any) => {
       if (p?.status === 'completed') {
         setAudioStatus(null)
@@ -276,6 +278,8 @@ export function MusicGenPage() {
       unsubRepFailed?.()
       unsubMachComplete?.()
       unsubMachFailed?.()
+      unsubApiComplete?.()
+      unsubApiFailed?.()
       unsubProgress?.()
       unsubError?.()
     }
@@ -342,6 +346,7 @@ export function MusicGenPage() {
       const isFal = provider === 'fal' || model.startsWith('fal-ai/') || model.includes('cassette-ai') || model.includes('minimax/music') || model.includes('sonilo')
       const isReplicate = provider === 'replicate' || model.startsWith('replicate/') || model.includes('stable-audio-2.5') || model.includes('musicgen') || model.includes('lyria')
       const isMachgen = provider === 'machgen'
+      const isApimart = provider === 'apimart'
 
       if (params.local && params.voiceId) {
         setAudioStatus({ status: 'starting', message: 'Iniciando...', pct: 0 })
@@ -352,6 +357,9 @@ export function MusicGenPage() {
       } else if (isElevenLabs && params.voiceId) {
         setAudioStatus({ status: 'starting', message: 'Iniciando ElevenLabs...', pct: 0 })
         await api?.elevenlabs.generate({ voiceId: params.voiceId, prompt: params.prompt, speed: params.speed })
+      } else if (isApimart) {
+        setAudioStatus({ status: 'starting', message: 'Enviando a APIMart...', pct: 0 })
+        await api?.apimart.generate({ ...params, type: 'audio' })
       } else if (isFal) {
         setAudioStatus({ status: 'starting', message: 'Enviando a fal.ai...', pct: 0 })
         await api?.fal.generate({ ...params, type: 'audio' })

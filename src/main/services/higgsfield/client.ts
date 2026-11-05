@@ -37,6 +37,13 @@ export const HIGGSFIELD_ENDPOINT_MAP: Record<string, string> = {
   'kling-video/v3.0/pro/image-to-video': '/kling-video/v3.0/pro/image-to-video',
   'kling-video/v3.0-turbo/text-to-video': '/kling-video/v3.0-turbo/text-to-video',
   'kling-video/v3.0-turbo/image-to-video': '/kling-video/v3.0-turbo/image-to-video',
+  'kling-video/v3.0/4k/text-to-video': '/kling-video/v3.0/4k/text-to-video',
+  'kling-video/v3.0/4k/image-to-video': '/kling-video/v3.0/4k/image-to-video',
+
+  // HappyHorse 1.1
+  'alibaba/happy-horse/v1.1/text-to-video': '/alibaba/happy-horse/v1.1/text-to-video',
+  'alibaba/happy-horse/v1.1/image-to-video': '/alibaba/happy-horse/v1.1/image-to-video',
+  'alibaba/happy-horse/v1.1/reference-to-video': '/alibaba/happy-horse/v1.1/reference-to-video',
 
   // Wan 3.0
   'alibaba/wan-3.0/text-to-video': '/alibaba/wan-3.0/text-to-video',
