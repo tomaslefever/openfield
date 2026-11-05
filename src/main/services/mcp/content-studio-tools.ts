@@ -25,7 +25,7 @@ const WORKFLOW = [
   'Never approve a stage on your own: show the user the results (preview_assets with the asset ids from content_studio_get_project) and approve only after they explicitly say so.',
   'Voices always come before videos: the dialogue audio is attached to each shot\'s video as its lip-sync reference.',
   'Every recurring character (people and animals), location and must-match object is a character / scenario / prop of the project, so each shot attaches it by name.',
-  'Videos run in reference mode (video_input_mode "ref"): the keyframe goes as one more reference next to the shot\'s characters, location and props, never pinned as the first frame, which loses the characters\' consistency.',
+  'Videos preferably run in reference mode (video_input_mode "ref"): the keyframe goes as one more reference next to the shot\'s characters, location and props, which keeps the characters consistent. "ff" (keyframe pinned as the first frame) is allowed when the user asks or the shot must open on that exact frame.',
 ].join(' ')
 
 // ─── Helpers ─────────────────────────────────────────────────

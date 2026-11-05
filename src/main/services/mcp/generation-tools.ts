@@ -546,9 +546,9 @@ export function getGenerationTools(): McpTool[] {
           aspect_ratio: { type: 'string', description: 'e.g. 1:1, 16:9, 9:16, 4:3, 3:4, 21:9. Seedance 2.5 (MachGen) with a start/end frame only accepts adaptive (the frame sets the framing); any other value is replaced by adaptive.' },
           resolution: { type: 'string', description: 'e.g. 1K, 2K, 4K (image) or 720p, 1080p (video)' },
           duration: { type: 'number', minimum: 1, description: 'Video seconds' },
-          reference_asset_ids: { type: 'array', items: { type: 'string' }, description: 'Existing assets to attach as references' },
+          reference_asset_ids: { type: 'array', items: { type: 'string' }, description: 'Existing assets to attach as references. Videos with characters (preferred): the validated first frame first, then the character sheet, location and objects; with no start/end frame, MachGen video models run in reference mode (R2V).' },
           reuse_references_from: { type: 'string', description: 'Copy all references and frames of this generation (asset id or "latest")' },
-          start_frame_asset_id: { type: 'string', description: 'Video: image asset used as first frame' },
+          start_frame_asset_id: { type: 'string', description: 'Video: image asset pinned as the first frame (image-to-video). Allowed; for character videos prefer passing the frame in reference_asset_ids.' },
           end_frame_asset_id: { type: 'string', description: 'Video: image asset used as last frame' },
           count: { type: 'number', minimum: 1, description: 'Variants to queue, 1–4. Default 1' },
           extra_params: { type: 'object', description: 'Advanced provider fields merged into the payload as-is (e.g. {"sound": true, "fps": 24})' },
@@ -583,6 +583,16 @@ export function getGenerationTools(): McpTool[] {
         if (args.end_frame_asset_id) setFrame(payload, 'lastFrameAssetId', str(args.end_frame_asset_id))
 
         if (args.extra_params && typeof args.extra_params === 'object') payload = { ...payload, ...args.extra_params }
+        // References without a start/end frame mean reference mode (the preferred route for
+        // character videos). The MachGen queue otherwise turns attached images into an
+        // image-to-video run and pins the first one as the start frame.
+        if (
+          provider === 'machgen' && type === 'video' && payload.inputMode === undefined &&
+          !payload.firstFrameAssetId && !payload.lastFrameAssetId &&
+          Array.isArray(payload.imageRefs) && payload.imageRefs.length > 0
+        ) {
+          payload.inputMode = 'ref'
+        }
         payload.prompt = str(args.prompt)
         payload.model = modelForReferences(str(args.model), type, payload)
         if (args.aspect_ratio) payload.aspectRatio = str(args.aspect_ratio)
