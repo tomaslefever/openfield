@@ -19,6 +19,8 @@ import { registerMachgenHandlers } from './machgen'
 import { registerHiggsfieldHandlers } from './higgsfield'
 import { registerBalancesHandlers } from './balances'
 import { registerElevenLabsHandlers } from './elevenlabs'
+import { registerVoiceCloneHandlers } from './voice-clone'
+import { registerTranscriptionHandlers } from './transcription'
 import { registerApimartHandlers } from './apimart'
 import { registerKlingHandlers } from './kling'
 import { registerPrunaHandlers } from './pruna'
@@ -49,6 +51,8 @@ export function registerIpcHandlers() {
   registerHiggsfieldHandlers(ctx)
   registerBalancesHandlers(ctx)
   registerElevenLabsHandlers(ctx)
+  registerVoiceCloneHandlers(ctx)
+  registerTranscriptionHandlers(ctx)
   registerApimartHandlers(ctx)
   registerKlingHandlers(ctx)
   registerPrunaHandlers(ctx)

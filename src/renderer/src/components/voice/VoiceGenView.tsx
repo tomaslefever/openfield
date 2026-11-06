@@ -891,7 +891,15 @@ export function VoiceGenView({
               ) : vcBuffer ? (
                 <div className="flex-shrink-0">
                   <p className="eyebrow mb-2">Seleccioná el fragmento a convertir</p>
-                  <AudioTrimEditor buffer={vcBuffer} onChange={(s, e) => setVcTrim({ start: s, end: e })} />
+                  <AudioTrimEditor
+                    buffer={vcBuffer}
+                    onChange={(s, e) => setVcTrim({ start: s, end: e })}
+                    onApply={(s, e) => {
+                      if (!vcAudio) return
+                      const { base64, mime } = audioBufferToBase64(sliceAudioBuffer(vcBuffer, s, e))
+                      setVcAudio({ base64, mime, fileName: vcAudio.fileName.replace(/\.[^.]+$/, '') + '_recorte.wav', duration: e - s })
+                    }}
+                  />
                   <p className="text-[10px] text-surface-600 mt-1.5">
                     Arrastrá los marcadores de inicio y fin; click para buscar. Solo la región elegida se envía a ElevenLabs.
                   </p>

@@ -530,6 +530,23 @@ export function runMigrations() {
     PRIMARY KEY (project_id, stage)
   )`)
 
+  // Cloned voices (Fal Qwen3-TTS): the reference clip lives on disk next to the database and its
+  // transcript here, so the voice can be cloned again if Fal drops the speaker embedding file.
+  raw.exec(`CREATE TABLE IF NOT EXISTS cloned_voices (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'fal',
+    model TEXT NOT NULL,
+    language TEXT DEFAULT 'Spanish',
+    reference_path TEXT NOT NULL,
+    reference_mime TEXT,
+    reference_text TEXT NOT NULL,
+    reference_seconds REAL,
+    embedding_url TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`)
+
   // Migration: add workspace_id column to drama_projects
   try { raw.exec('ALTER TABLE drama_projects ADD COLUMN workspace_id TEXT') } catch {}
   try { raw.exec('CREATE INDEX IF NOT EXISTS idx_drama_projects_workspace ON drama_projects(workspace_id)') } catch {}

@@ -18,6 +18,7 @@ export const MODEL_NAMES: Record<string, string> = {
   'fal-ai/dia-tts': 'Dia TTS',
   'fal-ai/orpheus-tts': 'Orpheus TTS',
   'fal-ai/qwen-audio-3-tts': 'Qwen Audio 3.0 TTS',
+  'fal-ai/qwen-3-tts/text-to-speech/1.7b': 'Qwen3 TTS · Voz clonada',
   'fal-ai/kokoro': 'Kokoro TTS',
   'fal-ai/gemini-tts': 'Gemini TTS',
   'fal-ai/xai-tts': 'xAI TTS',
