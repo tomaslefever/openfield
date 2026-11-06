@@ -192,6 +192,34 @@ async function probeSeconds(file: string): Promise<number | null> {
   }
 }
 
+/** Longest reference accepted: Qwen3-TTS clones best from 5–20 s of clean speech */
+export const MAX_REFERENCE_SECONDS = 30
+/**
+ * Below this many characters per second the transcript cannot cover the whole clip (speech runs at
+ * ~12–16). A transcript that leaves part of the audio out makes Qwen3-TTS babble instead of speaking.
+ */
+const MIN_CHARS_PER_SECOND = 7
+
+function checkReference(seconds: number | null, referenceText: string) {
+  if (!seconds) return
+  if (seconds > MAX_REFERENCE_SECONDS) {
+    throw new Error(`El audio de referencia dura ${seconds.toFixed(1)} s: recórtalo a 5–20 s de voz limpia (máximo ${MAX_REFERENCE_SECONDS} s).`)
+  }
+  const cps = referenceText.replace(/\s+/g, ' ').length / seconds
+  if (cps < MIN_CHARS_PER_SECOND) {
+    throw new Error(`La transcripción parece incompleta: el audio dura ${seconds.toFixed(1)} s y el texto solo cubre una parte. Escribe todo lo que se dice o usa "Transcribir automáticamente"; si sobra audio, recórtalo.`)
+  }
+}
+
+/**
+ * Codec tokens to allow for a line. Qwen3-TTS runs at 12 tokens per second and fal's default of
+ * 200 cuts speech at ~16 s; allow about twice the expected length (speech ~14 chars/s).
+ */
+function maxTokensFor(text: string): number {
+  const expectedSeconds = text.length / 14
+  return Math.max(200, Math.min(4096, Math.ceil(expectedSeconds * 2 * 12) + 60))
+}
+
 /** Saves the reference clip, clones it on fal and stores the voice */
 export async function createClonedVoice(input: AudioInput & { name: string; referenceText: string; language?: string }): Promise<ClonedVoice> {
   const name = (input.name || '').trim()
@@ -206,6 +234,7 @@ export async function createClonedVoice(input: AudioInput & { name: string; refe
   await fs.writeFile(refPath, buffer)
   try {
     const seconds = await probeSeconds(refPath)
+    checkReference(seconds, referenceText)
     const embeddingUrl = await cloneEmbedding(buffer, mime, referenceText)
     const now = Date.now()
     const db = getRawDb()
@@ -279,12 +308,19 @@ export async function synthesizeClonedSpeech(input: {
   if (!text) throw new Error('Text is required')
   const row = getRow(input.voiceId)
   const language = input.language || row.language || 'Auto'
+  // Voices saved before this check existed may babble: say so instead of charging for noise
+  try {
+    checkReference(row.referenceSeconds ?? null, row.referenceText)
+  } catch (err: any) {
+    throw new Error(`La voz “${row.name}” no está bien clonada. ${err.message} Bórrala y vuelve a crearla.`)
+  }
 
   const speak = (embeddingUrl: string) => falRun<{ audio?: { url?: string; content_type?: string } | string }>(TTS_MODEL, {
     text,
     language,
     speaker_voice_embedding_file_url: embeddingUrl,
     reference_text: row.referenceText,
+    max_new_tokens: maxTokensFor(text),
   })
 
   let embeddingUrl: string = row.embeddingUrl || await recloneVoice(row.id)

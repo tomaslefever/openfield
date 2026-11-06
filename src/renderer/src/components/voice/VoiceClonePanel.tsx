@@ -18,7 +18,9 @@ interface ClonedVoice {
 
 interface RefAudio { base64: string; mime: string; fileName: string; duration?: number }
 
-const DEFAULT_LANGUAGES = ['Auto', 'Spanish', 'English', 'Portuguese', 'French', 'German', 'Italian', 'Japanese', 'Korean', 'Chinese', 'Russian']
+const MAX_REFERENCE_SECONDS = 30
+const MIN_CHARS_PER_SECOND = 7
+const DEFAULT_LANGUAGES =['Auto', 'Spanish', 'English', 'Portuguese', 'French', 'German', 'Italian', 'Japanese', 'Korean', 'Chinese', 'Russian']
 const LANGUAGE_LABELS: Record<string, string> = {
   Auto: 'Automático', Spanish: 'Español', English: 'Inglés', Portuguese: 'Portugués', French: 'Francés', German: 'Alemán',
   Italian: 'Italiano', Japanese: 'Japonés', Korean: 'Coreano', Chinese: 'Chino', Russian: 'Ruso',
@@ -59,6 +61,7 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   const [language, setLanguage] = useState('Spanish')
   const [refAudio, setRefAudio] = useState<RefAudio | null>(null)
   const [refText, setRefText] = useState('')
+  const [refSeconds, setRefSeconds] = useState<number | null>(null)
   const [transcribing, setTranscribing] = useState(false)
   const [cloning, setCloning] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
@@ -115,6 +118,7 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   const setReference = (audio: RefAudio | null) => {
     setRefAudio(audio)
     setRefText('')
+    setRefSeconds(audio?.duration && Number.isFinite(audio.duration) ? audio.duration : null)
   }
 
   const onFile = async (file?: File | null) => {
@@ -190,7 +194,14 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   }
 
   const cost = (text.trim().length / 1000) * usdPer1k
-  const canClone = !!refAudio && !!name.trim() && !!refText.trim() && !cloning && !transcribing
+  // Same limits as the main process (voice-clone-service checkReference): a transcript that leaves
+  // part of the clip out, or a long clip, makes Qwen3-TTS babble instead of speaking
+  const refLen = refText.trim().replace(/\s+/g, ' ').length
+  const refWarning = !refSeconds ? ''
+    : refSeconds > MAX_REFERENCE_SECONDS ? `El audio dura ${refSeconds.toFixed(1)} s: recórtalo a 5–20 s de voz limpia (máximo ${MAX_REFERENCE_SECONDS} s).`
+    : refLen > 0 && refLen / refSeconds < MIN_CHARS_PER_SECOND ? `La transcripción parece incompleta para ${refSeconds.toFixed(1)} s de audio: escribe todo lo que se dice o usa “Transcribir automáticamente”.`
+    : ''
+  const canClone = !!refAudio && !!name.trim() && !!refText.trim() && !refWarning && !cloning && !transcribing
 
   if (configured === false) {
     return (
@@ -250,8 +261,15 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
               <p className="eyebrow mb-2">Audio de referencia</p>
               {refAudio ? (
                 <div className="flex items-center gap-3 p-3 rounded-xl border border-hairline bg-surface-soft">
-                  <audio controls src={`data:${refAudio.mime};base64,${refAudio.base64}`} className="flex-1 h-9" />
-                  <span className="text-meta text-ink-subtle truncate max-w-[160px]" title={refAudio.fileName}>{refAudio.fileName}</span>
+                  <audio
+                    controls
+                    src={`data:${refAudio.mime};base64,${refAudio.base64}`}
+                    onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (Number.isFinite(d) && d > 0) setRefSeconds(d) }}
+                    className="flex-1 h-9"
+                  />
+                  <span className="text-meta text-ink-subtle truncate max-w-[160px]" title={refAudio.fileName}>
+                    {refSeconds ? `${refSeconds.toFixed(1)} s · ` : ''}{refAudio.fileName}
+                  </span>
                   <button onClick={() => setReference(null)} className="btn-secondary" aria-label="Quitar audio"><X size={13} /></button>
                 </div>
               ) : (
@@ -284,6 +302,7 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
                 placeholder="Lo que se dice en el audio, palabra por palabra"
                 className="input-field resize-y min-h-[80px] leading-relaxed"
               />
+              {refWarning && <p className="text-meta text-red-400 mt-2">{refWarning}</p>}
             </div>
 
             <div className="flex justify-end gap-2">
