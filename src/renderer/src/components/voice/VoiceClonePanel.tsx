@@ -3,8 +3,10 @@ import { toast } from 'sonner'
 import { AudioLines, FolderOpen, Loader, Mic, Plus, RefreshCw, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react'
 import { AudioLibraryPicker } from './AudioLibraryPicker'
 import { RecorderModal } from './RecorderModal'
+import { AudioTrimEditor } from './AudioTrimEditor'
 import { parseAssetParams } from './voice-constants'
 import { srcUrl } from '../../services/file-url'
+import { audioBufferToBase64, decodeBase64Audio, sliceAudioBuffer } from '../../lib/wav'
 
 interface ClonedVoice {
   id: string
@@ -62,6 +64,11 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   const [refAudio, setRefAudio] = useState<RefAudio | null>(null)
   const [refText, setRefText] = useState('')
   const [refSeconds, setRefSeconds] = useState<number | null>(null)
+  const [refBuffer, setRefBuffer] = useState<AudioBuffer | null>(null)
+  const [refDecoding, setRefDecoding] = useState(false)
+  const [refTrim, setRefTrim] = useState<{ start: number; end: number } | null>(null)
+  /** The trim the current transcript was made for, to flag it when the selection changes */
+  const [transcribedTrim, setTranscribedTrim] = useState<string>('')
   const [transcribing, setTranscribing] = useState(false)
   const [cloning, setCloning] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
@@ -118,7 +125,40 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   const setReference = (audio: RefAudio | null) => {
     setRefAudio(audio)
     setRefText('')
+    setTranscribedTrim('')
     setRefSeconds(audio?.duration && Number.isFinite(audio.duration) ? audio.duration : null)
+  }
+
+  // Decode the reference so it can be trimmed in place (same editor as the voice changer)
+  useEffect(() => {
+    setRefBuffer(null)
+    setRefTrim(null)
+    if (!refAudio) return
+    let cancelled = false
+    setRefDecoding(true)
+    decodeBase64Audio(refAudio.base64)
+      .then((buf) => {
+        if (cancelled) return
+        setRefBuffer(buf)
+        setRefSeconds(buf.duration)
+        setRefTrim({ start: 0, end: buf.duration })
+      })
+      .catch(() => { if (!cancelled) setRefBuffer(null) })
+      .finally(() => { if (!cancelled) setRefDecoding(false) })
+    return () => { cancelled = true }
+  }, [refAudio])
+
+  const isTrimmed = !!(refBuffer && refTrim && (refTrim.start > 0.01 || refTrim.end < refBuffer.duration - 0.01))
+  const trimKey = refTrim ? `${refTrim.start.toFixed(2)}-${refTrim.end.toFixed(2)}` : ''
+  /** Length of what will be cloned: the selection when trimmed, else the whole clip */
+  const selectedSeconds = isTrimmed && refTrim ? refTrim.end - refTrim.start : refSeconds
+
+  /** The reference as it will be sent: the selected region as WAV when trimmed, else the original file */
+  const effectiveReference = (): RefAudio | null => {
+    if (!refAudio) return null
+    if (!isTrimmed || !refBuffer || !refTrim) return refAudio
+    const { base64, mime } = audioBufferToBase64(sliceAudioBuffer(refBuffer, refTrim.start, refTrim.end))
+    return { base64, mime, fileName: refAudio.fileName.replace(/\.[^.]+$/, '') + '_recorte.wav', duration: refTrim.end - refTrim.start }
   }
 
   const onFile = async (file?: File | null) => {
@@ -131,11 +171,13 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   }
 
   const transcribe = async () => {
-    if (!refAudio) return
+    const audio = effectiveReference()
+    if (!audio) return
     setTranscribing(true)
     try {
-      const res = await api()?.transcribe({ ...refAudio, language: language === 'Auto' ? undefined : language })
+      const res = await api()?.transcribe({ ...audio, language: language === 'Auto' ? undefined : language })
       setRefText(res?.text || '')
+      setTranscribedTrim(trimKey)
     } catch (err) {
       toast.error(`No se pudo transcribir: ${errMsg(err)}`)
     } finally {
@@ -144,10 +186,11 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   }
 
   const clone = async () => {
-    if (!refAudio || !name.trim() || !refText.trim()) return
+    const audio = effectiveReference()
+    if (!audio || !name.trim() || !refText.trim()) return
     setCloning(true)
     try {
-      const voice: ClonedVoice = await api()?.create({ ...refAudio, name: name.trim(), referenceText: refText.trim(), language })
+      const voice: ClonedVoice = await api()?.create({ ...audio, name: name.trim(), referenceText: refText.trim(), language })
       toast.success(`Voz “${voice.name}” clonada`)
       resetForm()
       setCreating(false)
@@ -197,10 +240,12 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   // Same limits as the main process (voice-clone-service checkReference): a transcript that leaves
   // part of the clip out, or a long clip, makes Qwen3-TTS babble instead of speaking
   const refLen = refText.trim().replace(/\s+/g, ' ').length
-  const refWarning = !refSeconds ? ''
-    : refSeconds > MAX_REFERENCE_SECONDS ? `El audio dura ${refSeconds.toFixed(1)} s: recórtalo a 5–20 s de voz limpia (máximo ${MAX_REFERENCE_SECONDS} s).`
-    : refLen > 0 && refLen / refSeconds < MIN_CHARS_PER_SECOND ? `La transcripción parece incompleta para ${refSeconds.toFixed(1)} s de audio: escribe todo lo que se dice o usa “Transcribir automáticamente”.`
+  const secs = selectedSeconds
+  const refWarning = !secs ? ''
+    : secs > MAX_REFERENCE_SECONDS ? `${isTrimmed ? 'La selección' : 'El audio'} dura ${secs.toFixed(1)} s: ${refBuffer ? 'arrastra los marcadores para quedarte con' : 'recórtalo a'} 5–20 s de voz limpia (máximo ${MAX_REFERENCE_SECONDS} s).`
+    : refLen > 0 && refLen / secs < MIN_CHARS_PER_SECOND ? `La transcripción parece incompleta para ${secs.toFixed(1)} s de audio: escribe todo lo que se dice o usa “Transcribir automáticamente”.`
     : ''
+  const transcriptStale = !!refText.trim() && !!transcribedTrim && transcribedTrim !== trimKey
   const canClone = !!refAudio && !!name.trim() && !!refText.trim() && !refWarning && !cloning && !transcribing
 
   if (configured === false) {
@@ -260,17 +305,31 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
             <div>
               <p className="eyebrow mb-2">Audio de referencia</p>
               {refAudio ? (
-                <div className="flex items-center gap-3 p-3 rounded-xl border border-hairline bg-surface-soft">
-                  <audio
-                    controls
-                    src={`data:${refAudio.mime};base64,${refAudio.base64}`}
-                    onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (Number.isFinite(d) && d > 0) setRefSeconds(d) }}
-                    className="flex-1 h-9"
-                  />
-                  <span className="text-meta text-ink-subtle truncate max-w-[160px]" title={refAudio.fileName}>
-                    {refSeconds ? `${refSeconds.toFixed(1)} s · ` : ''}{refAudio.fileName}
-                  </span>
-                  <button onClick={() => setReference(null)} className="btn-secondary" aria-label="Quitar audio"><X size={13} /></button>
+                <div className="space-y-3 p-3 rounded-xl border border-hairline bg-surface-soft">
+                  <div className="flex items-center gap-3">
+                    <span className="flex-1 text-meta text-ink-subtle truncate" title={refAudio.fileName}>{refAudio.fileName}</span>
+                    {refSeconds ? (
+                      <span className="font-mono text-meta text-ink-muted shrink-0">
+                        {isTrimmed && selectedSeconds ? `${selectedSeconds.toFixed(1)} s de ${refSeconds.toFixed(1)} s` : `${refSeconds.toFixed(1)} s`}
+                      </span>
+                    ) : null}
+                    <button onClick={() => setReference(null)} className="btn-secondary shrink-0" aria-label="Quitar audio"><X size={13} /></button>
+                  </div>
+                  {refDecoding ? (
+                    <div className="flex items-center gap-2 text-meta text-ink-subtle"><Loader size={13} className="animate-spin" /> Cargando forma de onda…</div>
+                  ) : refBuffer ? (
+                    <>
+                      <AudioTrimEditor key={refAudio.base64.length + refAudio.fileName} buffer={refBuffer} onChange={(s, e) => setRefTrim({ start: s, end: e })} />
+                      <p className="text-meta text-ink-subtle">Arrastra los marcadores para quedarte con 5–20 s de voz limpia, sin música ni ruido. Solo se clona la parte seleccionada.</p>
+                    </>
+                  ) : (
+                    <audio
+                      controls
+                      src={`data:${refAudio.mime};base64,${refAudio.base64}`}
+                      onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (Number.isFinite(d) && d > 0) setRefSeconds(d) }}
+                      className="w-full h-9"
+                    />
+                  )}
                 </div>
               ) : (
                 <div
@@ -303,6 +362,9 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
                 className="input-field resize-y min-h-[80px] leading-relaxed"
               />
               {refWarning && <p className="text-meta text-red-400 mt-2">{refWarning}</p>}
+              {!refWarning && transcriptStale && (
+                <p className="text-meta text-amber-400 mt-2">Cambiaste el recorte después de transcribir: revisa que el texto siga coincidiendo o vuelve a transcribir.</p>
+              )}
             </div>
 
             <div className="flex justify-end gap-2">
