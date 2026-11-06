@@ -153,6 +153,16 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
   /** Length of what will be cloned: the selection when trimmed, else the whole clip */
   const selectedSeconds = isTrimmed && refTrim ? refTrim.end - refTrim.start : refSeconds
 
+  /** "Recortar a la selección": the selected region becomes the reference (the transcript is kept) */
+  const applyTrim = (start: number, end: number) => {
+    if (!refAudio || !refBuffer) return
+    const { base64, mime } = audioBufferToBase64(sliceAudioBuffer(refBuffer, start, end))
+    const base = refAudio.fileName.replace(/\.[^.]+$/, '').replace(/_recorte$/, '')
+    setRefAudio({ base64, mime, fileName: `${base}_recorte.wav`, duration: end - start })
+    setRefSeconds(end - start)
+    setTranscribedTrim('')
+  }
+
   /** The reference as it will be sent: the selected region as WAV when trimmed, else the original file */
   const effectiveReference = (): RefAudio | null => {
     if (!refAudio) return null
@@ -319,7 +329,12 @@ export function VoiceClonePanel({ voiceAssets, onGenerated }: { voiceAssets: any
                     <div className="flex items-center gap-2 text-meta text-ink-subtle"><Loader size={13} className="animate-spin" /> Cargando forma de onda…</div>
                   ) : refBuffer ? (
                     <>
-                      <AudioTrimEditor key={refAudio.base64.length + refAudio.fileName} buffer={refBuffer} onChange={(s, e) => setRefTrim({ start: s, end: e })} />
+                      <AudioTrimEditor
+                        key={refAudio.base64.length + refAudio.fileName}
+                        buffer={refBuffer}
+                        onChange={(s, e) => setRefTrim({ start: s, end: e })}
+                        onApply={applyTrim}
+                      />
                       <p className="text-meta text-ink-subtle">Arrastra los marcadores para quedarte con 5–20 s de voz limpia, sin música ni ruido. Solo se clona la parte seleccionada.</p>
                     </>
                   ) : (

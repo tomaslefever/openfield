@@ -5,12 +5,15 @@ import { audioBufferToBase64, formatTime, sliceAudioBuffer } from '../../lib/wav
 
 interface AudioTrimEditorProps {
   buffer: AudioBuffer
+  /** Live selection, called as the markers move */
   onChange: (start: number, end: number) => void
+  /** Replace the audio with the selected region. Without it the "Recortar" button is hidden. */
+  onApply?: (start: number, end: number) => void
 }
 
 const MIN_REGION = 0.2
 
-export function AudioTrimEditor({ buffer, onChange }: AudioTrimEditorProps) {
+export function AudioTrimEditor({ buffer, onChange, onApply }: AudioTrimEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -224,8 +227,13 @@ export function AudioTrimEditor({ buffer, onChange }: AudioTrimEditorProps) {
     play()
   }
 
+  const isFullRange = start <= 0.01 && end >= buffer.duration - 0.01
+
   const applyTrim = () => {
-    onChange(start, end)
+    if (!onApply || isFullRange) return
+    audioRef.current?.pause()
+    setPlaying(false)
+    onApply(start, end)
   }
 
   useEffect(() => {
@@ -255,21 +263,24 @@ export function AudioTrimEditor({ buffer, onChange }: AudioTrimEditorProps) {
           <button
             onClick={togglePlay}
             className="w-8 h-8 rounded-full bg-accent-600 hover:bg-accent-500 text-on-accent flex items-center justify-center transition-colors"
-            title={playing ? 'Pause' : 'Play selection'}
+            title={playing ? 'Pausar' : 'Reproducir selección'}
           >
             {playing ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}
           </button>
           <span className="text-[10px] text-surface-500 font-mono">
-            {formatTime(Math.max(0, end - start))} selected
+            {formatTime(Math.max(0, end - start))} seleccionado
           </span>
         </div>
-        <button
-          onClick={applyTrim}
-          className="px-3 py-1.5 rounded-pill bg-surface-800 hover:bg-surface-700 text-surface-300 text-[11px] font-medium transition-colors flex items-center gap-1.5"
-          title="Trim the file to the selected region"
-        >
-          <Scissors size={11} /> Trim to selection
-        </button>
+        {onApply && (
+          <button
+            onClick={applyTrim}
+            disabled={isFullRange}
+            className="px-3 py-1.5 rounded-pill bg-surface-800 hover:bg-surface-700 text-surface-300 text-[11px] font-medium transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface-800"
+            title={isFullRange ? 'Mueve los marcadores para elegir un fragmento' : 'Quedarse solo con la parte seleccionada'}
+          >
+            <Scissors size={11} /> Recortar a la selección
+          </button>
+        )}
       </div>
 
       <audio
