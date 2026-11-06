@@ -25,7 +25,7 @@ const TRANSCRIBE_MODEL = 'fal-ai/whisper'
 export const USD_PER_1K_CHARS = 0.09
 
 export const CLONE_LANGUAGES = ['Auto', 'Spanish', 'English', 'Portuguese', 'French', 'German', 'Italian', 'Japanese', 'Korean', 'Chinese', 'Russian'] as const
-const WHISPER_CODES: Record<string, string> = {
+export const WHISPER_CODES: Record<string, string> = {
   Spanish: 'es', English: 'en', Portuguese: 'pt', French: 'fr', German: 'de', Italian: 'it',
   Japanese: 'ja', Korean: 'ko', Chinese: 'zh', Russian: 'ru',
 }
@@ -59,7 +59,7 @@ function falKey(): string {
 
 export const hasFalKey = () => !!readSetting('falApiKey')
 
-async function falRun<T = any>(model: string, input: Record<string, any>, timeoutMs = 300_000): Promise<T> {
+export async function falRun<T = any>(model: string, input: Record<string, any>, timeoutMs = 300_000): Promise<T> {
   const res = await fetch(`https://fal.run/${model}`, {
     method: 'POST',
     headers: { Authorization: `Key ${falKey()}`, 'Content-Type': 'application/json' },
@@ -104,7 +104,7 @@ function normalizeAudio(input: AudioInput): { buffer: Buffer; mime: string; ext:
  * Uploads a file to fal storage and returns its CDN URL. Some endpoints (Whisper) reject data URLs,
  * so references always travel this way.
  */
-async function uploadToFal(buffer: Buffer, mime: string, fileName: string): Promise<string> {
+export async function uploadToFal(buffer: Buffer, mime: string, fileName: string): Promise<string> {
   let lastError: unknown
   for (const host of ['https://rest.fal.ai', 'https://rest.alpha.fal.ai']) {
     try {

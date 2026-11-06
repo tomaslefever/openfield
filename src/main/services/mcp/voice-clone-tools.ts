@@ -1,5 +1,7 @@
 import { notifyAssetsChanged } from '../../ipc/assets'
 import { USD_PER_1K_CHARS, CLONE_LANGUAGES, hasFalKey, listClonedVoices, synthesizeClonedSpeech } from '../voice-clone-service'
+import { transcribeFile } from '../transcription-service'
+import { assetMediaPath } from '../../ipc/transcription'
 import { type McpTool, ToolInputError, READ_ONLY, GENERATE, str, optStr } from './types'
 
 /*
@@ -15,6 +17,33 @@ function requireKey() {
 
 export function getVoiceCloneTools(): McpTool[] {
   return [
+    {
+      name: 'audio_transcribe',
+      title: 'Transcribe an audio or video asset',
+      description: "Speech to text for a library audio or video asset with fal Whisper (the user's fal.ai key): full text, timed segments and an .srt version. Use it to read what a clip says, prepare a cloned voice's reference transcript, or make subtitles.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          asset_id: { type: 'string', description: 'Library asset id (audio or video)' },
+          language: { type: 'string', enum: [...CLONE_LANGUAGES], description: 'Language spoken; Auto (default) detects it' },
+          include_srt: { type: 'boolean', description: 'Also return the .srt text (default false)' },
+        },
+        required: ['asset_id'],
+        additionalProperties: false,
+      },
+      annotations: { ...READ_ONLY, openWorldHint: true },
+      handler: async (args) => {
+        requireKey()
+        const res = await transcribeFile(assetMediaPath(str(args.asset_id).trim()), { language: optStr(args.language) })
+        return {
+          text: res.text,
+          language: res.language,
+          durationSeconds: res.durationSeconds,
+          segments: res.segments,
+          ...(args.include_srt === true ? { srt: res.srt } : {}),
+        }
+      },
+    },
     {
       name: 'cloned_voice_list',
       title: 'List cloned voices',

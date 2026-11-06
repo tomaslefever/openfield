@@ -120,6 +120,12 @@ const electronAPI = {
     reclone: (id: string) => ipcRenderer.invoke('voiceClone:reclone', id),
     generate: (params: any) => ipcRenderer.invoke('voiceClone:generate', params),
   },
+  transcription: {
+    info: () => ipcRenderer.invoke('transcription:info'),
+    fromBase64: (params: any) => ipcRenderer.invoke('transcription:fromBase64', params),
+    fromAsset: (assetId: string, language?: string) => ipcRenderer.invoke('transcription:fromAsset', assetId, language),
+    save: (params: any) => ipcRenderer.invoke('transcription:save', params),
+  },
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),
     get: (id: string) => ipcRenderer.invoke('projects:get', id),
