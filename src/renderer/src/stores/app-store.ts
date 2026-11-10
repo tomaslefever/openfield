@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type Page = 'contentStudio' | 'image' | 'video' | 'voice' | 'music' | 'library' | 'elements' | 'workflows' | 'editor' | 'cinema' | 'providers' | 'settings' | 'logs' | 'apps' | 'promptLibrary' | 'storyboard' | 'montage'
+export type Page = 'image' | 'video' | 'voice' | 'music' | 'library' | 'elements' | 'workflows' | 'editor' | 'cinema' | 'providers' | 'settings' | 'logs' | 'apps' | 'promptLibrary' | 'storyboard' | 'montage'
 
 export interface ComposerPayload {
   prompt: string

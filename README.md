@@ -35,14 +35,6 @@
 
 ## ✨ Key Features
 
-### 🎬 Content Studio (Short Drama & Mini-Series Pipeline)
-A structured, end-to-end 5-stage automated & interactive production studio:
-1. **Stage 1 — Script & Scene Breakdown**: Generate or import scripts, breakdown scenes into beats, and produce structured shot lists with AI assistance.
-2. **Stage 2 — Characters & Props**: Define consistent character profiles, reference sheets, style tokens, and prop assets.
-3. **Stage 3 — Storyboard, Frames & Audio**: Generate visual keyframes shot-by-shot with synchronized ElevenLabs voice narration and prompt enhancements.
-4. **Stage 4 — Video Animation & LipSync**: Animate keyframes using leading video models (Kling, Wan 2.1, Luma Dream Machine, Sora, Hailuo) and apply speech lipsync.
-5. **Stage 5 — Assembly & Export**: Review timeline sequences, preview rendered shots, and export complete production archives (ZIP).
-
 ### 🎨 Generation Playground (Image & Video)
 - **Advanced Prompt Composer**: Fine-tune prompt formatting, negative prompts, seed reproducibility, and resolution parameters.
 - **Cinematographic Camera Controls**: Direct shot types (Close-up, Wide, Aerial), camera angles, movement patterns (Pan, Dolly, Orbit, Zoom), lens focal lengths, and speeds directly from the UI.

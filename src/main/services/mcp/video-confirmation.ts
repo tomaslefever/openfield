@@ -3,11 +3,11 @@ import { ToolInputError } from './types'
 /**
  * Videos cost real money per second, so no agent picks the video model on its own: before any
  * video generation it offers the user 2 or 3 models with their estimated cost and waits for the
- * user's choice, which it passes back as user_model_confirmation (like approve_stage's user_quote).
+ * user's choice, which it passes back as user_model_confirmation.
  */
 
 export const VIDEO_MODEL_RULE =
-  'BEFORE ANY VIDEO (generate with type video, recreate_generation of a video, generate_scene_video, generate_transition, content_studio_generate_videos): ' +
+  'BEFORE ANY VIDEO (generate with type video, recreate_generation of a video, generate_scene_video, generate_transition): ' +
   'confirm the model with the user first. Offer 2 or 3 alternatives that fit the shot (references, duration, resolution, audio / lip-sync), ' +
   'each with its estimated cost = price per second from get_service_models × seconds × clips or variants, recommend one, and wait for the user\'s choice. ' +
   'Then call the tool with user_model_confirmation set to the user\'s words. One confirmation covers the batch of clips you priced; a new model, resolution or a bigger batch needs a new one.'

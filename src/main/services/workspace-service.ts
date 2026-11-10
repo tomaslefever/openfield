@@ -180,24 +180,6 @@ export function getWorkspaceLastImageMap(): Record<string, string> {
         imageMap[wid] = p
       }
     }
-
-    // Fallback: check drama_shots for any workspace still missing an image
-    const dramaRows = raw.prepare(`
-      SELECT dp.workspace_id, ds.keyframe_url
-      FROM drama_shots ds
-      JOIN drama_projects dp ON ds.project_id = dp.id
-      WHERE dp.workspace_id IS NOT NULL 
-        AND ds.keyframe_url IS NOT NULL 
-        AND ds.keyframe_url != ''
-      ORDER BY ds.created_at DESC
-    `).all() as any[]
-    for (const dr of dramaRows) {
-      const wid = dr.workspaceId || dr.workspace_id
-      const url = dr.keyframeUrl || dr.keyframe_url
-      if (wid && url && !imageMap[wid]) {
-        imageMap[wid] = url
-      }
-    }
   } catch (err) {
     console.warn('[WorkspaceService] Failed to load workspace images:', err)
   }

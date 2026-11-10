@@ -5,9 +5,7 @@ import { useWorkspaceStore } from './stores/workspace-store'
 import { useElementsStore } from './stores/elements-store'
 import { useStoryboardStore } from './stores/storyboard-store'
 import { usePromptLibraryStore } from './stores/prompt-library-store'
-import { useShortDramaStore } from './stores/short-drama-store'
 import { useProvidersStore } from './stores/providers-store'
-import { installContentStudioAgent } from './lib/content-studio-agent'
 import { AppSidebar } from './components/Sidebar'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { ImageGenPage } from './pages/ImageGenPage'
@@ -26,7 +24,6 @@ import { LogsPage } from './pages/LogsPage'
 import { AppsPage } from './pages/AppsPage'
 import { PromptLibraryPage } from './pages/PromptLibraryPage'
 import { StoryboardPage } from './pages/StoryboardPage'
-import { ShortDramaApp } from './components/apps/short-drama/ShortDramaApp'
 import { WorkspaceHubPage } from './pages/WorkspaceHubPage'
 import { TitleBar } from './components/TitleBar'
 import { PanicButton } from './components/PanicButton'
@@ -36,7 +33,6 @@ import { useResolvedTheme } from './lib/theme'
 const TOAST_STYLE = { background: 'rgb(var(--canvas))', color: 'rgb(var(--ink))', border: '1px solid rgb(var(--hairline))' }
 
 const pages: Record<Page, React.FC> = {
-  contentStudio: ShortDramaApp,
   apps: AppsPage,
   promptLibrary: PromptLibraryPage,
   storyboard: StoryboardPage,
@@ -83,7 +79,6 @@ function App() {
   useEffect(() => {
     useWorkspaceStore.getState().load()
     useProvidersStore.getState().load()
-    installContentStudioAgent()
     ;(window as any).electronAPI?.settings?.get('gridRenderScale').then((scale: any) => {
       if (scale) useAppStore.getState().setGridRenderScale(scale)
     }).catch(() => {})
@@ -113,7 +108,6 @@ function App() {
     useElementsStore.getState().loadElements()
     useStoryboardStore.getState().clear()
     usePromptLibraryStore.getState().loadEntries()
-    useShortDramaStore.getState().resetForWorkspace()
   }, [activeWorkspaceId])
 
   if (!inWorkspace) {
