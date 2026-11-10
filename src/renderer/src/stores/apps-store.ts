@@ -35,29 +35,6 @@ export interface AppInstance {
 
 export const BUILTIN_APPS: AppDefinition[] = [
   {
-    id: 'ai-short-drama',
-    name: 'Content Studio',
-    description: 'Estudio integral de producción audiovisual con IA. Genera Microdramas, UGC, Ads de conversión, spots TVC, Reels virales, Lookbooks Try On y Unboxing con guion, actores, storyboard, voces y montaje final.',
-    kind: 'generator',
-    icon: 'Clapperboard',
-    category: 'cinema',
-    tags: ['microdrama', 'ugc', 'ads', 'tvc', 'reels', 'try-on', 'unboxing', 'kling', 'elevenlabs'],
-    components: [
-      { componentId: 'script-editor' },
-      { componentId: 'element-selector' },
-      { componentId: 'storyboard-grid' },
-    ],
-    defaultParams: {
-      aspectRatio: '9:16',
-      shotsCount: 4,
-      imageModel: 'seedream/5-pro-text-to-image',
-      videoModel: 'kling-3.0/video',
-      voiceModel: 'eleven_v4',
-    },
-    isBuiltIn: true,
-    createdAt: Date.now(),
-  },
-  {
     id: 'storyboard-studio',
     name: 'Storyboard Studio',
     description: 'Create cinematic storyboards with script-to-scene generation. Define scenes, characters, and camera angles to visualize your narrative.',

@@ -17,8 +17,4 @@ export function registerFfmpegHandlers({ handle }: IpcContext) {
   handle('ffmpeg:concat', async (_e, inputPaths: string[], outputPath: string) => {
     return getFFmpeg().concatVideos(inputPaths, outputPath)
   })
-
-  handle('ffmpeg:assembleDrama', async (_e, options: any) => {
-    return getFFmpeg().assembleDramaVideo(options)
-  })
 }

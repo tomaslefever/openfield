@@ -171,10 +171,6 @@ export function hasAnyConfiguredProvider(configured: Record<string, boolean>): b
   return PROVIDER_DEFS.some((p) => Boolean(configured[p.id]))
 }
 
-export function getConfiguredProviderIds(configured: Record<string, boolean>): ProviderId[] {
-  return PROVIDER_DEFS.filter((p) => Boolean(configured[p.id])).map((p) => p.id)
-}
-
 /** Setting key holding the ids of providers the user switched off on the Providers page */
 const DISABLED_PROVIDERS_KEY = 'disabledProviders'
 

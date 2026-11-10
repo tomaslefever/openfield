@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { extractDurationFromText } from './short-drama-store'
+import { extractDurationFromText } from '../utils/duration'
 
 export type ElementType = 'character' | 'object' | 'scenario'
 export type ShotType = 'extreme-close-up' | 'close-up' | 'medium-close-up' | 'medium' | 'medium-long' | 'long' | 'extreme-long' | 'two-shot' | 'over-the-shoulder' | 'point-of-view' | 'dutch-angle' | 'aerial' | 'tracking' | 'panning' | 'static'

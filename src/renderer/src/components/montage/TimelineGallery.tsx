@@ -4,7 +4,8 @@ import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useMontageStore, type MontageSummary } from '../../stores/montage-store'
 import { posterUrl, thumbUrl } from '../../services/file-url'
-import { ConfirmDialog, IconAction } from '../apps/short-drama/ui'
+import { ConfirmDialog } from '../ui/confirm-dialog'
+import { IconAction } from '../ui/icon-action'
 import { formatClock } from './time'
 
 const ASPECTS: [number, string][] = [[16 / 9, '16:9'], [9 / 16, '9:16'], [1, '1:1'], [4 / 5, '4:5'], [4 / 3, '4:3'], [21 / 9, '21:9']]

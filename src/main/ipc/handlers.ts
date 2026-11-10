@@ -27,7 +27,6 @@ import { registerPrunaHandlers } from './pruna'
 import { registerUpdaterHandlers } from './updater'
 import { registerWorkspacesHandlers } from './workspaces'
 import { registerPromptsHandlers } from './prompts'
-import { registerDramaIpcHandlers } from './drama'
 
 export function registerIpcHandlers() {
   const ctx = createContext()
@@ -59,5 +58,4 @@ export function registerIpcHandlers() {
   registerUpdaterHandlers(ctx)
   registerWorkspacesHandlers(ctx)
   registerPromptsHandlers(ctx)
-  registerDramaIpcHandlers()
 }

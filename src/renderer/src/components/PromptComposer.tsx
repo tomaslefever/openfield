@@ -4,7 +4,6 @@ import { Sparkles, Settings2, X, Wand2, RotateCcw, ChevronDown, ChevronUp, Coins
 import { StreamDuration } from './StreamDuration'
 import { AiInfluencerControls, DEFAULT_AI_INFLUENCER_OPTS, type AiInfluencerOpts } from './AiInfluencerControls'
 import { useElementsStore, type ElementKind, type StudioElement, KIND_CONFIG } from '../stores/elements-store'
-import { useShortDramaStore } from '../stores/short-drama-store'
 import { useAppStore } from '../stores/app-store'
 import { RichPromptInput, type RichPromptInputHandle } from './RichPromptInput'
 import { useWorkspaceStore } from '../stores/workspace-store'
@@ -199,55 +198,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
   const loadElements = useElementsStore((s) => s.loadElements)
   useEffect(() => { loadElements() }, [loadElements])
 
-  const dramaCharacters = useShortDramaStore((s) => s.characters)
-  const dramaProps = useShortDramaStore((s) => s.props)
-  const dramaScenarios = useShortDramaStore((s) => s.scenarios)
-
-  const allElements = useMemo<StudioElement[]>(() => {
-    const dramaList: StudioElement[] = [
-      ...dramaCharacters.map((c) => ({
-        id: `drama-char-${c.id}`,
-        name: c.name,
-        kind: 'character' as const,
-        description: c.role || c.visualPrompt || 'Personaje de la serie',
-        tags: ['character', 'personaje', 'drama'],
-        imageBase64: c.imageBase64,
-        imageUrl: c.imageUrl,
-        imageAssetId: c.imageAssetId,
-        visualPrompt: c.visualPrompt,
-        createdAt: 0,
-        updatedAt: 0,
-      } as any)),
-      ...dramaProps.map((p) => ({
-        id: `drama-prop-${p.id}`,
-        name: p.name,
-        kind: 'object' as const,
-        description: p.visualPrompt || 'Prop / Objeto clave',
-        tags: ['prop', 'objeto', 'drama'],
-        imageUrl: p.imageUrl,
-        imageAssetId: p.imageAssetId,
-        visualPrompt: p.visualPrompt,
-        createdAt: 0,
-        updatedAt: 0,
-      } as any)),
-      ...dramaScenarios.map((sc) => ({
-        id: `drama-scn-${sc.id}`,
-        name: sc.name,
-        kind: 'environment' as const,
-        description: sc.visualPrompt || 'Escenario / Locación',
-        tags: ['scenario', 'escenario', 'locación', 'drama'],
-        imageUrl: sc.imageUrl,
-        imageAssetId: sc.imageAssetId,
-        visualPrompt: sc.visualPrompt,
-        createdAt: 0,
-        updatedAt: 0,
-      } as any)),
-    ]
-
-    const existingNames = new Set(elements.map((e) => e.name.toLowerCase().trim()))
-    const uniqueDrama = dramaList.filter((e) => e.name && !existingNames.has(e.name.toLowerCase().trim()))
-    return [...uniqueDrama, ...elements]
-  }, [elements, dramaCharacters, dramaProps, dramaScenarios])
+  const allElements = elements
   const [prompt, setPrompt] = useState(initialPrompt || '')
   const [expanded, setExpanded] = useState(false)
 

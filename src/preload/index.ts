@@ -101,7 +101,6 @@ const electronAPI = {
     models: () => ipcRenderer.invoke('elevenlabs:models'),
     voices: (opts?: any) => ipcRenderer.invoke('elevenlabs:voices', opts),
     generate: (params: any) => ipcRenderer.invoke('elevenlabs:generate', params),
-    generateDialogue: (params: any) => ipcRenderer.invoke('elevenlabs:generateDialogue', params),
     voiceChange: (params: any) => ipcRenderer.invoke('elevenlabs:voiceChange', params),
     music: (params: any) => ipcRenderer.invoke('elevenlabs:music', params),
     sfx: (params: any) => ipcRenderer.invoke('elevenlabs:sfx', params),
@@ -175,7 +174,6 @@ const electronAPI = {
     probe: (filePath: string) => ipcRenderer.invoke('ffmpeg:probe', filePath),
     thumbnail: (filePath: string, time?: number) => ipcRenderer.invoke('ffmpeg:thumbnail', filePath, time),
     concat: (inputPaths: string[], outputPath: string) => ipcRenderer.invoke('ffmpeg:concat', inputPaths, outputPath),
-    assembleDrama: (options: any) => ipcRenderer.invoke('ffmpeg:assembleDrama', options),
   },
   tasks: {
     list: (filters?: any) => ipcRenderer.invoke('tasks:list', filters),
@@ -265,31 +263,6 @@ const electronAPI = {
   // ─── MCP Bridge ───────────────────────────────────
   bridge: {
     getStatus: () => ipcRenderer.invoke('bridge:getStatus'),
-  },
-
-  // ─── Short Drama (Microseries AI) ─────────────────
-  drama: {
-    listProjects: (workspaceId?: string) => ipcRenderer.invoke('drama:project:list', workspaceId),
-    getProject: (id: string) => ipcRenderer.invoke('drama:project:get', id),
-    saveProject: (data: any) => ipcRenderer.invoke('drama:project:save', data),
-    deleteProject: (id: string) => ipcRenderer.invoke('drama:project:delete', id),
-    duplicateProject: (id: string) => ipcRenderer.invoke('drama:project:duplicate', id),
-    updateCharacter: (id: string, data: any) => ipcRenderer.invoke('drama:character:update', id, data),
-    updateScenario: (id: string, data: any) => ipcRenderer.invoke('drama:scenario:update', id, data),
-    updateProp: (id: string, data: any) => ipcRenderer.invoke('drama:prop:update', id, data),
-    updateShot: (id: string, data: any) => ipcRenderer.invoke('drama:shot:update', id, data),
-    moveWorkspace: (id: string, workspaceId: string) =>
-      ipcRenderer.invoke('drama:project:moveWorkspace', { id, workspaceId }),
-  },
-
-  // ─── Content Studio steps requested by the MCP bridge ─────
-  contentStudioAgent: {
-    onCommand: (callback: (cmd: any) => void) => {
-      const subscription = (_event: any, cmd: any) => callback(cmd);
-      ipcRenderer.on('content-studio:command', subscription);
-      return () => ipcRenderer.removeListener('content-studio:command', subscription);
-    },
-    reply: (response: any) => ipcRenderer.invoke('content-studio:reply', response),
   },
 };
 

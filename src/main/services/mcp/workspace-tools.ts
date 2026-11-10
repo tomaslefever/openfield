@@ -143,7 +143,7 @@ export function getWorkspaceTools(): McpTool[] {
     {
       name: 'set_active_workspace',
       title: 'Switch workspace',
-      description: 'Make a workspace the active one and open it in the app. Everything the other tools read or create (assets, elements, storyboards, Content Studio pieces) belongs to the active workspace.',
+      description: 'Make a workspace the active one and open it in the app. Everything the other tools read or create (assets, elements, storyboards, timelines) belongs to the active workspace.',
       inputSchema: {
         type: 'object',
         properties: { workspace: { type: 'string', description: 'Workspace id or exact name' } },

@@ -1,5 +1,5 @@
 import type { StoryboardElementType } from '../stores/storyboard-store'
-import { extractDurationFromText } from '../stores/short-drama-store'
+import { extractDurationFromText } from './duration'
 
 export const ELEMENT_TYPE_CONFIG: Record<StoryboardElementType, {
   label: string

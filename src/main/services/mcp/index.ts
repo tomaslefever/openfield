@@ -27,7 +27,6 @@ import {
 import { IMAGE_MODELS, VIDEO_MODELS } from '../kie/models'
 import { getWorkspace, runInWorkspace } from '../workspace-service'
 import { getGenerationTools } from './generation-tools'
-import { getContentStudioTools } from './content-studio-tools'
 import { getWorkspaceTools } from './workspace-tools'
 import { getPromptLibraryTools } from './prompt-library-tools'
 import { getTimelineTools } from './timeline-tools'
@@ -593,9 +592,6 @@ function getTools(): McpTool[] {
     // ─── Library & playground generations ──────────────────────
     ...getGenerationTools(),
 
-    // ─── Content Studio, one approved stage at a time ──────────
-    ...getContentStudioTools(),
-
     // ─── Workspaces ────────────────────────────────────────────
     ...getWorkspaceTools(),
 
@@ -855,14 +851,13 @@ export class McpBridgeServer {
             serverInfo: { name: SERVER_NAME, title: 'Openfield Storyboard Bridge', version: SERVER_VERSION },
             instructions: [
               'This is the Openfield AI & Storyboard bridge.',
-              'Workspaces: everything below (library, elements, storyboards, Content Studio) belongs to the active workspace. generate, recreate_generation, import_asset, list_assets, voice_generate, music_generate, timeline_create and timeline_list also take workspace_id to work in another workspace without switching the app. list_workspaces / get_workspace read them; create_workspace (activate: true to switch to it), update_workspace, set_active_workspace and delete_workspace (permanent, only when the user explicitly asks) manage them.',
+              'Workspaces: everything below (library, elements, storyboards, timelines) belongs to the active workspace. generate, recreate_generation, import_asset, list_assets, voice_generate, music_generate, timeline_create and timeline_list also take workspace_id to work in another workspace without switching the app. list_workspaces / get_workspace read them; create_workspace (activate: true to switch to it), update_workspace, set_active_workspace and delete_workspace (permanent, only when the user explicitly asks) manage them.',
               'Service introspection: list_services, list_endpoints, get_endpoint, get_endpoint_example and get_service_models read live capabilities, types and docs from the app.',
               'Resources: endpoint://<service>/<endpoint> (docs), example://<service>/<endpoint> (examples), source://<service>/<endpoint> (source), models://<service> (model catalogs), skill://<name> (writing skills).',
               'Storyboard flow: create_storyboard → create_scenes → generate_scene_image per scene → generate_scene_video (needs the scene image) → create_transition / generate_transition.',
-              'Content Studio (short films, microdramas): use the content_studio_* tools, never generate/import_asset, so the piece is built by the app itself. Stages run in order — script → references → keyframes → voices (ElevenLabs) → videos → final — and each one only opens after the user approved the previous one (content_studio_approve_stage, called only on the user\'s explicit approval). Voices always precede videos: the audio is each video\'s lip-sync reference.',
-              'SHORT DRAMAS (micro-dramas, AI series, episodes, short films with dialogue): read get_skill("short-drama-screenwriter") before writing anything and follow it — idea scoring (short_drama_ideas when the user has no idea), the four-part episode (hook, context, escalation, cliffhanger), cast with fixed voice descriptions, continuity, character-sheet and location prompts, clips of 4–30 s — and build the result as a Content Studio project. Write EVERY Seedance prompt (Content Studio video_prompt or generate with a Seedance model) with get_skill("seedance-2-5-prompt-writer"). The MCP prompts short_drama and seedance_prompt bundle the same skills.',
+              'SHORT DRAMAS (micro-dramas, AI series, episodes, short films with dialogue): read get_skill("short-drama-screenwriter") before writing anything and follow it — idea scoring (short_drama_ideas when the user has no idea), the four-part episode (hook, context, escalation, cliffhanger), cast with fixed voice descriptions, continuity, character-sheet and location prompts, clips of 4–30 s — and build the result with generate (references, then one clip per shot) and a timeline. Write EVERY Seedance prompt with get_skill("seedance-2-5-prompt-writer"). The MCP prompts short_drama and seedance_prompt bundle the same skills.',
               'UGC REELS AND SOCIAL VIDEOS (a character filmed as if on a phone, brand content, TikTok/Reels): read get_skill("ugc-reel-creator") first and follow its steps — brief, references, phone-shot keyframes the user validates, videos in reference mode (first frame + character + location as references), timeline edit, cost report.',
-              `REELS AND VIDEOS WITH CHARACTERS (Content Studio or generate):\n${CHARACTER_VIDEO_RULES}`,
+              `REELS AND VIDEOS WITH CHARACTERS:\n${CHARACTER_VIDEO_RULES}`,
               VIDEO_MODEL_RULE,
               'PROMPT LIBRARY FIRST: before writing ANY image or video prompt (generate, storyboard scenes, edits), call search_prompt_library with the kind of piece (ads, character sheet, storyboard, UGC, product, editing…) and the model you will use, then open the best match with get_library_prompt. The templates are researched for visual quality and consistency per model family. Use it as a reference — fill its {{variables}} from the brand, product and request of the user, follow its guidance and rewrite whatever does not fit; never paste it unchanged when the brief differs. For a series (campaign, storyboard, recurring character) start from the character-sheet / consistency templates and repeat the same character and style description in every prompt. Prompts the user approved in review rank first; user-saved prompts (source workspace/global) reflect their own style. generate refuses its first call without a recent library check. When the user likes a result or asks to keep a prompt, save_library_prompt (with {{variables}}, models and types).',
               'Playground / library: list_assets and get_asset find generations and the references each one used; generate creates new images/videos with reference_asset_ids or reuse_references_from (e.g. "latest" = the previous generation); recreate_generation re-runs one with optional overrides; update_assets / delete_assets / import_asset manage the library.',

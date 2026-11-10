@@ -10,8 +10,6 @@ module.exports = {
     "./index.html",
   ],
   darkMode: 'class',
-  // Content-type badge shades derived at runtime for media overlays (DramaProjectList)
-  safelist: [{ pattern: /^text-(amber|emerald|sky|rose|purple|pink|teal|cyan|violet)-400$/ }],
   theme: {
     extend: {
       // Every color reads a CSS variable (RGB channels) defined per theme in src/renderer/src/index.css,
